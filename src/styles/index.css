@@ -1,0 +1,214 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Google Fonts fallback ─────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+/* ─── Root variables ─────────────────────────────────────────── */
+:root {
+  --bg: #0d0e14;
+  --bg-panel: #13151f;
+  --bg-sidebar: #0f1119;
+  --bg-toolbar: #0a0b10;
+  --border: #1e2130;
+  --accent: #4da6ff;
+  --accent2: #7c3aed;
+  --danger: #e94560;
+  --success: #4caf82;
+  --text: #cdd3e0;
+  --muted: #6b7280;
+  --highlight: #1a2035;
+  --header-h: 48px;
+  --toolbar-h: 40px;
+  --left-w: 280px;
+  --right-w: 340px;
+}
+
+/* ─── Base ────────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root { height: 100vh; display: flex; flex-direction: column; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-sidebar); }
+::-webkit-scrollbar-thumb { background: #2a2f45; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a4060; }
+
+/* ─── Buttons ────────────────────────────────────────────────── */
+.btn-primary {
+  @apply bg-blue-500 hover:bg-blue-400 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors;
+}
+.btn-ghost {
+  @apply text-gray-400 hover:text-white hover:bg-white/5 px-2 py-1.5 rounded text-xs transition-colors;
+}
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded text-xs font-medium transition-colors;
+}
+.btn-icon {
+  @apply p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition-colors;
+}
+
+/* ─── Panel header ───────────────────────────────────────────── */
+.panel-header {
+  @apply flex items-center gap-2 px-3 py-2 border-b text-xs font-semibold uppercase tracking-wider text-gray-400;
+  border-color: var(--border);
+}
+
+/* ─── Tabs ────────────────────────────────────────────────────── */
+.tab-bar {
+  @apply flex border-b;
+  border-color: var(--border);
+}
+.tab {
+  @apply px-4 py-2 text-xs font-medium text-gray-400 hover:text-white cursor-pointer transition-colors;
+  border-bottom: 2px solid transparent;
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ─── Tree items ─────────────────────────────────────────────── */
+.tree-item {
+  @apply flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-xs transition-colors;
+  color: var(--text);
+}
+.tree-item:hover { background: var(--highlight); }
+.tree-item.selected { background: rgba(77,166,255,0.15); color: var(--accent); }
+
+/* ─── Annotation row ─────────────────────────────────────────── */
+.ann-row {
+  @apply flex items-center gap-2 px-3 py-1.5 rounded cursor-pointer text-xs transition-colors;
+}
+.ann-row:hover { background: var(--highlight); }
+.ann-row.selected { background: rgba(77,166,255,0.12); }
+
+/* ─── OpenSeadragon overrides ────────────────────────────────── */
+.openseadragon-container { background: #000 !important; }
+.openseadragon-container:focus { outline: none; }
+
+/* ─── Viewer toolbar ─────────────────────────────────────────── */
+.viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  height: var(--toolbar-h);
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+}
+.viewer-toolbar .tool-btn {
+  @apply flex items-center justify-center w-7 h-7 rounded text-gray-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer;
+}
+.viewer-toolbar .tool-btn.active {
+  background: rgba(77,166,255,0.15);
+  color: var(--accent);
+}
+.viewer-toolbar .divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* ─── Metadata table ─────────────────────────────────────────── */
+.meta-table { @apply w-full text-xs; }
+.meta-table tr td:first-child { @apply text-gray-500 py-1 pr-3 font-mono whitespace-nowrap; }
+.meta-table tr td:last-child { @apply text-gray-200 py-1; }
+
+/* ─── Tag badge ──────────────────────────────────────────────── */
+.tag {
+  @apply inline-block px-1.5 py-0.5 rounded text-xs font-mono;
+  background: rgba(77,166,255,0.1);
+  color: var(--accent);
+  border: 1px solid rgba(77,166,255,0.2);
+}
+
+/* ─── Login modal ────────────────────────────────────────────── */
+.login-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 999;
+}
+.login-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 36px 40px;
+  width: 360px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.8);
+}
+.login-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.login-input:focus { border-color: var(--accent); }
+
+/* ─── Thumbnail ──────────────────────────────────────────────── */
+.slide-thumb {
+  @apply relative rounded overflow-hidden cursor-pointer transition-all;
+  border: 1px solid var(--border);
+}
+.slide-thumb:hover { border-color: var(--accent); transform: translateY(-1px); }
+.slide-thumb.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(77,166,255,0.3); }
+
+/* ─── Mag selector ───────────────────────────────────────────── */
+.mag-btn {
+  @apply px-2 py-0.5 rounded text-xs font-mono text-gray-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer;
+}
+.mag-btn.active {
+  background: rgba(77,166,255,0.15);
+  color: var(--accent);
+}
+
+/* ─── Loading spinner ────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid rgba(77,166,255,0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+/* ─── Annotation canvas overlay ──────────────────────────────── */
+#annotation-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+#annotation-overlay.drawing {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+/* ─── Color swatch ───────────────────────────────────────────── */
+.color-swatch {
+  width: 12px; height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.2);
+}
