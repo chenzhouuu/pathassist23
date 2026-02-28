@@ -16,11 +16,11 @@ export const useStore = create((set, get) => ({
     set({ token: null, user: null });
   },
 
-  // ── Page routing: 'dashboard' | 'worklist' | 'viewer' ──────────────────
+  // ── Page routing ─────────────────────────────────────────────────────────
   currentPage: 'dashboard',
   setPage: (page) => set({ currentPage: page }),
 
-  // ── Navigation ──────────────────────────────────────────────────────────
+  // ── Navigation ───────────────────────────────────────────────────────────
   activeCollection: null,
   activeFolder: null,
   activeItem: null,
@@ -33,39 +33,67 @@ export const useStore = create((set, get) => ({
     const newCrumb = idx >= 0 ? breadcrumb.slice(0, idx + 1) : [...breadcrumb, folder];
     set({ activeFolder: folder, activeItem: null, breadcrumb: newCrumb });
   },
-  setActiveItem: (item, fromPage = 'viewer') => {
+  setActiveItem: (item) => {
     const { breadcrumb } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
     set({
       activeItem: item,
+      annotations: [],          // clear stale annotations on item change
+      visibleAnnotations: {},
+      selectedAnnotation: null,
+      drawingMode: null,
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
     });
   },
 
-  // ── Viewer ──────────────────────────────────────────────────────────────
+  // ── Viewer ───────────────────────────────────────────────────────────────
   viewer: null,
   setViewer: (v) => set({ viewer: v }),
   tilesInfo: null,
   setTilesInfo: (info) => set({ tilesInfo: info }),
 
-  // ── Annotations ─────────────────────────────────────────────────────────
-  annotations: [],
+  // ── Annotations ──────────────────────────────────────────────────────────
+  annotations: [],         // full annotation objects (with elements loaded)
   setAnnotations: (anns) => set({ annotations: anns }),
+
+  // visibleAnnotations: { [annId]: bool } — true = visible, undefined = visible (default)
   visibleAnnotations: {},
+  setAnnotationVisible: (id, visible) => {
+    const { visibleAnnotations } = get();
+    set({ visibleAnnotations: { ...visibleAnnotations, [id]: visible } });
+  },
   toggleAnnotationVisibility: (id) => {
     const { visibleAnnotations } = get();
-    set({ visibleAnnotations: { ...visibleAnnotations, [id]: !visibleAnnotations[id] } });
+    const current = visibleAnnotations[id] !== false; // default visible
+    set({ visibleAnnotations: { ...visibleAnnotations, [id]: !current } });
   },
+  showAllAnnotations: () => set({ visibleAnnotations: {} }),
+  hideAllAnnotations: () => {
+    const { annotations } = get();
+    const hidden = {};
+    annotations.forEach(a => { hidden[a._id] = false; });
+    set({ visibleAnnotations: hidden });
+  },
+
+  // Selected annotation (highlighted in list + on canvas)
   selectedAnnotation: null,
   setSelectedAnnotation: (ann) => set({ selectedAnnotation: ann }),
-  drawingMode: null,
+
+  // Drawing state
+  drawingMode: null,  // null | 'point' | 'rectangle' | 'polygon' | 'polyline' | 'ellipse'
   setDrawingMode: (mode) => set({ drawingMode: mode }),
+  drawColor: '#4da6ff',
+  setDrawColor: (c) => set({ drawColor: c }),
+  drawLabel: '',
+  setDrawLabel: (l) => set({ drawLabel: l }),
+  drawGroup: 'default',
+  setDrawGroup: (g) => set({ drawGroup: g }),
 
   // ── Viewer UI ────────────────────────────────────────────────────────────
   leftPanelOpen: true,
   rightPanelOpen: true,
-  rightPanelTab: 'metadata',
+  rightPanelTab: 'annotations',
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),

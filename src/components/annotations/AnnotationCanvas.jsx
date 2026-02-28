@@ -1,214 +1,231 @@
 // src/components/annotations/AnnotationCanvas.jsx
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getAnnotations, createAnnotation } from '../../api/index.js';
-
-const COLORS = ['#e94560', '#4da6ff', '#4caf82', '#f5a623', '#c27aff', '#ff6b6b', '#00bcd4'];
+import { useQueryClient } from '@tanstack/react-query';
+import { createAnnotation } from '../../api/index.js';
+import {
+  ANN_COLORS, hexToRgba, viewerToImg,
+  makePoint, makeRectangle, makePolyline, makeEllipse,
+  renderElementOnCanvas, renderDrawingPreview,
+} from './annotationUtils.js';
 
 export default function AnnotationCanvas({ viewer }) {
   const canvasRef = useRef(null);
-  const { activeItem, drawingMode, setDrawingMode, annotations, setAnnotations, visibleAnnotations } = useStore();
   const qc = useQueryClient();
 
-  // Drawing state
-  const drawing = useRef({ active: false, points: [], colorIdx: 0 });
+  const {
+    activeItem,
+    drawingMode, setDrawingMode,
+    drawColor, drawLabel, drawGroup,
+    annotations,
+    visibleAnnotations,
+    selectedAnnotation,
+  } = useStore();
 
-  // Load annotations for current item
-  const { data } = useQuery({
-    queryKey: ['annotations', activeItem?._id],
-    queryFn: () => getAnnotations(activeItem._id),
-    enabled: !!activeItem?._id,
-    onSuccess: (data) => setAnnotations(data),
-  });
+  // mutable draw state (not React state — avoids re-renders on mouse move)
+  const ds = useRef({ active: false, points: [], start: null, cursor: null });
 
-  useEffect(() => {
-    if (data) setAnnotations(data);
-  }, [data]);
+  // ── Canvas resize ───────────────────────────────────────────────────────────
+  const syncCanvasSize = useCallback(() => {
+    const canvas = canvasRef.current;
+    const osd = viewer.current;
+    if (!canvas || !osd?.element) return;
+    const el = osd.element;
+    if (canvas.width !== el.clientWidth || canvas.height !== el.clientHeight) {
+      canvas.width  = el.clientWidth;
+      canvas.height = el.clientHeight;
+    }
+  }, [viewer]);
 
-  // Render annotations on canvas whenever viewer pans/zooms
+  // ── Full canvas render ──────────────────────────────────────────────────────
   const render = useCallback(() => {
     const canvas = canvasRef.current;
-    const v = viewer.current;
-    if (!canvas || !v) return;
+    const osd = viewer.current;
+    if (!canvas || !osd) return;
+
+    syncCanvasSize();
     const ctx = canvas.getContext('2d');
-    const { width, height } = canvas;
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    annotations.forEach((ann, ai) => {
+    // Render saved annotations
+    annotations.forEach((ann, idx) => {
       if (visibleAnnotations[ann._id] === false) return;
-      const color = COLORS[ai % COLORS.length];
+      const fallback = ANN_COLORS[idx % ANN_COLORS.length];
+      const isSelected = selectedAnnotation?._id === ann._id;
       const elements = ann.annotation?.elements || [];
-
-      elements.forEach((el) => {
-        ctx.strokeStyle = el.lineColor || color;
-        ctx.fillStyle = el.fillColor || color.replace(')', ', 0.15)').replace('rgb', 'rgba');
-        ctx.lineWidth = el.lineWidth || 1.5;
-
-        if (el.type === 'point') {
-          const pt = el.center || el.points?.[0];
-          if (!pt) return;
-          const vp = v.viewport.imageToViewerElementCoordinates(
-            new window.OpenSeadragon.Point(pt[0], pt[1])
-          );
-          ctx.beginPath();
-          ctx.arc(vp.x, vp.y, 5, 0, Math.PI * 2);
-          ctx.fillStyle = color;
-          ctx.fill();
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        } else if (el.points?.length > 1) {
-          const pts = el.points.map(([x, y]) =>
-            v.viewport.imageToViewerElementCoordinates(new window.OpenSeadragon.Point(x, y))
-          );
-          ctx.beginPath();
-          ctx.moveTo(pts[0].x, pts[0].y);
-          pts.slice(1).forEach((p) => ctx.lineTo(p.x, p.y));
-          if (el.closed !== false && el.type !== 'polyline') ctx.closePath();
-          ctx.fill();
-          ctx.lineWidth = el.lineWidth || 1.5;
-          ctx.strokeStyle = el.lineColor || color;
-          ctx.stroke();
-        }
-
-        // Label
-        if (el.label?.value) {
-          const pt = el.points?.[0] || el.center;
-          if (pt) {
-            const vp = v.viewport.imageToViewerElementCoordinates(
-              new window.OpenSeadragon.Point(pt[0], pt[1])
-            );
-            ctx.font = '10px IBM Plex Mono, monospace';
-            ctx.fillStyle = '#fff';
-            ctx.fillText(el.label.value, vp.x + 4, vp.y - 4);
-          }
-        }
-      });
+      elements.forEach(el => renderElementOnCanvas(ctx, el, fallback, osd, isSelected));
     });
-  }, [annotations, visibleAnnotations, viewer]);
 
-  // Resize canvas and attach OSD handlers
+    // Render live drawing preview
+    if (drawingMode && ds.current.active) {
+      renderDrawingPreview(ctx, drawingMode, ds.current, osd, drawColor || ANN_COLORS[0]);
+    }
+  }, [annotations, visibleAnnotations, selectedAnnotation, drawingMode, drawColor, viewer, syncCanvasSize]);
+
+  // ── Attach OSD events ───────────────────────────────────────────────────────
   useEffect(() => {
-    const v = viewer.current;
-    if (!v) return;
-
-    const resize = () => {
-      const container = v.element;
-      if (!canvasRef.current || !container) return;
-      canvasRef.current.width = container.clientWidth;
-      canvasRef.current.height = container.clientHeight;
-      render();
-    };
-
-    const handlers = ['open', 'animation', 'animation-finish', 'pan', 'zoom', 'resize'];
-    handlers.forEach((h) => v.addHandler(h, render));
-    v.addHandler('resize', resize);
-    resize();
-
+    const osd = viewer.current;
+    if (!osd) return;
+    const events = ['open','animation','animation-finish','pan','zoom','resize','rotate','update-viewport'];
+    const onResize = () => { syncCanvasSize(); render(); };
+    events.forEach(e => osd.addHandler(e, render));
+    osd.addHandler('resize', onResize);
+    syncCanvasSize();
+    render();
     return () => {
-      handlers.forEach((h) => v.removeAllHandlers(h));
+      events.forEach(e => { try { osd.removeHandler(e, render); } catch(_){} });
+      try { osd.removeHandler('resize', onResize); } catch(_){}
     };
-  }, [viewer, render]);
+  }, [viewer.current, render, syncCanvasSize]); // eslint-disable-line
 
-  // Re-render when annotations/visibility change
-  useEffect(() => { render(); }, [annotations, visibleAnnotations, render]);
+  useEffect(() => { render(); }, [annotations, visibleAnnotations, selectedAnnotation, render]);
 
-  // ── Drawing interaction ──────────────────────────────────────────────────
-  const getImageCoords = (e) => {
-    const v = viewer.current;
-    if (!v) return null;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const vp = new window.OpenSeadragon.Point(e.clientX - rect.left, e.clientY - rect.top);
-    return v.viewport.viewerElementToImageCoordinates(vp);
-  };
+  // ── Coordinate helper ───────────────────────────────────────────────────────
+  const getImgCoords = useCallback((e) => {
+    const canvas = canvasRef.current;
+    const osd    = viewer.current;
+    if (!canvas || !osd) return null;
+    const rect = canvas.getBoundingClientRect();
+    const img  = viewerToImg(osd, e.clientX - rect.left, e.clientY - rect.top);
+    return [img.x, img.y];
+  }, [viewer]);
 
-  const handleClick = async (e) => {
-    if (!drawingMode || !activeItem) return;
-    const coord = getImageCoords(e);
-    if (!coord) return;
+  // ── Save annotation doc to Girder ───────────────────────────────────────────
+  const save = useCallback(async (element) => {
+    if (!activeItem) return;
+    const name  = drawLabel?.trim() || `${(drawGroup || 'Annotation')} ${new Date().toLocaleTimeString()}`;
+    const group = drawGroup || 'default';
 
-    const d = drawing.current;
-
-    if (drawingMode === 'point') {
-      // Save immediately
-      await saveAnnotation([coord.x, coord.y, 0], 'point');
-      return;
-    }
-
-    if (drawingMode === 'rectangle') {
-      if (!d.active) {
-        d.active = true;
-        d.start = [coord.x, coord.y, 0];
-      } else {
-        const [sx, sy] = d.start;
-        const ex = coord.x, ey = coord.y;
-        await saveAnnotation([
-          [sx, sy, 0], [ex, sy, 0], [ex, ey, 0], [sx, ey, 0]
-        ], 'polyline');
-        d.active = false;
-        d.points = [];
-      }
-      return;
-    }
-
-    d.points.push([coord.x, coord.y, 0]);
-
-    if (drawingMode === 'polygon' || drawingMode === 'polyline') {
-      // Double-click to finish (handled in onDoubleClick)
-    }
-  };
-
-  const handleDblClick = async (e) => {
-    const d = drawing.current;
-    if (!drawingMode || d.points.length < 2) return;
-    e.preventDefault();
-    await saveAnnotation([...d.points], drawingMode);
-    d.points = [];
-    d.active = false;
-  };
-
-  const saveAnnotation = async (points, type) => {
-    const color = COLORS[drawing.current.colorIdx % COLORS.length];
-    drawing.current.colorIdx++;
-
-    const element = type === 'point'
-      ? { type: 'point', center: points, fillColor: color, lineColor: color }
-      : {
-          type: 'polyline',
-          points,
-          closed: type === 'polygon',
-          fillColor: color + '33',
-          lineColor: color,
-          lineWidth: 2,
-        };
-
-    const payload = {
-      name: `Annotation ${new Date().toLocaleTimeString()}`,
+    // The API wrapper now wraps in { annotation: ... } automatically
+    // So we pass the annotation document directly
+    const doc = {
+      name,
       description: '',
+      attributes: { group },
       elements: [element],
     };
 
     try {
-      await createAnnotation(activeItem._id, payload);
-      qc.invalidateQueries(['annotations', activeItem._id]);
+      await createAnnotation(activeItem._id, doc);
+      // Refresh annotation list
+      qc.invalidateQueries({ queryKey: ['annotations', activeItem._id] });
     } catch (err) {
-      console.error('Failed to save annotation', err);
+      console.error('[AnnotationCanvas] Save failed:', err?.response?.data || err.message);
+      alert(`Failed to save annotation: ${err?.response?.data?.message || err.message}`);
     }
-  };
+  }, [activeItem, drawLabel, drawGroup, qc]);
+
+  // ── Mouse events ────────────────────────────────────────────────────────────
+  const onMouseDown = useCallback((e) => {
+    if (!drawingMode || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const xy = getImgCoords(e);
+    if (!xy) return;
+    const d = ds.current;
+
+    if (drawingMode === 'rectangle' || drawingMode === 'ellipse') {
+      d.active = true;
+      d.start  = xy;
+      d.cursor = xy;
+    } else if (drawingMode === 'polygon' || drawingMode === 'polyline') {
+      if (!d.active) {
+        d.active = true;
+        d.points = [xy];
+      } else {
+        d.points = [...d.points, xy];
+      }
+    }
+    // point is handled entirely in mouseup
+    render();
+  }, [drawingMode, getImgCoords, render]);
+
+  const onMouseMove = useCallback((e) => {
+    if (!drawingMode) return;
+    const xy = getImgCoords(e);
+    if (!xy) return;
+    ds.current.cursor = xy;
+    if (ds.current.active || drawingMode === 'polygon' || drawingMode === 'polyline') {
+      render();
+    }
+  }, [drawingMode, getImgCoords, render]);
+
+  const onMouseUp = useCallback(async (e) => {
+    if (!drawingMode || e.button !== 0) return;
+    e.preventDefault();
+    const xy = getImgCoords(e);
+    if (!xy) return;
+    const d = ds.current;
+    const color = drawColor || ANN_COLORS[0];
+    const opts  = { lineColor: color, fillColor: hexToRgba(color, 0.15), label: drawLabel, group: drawGroup };
+
+    if (drawingMode === 'point') {
+      d.active = false;
+      await save(makePoint(xy[0], xy[1], opts));
+
+    } else if (drawingMode === 'rectangle' && d.active && d.start) {
+      const [sx, sy] = d.start;
+      const [ex, ey] = xy;
+      d.active = false; d.start = null; d.cursor = null;
+      if (Math.abs(ex - sx) < 5 && Math.abs(ey - sy) < 5) { render(); return; }
+      await save(makeRectangle(sx, sy, ex, ey, opts));
+
+    } else if (drawingMode === 'ellipse' && d.active && d.start) {
+      const [sx, sy] = d.start;
+      const [ex, ey] = xy;
+      d.active = false; d.start = null; d.cursor = null;
+      if (Math.abs(ex - sx) < 5 && Math.abs(ey - sy) < 5) { render(); return; }
+      await save(makeEllipse(sx, sy, ex, ey, opts));
+    }
+    render();
+  }, [drawingMode, getImgCoords, drawColor, drawLabel, drawGroup, save, render]);
+
+  // Double-click finishes polygon / polyline
+  const onDblClick = useCallback(async (e) => {
+    if (drawingMode !== 'polygon' && drawingMode !== 'polyline') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const d = ds.current;
+    // Remove duplicate point added by the second click of dblclick
+    const pts = d.points.length >= 3 ? d.points.slice(0, -1) : d.points;
+    if (pts.length < 2) { d.active = false; d.points = []; render(); return; }
+    d.active = false; d.points = [];
+    const color = drawColor || ANN_COLORS[0];
+    const opts  = { lineColor: color, fillColor: hexToRgba(color, 0.15), label: drawLabel, group: drawGroup };
+    render();
+    await save(makePolyline(pts, drawingMode === 'polygon', opts));
+  }, [drawingMode, drawColor, drawLabel, drawGroup, save, render]);
+
+  // Escape cancels drawing
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        ds.current = { active: false, points: [], start: null, cursor: null };
+        setDrawingMode(null);
+        render();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setDrawingMode, render]);
 
   return (
     <canvas
       ref={canvasRef}
-      id="annotation-overlay"
-      className={drawingMode ? 'drawing' : ''}
-      onClick={handleClick}
-      onDoubleClick={handleDblClick}
       style={{
-        position: 'absolute',
-        top: 0, left: 0,
+        position: 'absolute', top: 0, left: 0,
+        width: '100%', height: '100%', zIndex: 5,
         pointerEvents: drawingMode ? 'all' : 'none',
+        cursor: !drawingMode ? 'default'
+          : drawingMode === 'point' ? 'crosshair'
+          : (drawingMode === 'rectangle' || drawingMode === 'ellipse')
+            ? (ds.current.active ? 'crosshair' : 'cell')
+          : 'crosshair',
       }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onDoubleClick={onDblClick}
     />
   );
 }

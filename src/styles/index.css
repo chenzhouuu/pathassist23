@@ -230,3 +230,41 @@ textarea.login-input {
   resize: vertical;
   min-height: 72px;
 }
+
+/* ── Annotation panel styles ─────────────────────────────────────────── */
+.annotation-group {
+  transition: opacity 0.2s;
+}
+
+.annotation-group .selected {
+  background: rgba(77,166,255,0.06) !important;
+}
+
+.btn-ghost {
+  background: rgba(255,255,255,0.04);
+  color: #9ca3af;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.08); color: #e5e7eb; }
+
+.login-input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #e5e7eb;
+  outline: none;
+  width: 100%;
+  font-size: 12px;
+  font-family: 'IBM Plex Sans', system-ui;
+  transition: border-color 0.15s;
+}
+.login-input:focus { border-color: rgba(77,166,255,0.5); }
+
+/* Annotation panel right panel flex fix */
+.flex-col.overflow-hidden { display: flex; flex-direction: column; }
