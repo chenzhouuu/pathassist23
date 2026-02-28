@@ -141,5 +141,3 @@ to avoid CORS issues.
 - [DigitalSlideArchive/HistomicsUI — girder-5 branch](https://github.com/DigitalSlideArchive/HistomicsUI/tree/girder-5)
 - [Girder 5 documentation](https://girder.readthedocs.io)
 - [large_image documentation](https://github.com/girder/large_image)
-# pathassist23
-# pathassist23

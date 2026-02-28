@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 
 export const useStore = create((set, get) => ({
-  // ── Auth ──────────────────────────────────────────────────────────────
+  // ── Auth ────────────────────────────────────────────────────────────────
   token: localStorage.getItem('girderToken') || null,
   user: JSON.parse(localStorage.getItem('girderUser') || 'null'),
   setAuth: (token, user) => {
@@ -16,7 +16,11 @@ export const useStore = create((set, get) => ({
     set({ token: null, user: null });
   },
 
-  // ── Navigation ───────────────────────────────────────────────────────
+  // ── Page routing: 'dashboard' | 'worklist' | 'viewer' ──────────────────
+  currentPage: 'dashboard',
+  setPage: (page) => set({ currentPage: page }),
+
+  // ── Navigation ──────────────────────────────────────────────────────────
   activeCollection: null,
   activeFolder: null,
   activeItem: null,
@@ -29,19 +33,23 @@ export const useStore = create((set, get) => ({
     const newCrumb = idx >= 0 ? breadcrumb.slice(0, idx + 1) : [...breadcrumb, folder];
     set({ activeFolder: folder, activeItem: null, breadcrumb: newCrumb });
   },
-  setActiveItem: (item) => {
+  setActiveItem: (item, fromPage = 'viewer') => {
     const { breadcrumb } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
-    set({ activeItem: item, breadcrumb: [...filtered, { ...item, _type: 'item' }] });
+    set({
+      activeItem: item,
+      breadcrumb: [...filtered, { ...item, _type: 'item' }],
+      currentPage: 'viewer',
+    });
   },
 
-  // ── Viewer ────────────────────────────────────────────────────────────
+  // ── Viewer ──────────────────────────────────────────────────────────────
   viewer: null,
   setViewer: (v) => set({ viewer: v }),
   tilesInfo: null,
   setTilesInfo: (info) => set({ tilesInfo: info }),
 
-  // ── Annotations ───────────────────────────────────────────────────────
+  // ── Annotations ─────────────────────────────────────────────────────────
   annotations: [],
   setAnnotations: (anns) => set({ annotations: anns }),
   visibleAnnotations: {},
@@ -51,13 +59,13 @@ export const useStore = create((set, get) => ({
   },
   selectedAnnotation: null,
   setSelectedAnnotation: (ann) => set({ selectedAnnotation: ann }),
-  drawingMode: null, // null | 'point' | 'rectangle' | 'polygon' | 'polyline' | 'ellipse'
+  drawingMode: null,
   setDrawingMode: (mode) => set({ drawingMode: mode }),
 
-  // ── UI State ──────────────────────────────────────────────────────────
+  // ── Viewer UI ────────────────────────────────────────────────────────────
   leftPanelOpen: true,
   rightPanelOpen: true,
-  rightPanelTab: 'metadata', // 'metadata' | 'annotations' | 'analysis'
+  rightPanelTab: 'metadata',
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),

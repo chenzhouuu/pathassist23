@@ -212,3 +212,21 @@ body {
   flex-shrink: 0;
   border: 1px solid rgba(255,255,255,0.2);
 }
+
+/* ─── Dashboard / Worklist additions ─────────────────────────────────── */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+select option {
+  background: #13151f;
+  color: #9ca3af;
+}
+
+textarea.login-input {
+  resize: vertical;
+  min-height: 72px;
+}

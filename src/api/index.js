@@ -119,3 +119,33 @@ export const getJobs = () =>
 
 export const getJob = (id) =>
   client.get(`/job/${id}`).then((r) => r.data);
+
+// ─── Item metadata management (Girder metadata API) ──────────────────────────
+// Girder stores arbitrary JSON metadata on items via PUT /item/{id}/metadata
+// This is how you add status, priority, diagnosis, reviewer etc. to any image
+
+export const updateItemMetadata = (itemId, meta) =>
+  client.put(`/item/${itemId}/metadata`, meta).then((r) => r.data);
+
+// Fetch all items recursively from a folder tree
+// Returns flat array of {item, folderPath, collectionName}
+export const getAllItemsInFolder = (folderId, limit = 50, offset = 0, sort = 'name', sortdir = 1) =>
+  client.get(`/item?folderId=${folderId}&limit=${limit}&offset=${offset}&sort=${sort}&sortdir=${sortdir}`).then((r) => r.data);
+
+// Search items across the whole server
+export const searchItems = (query, limit = 50, offset = 0) =>
+  client.get(`/resource/search?q=${encodeURIComponent(query)}&types=item&limit=${limit}&offset=${offset}`).then((r) => r.data);
+
+// Get folder details including nItems count  
+export const getFolderDetails = (folderId) =>
+  client.get(`/folder/${folderId}`).then((r) => r.data);
+
+// Get all items in a collection recursively via folder tree walk
+export const getCollectionStats = async (collectionId) => {
+  try {
+    const folders = await client.get(`/folder?parentType=collection&parentId=${collectionId}&limit=200`).then(r => r.data);
+    let totalItems = 0;
+    folders.forEach(f => { totalItems += (f.nItems || 0); });
+    return { folders: folders.length, items: totalItems };
+  } catch(e) { return { folders: 0, items: 0 }; }
+};
