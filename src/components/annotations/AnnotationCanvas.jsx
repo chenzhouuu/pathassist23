@@ -48,13 +48,18 @@ export default function AnnotationCanvas({ viewer }) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Render saved annotations
+    let totalElements = 0;
     annotations.forEach((ann, idx) => {
       if (visibleAnnotations[ann._id] === false) return;
       const fallback = ANN_COLORS[idx % ANN_COLORS.length];
       const isSelected = selectedAnnotation?._id === ann._id;
       const elements = ann.annotation?.elements || [];
+      totalElements += elements.length;
       elements.forEach(el => renderElementOnCanvas(ctx, el, fallback, osd, isSelected));
     });
+    if (annotations.length > 0) {
+      console.debug(`[Canvas] render: ${annotations.length} annotations, ${totalElements} total elements, canvas=${canvas.width}x${canvas.height}`);
+    }
 
     // Render live drawing preview
     if (drawingMode && ds.current.active) {

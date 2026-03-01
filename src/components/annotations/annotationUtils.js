@@ -17,6 +17,19 @@ export function hexToRgba(hex, alpha = 0.2) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// Normalize any color value to a valid CSS color string.
+// Handles: CSS strings ("#rrggbb", "rgba(...)", etc.) and [r,g,b] / [r,g,b,a] arrays.
+export function normalizeColor(color, fallback = '#4da6ff') {
+  if (!color) return fallback;
+  if (typeof color === 'string') return color;
+  if (Array.isArray(color)) {
+    const [r, g, b, a] = color;
+    if (color.length === 3) return `rgb(${r},${g},${b})`;
+    if (color.length >= 4) return `rgba(${r},${g},${b},${a > 1 ? (a / 255).toFixed(3) : a})`;
+  }
+  return fallback;
+}
+
 // Image coords → OSD viewer element pixel coords
 export function imgToViewer(osd, x, y) {
   if (!osd || !window.OpenSeadragon) return { x: 0, y: 0 };
@@ -101,11 +114,17 @@ export function makeEllipse(x1, y1, x2, y2, { lineColor, fillColor, label, group
 
 // ─── Canvas rendering ─────────────────────────────────────────────────────────
 
+// Safely extract [x, y] from a point that may be an array [x,y,z] or object {x,y,z}
+function ptXY(p) {
+  if (Array.isArray(p)) return [p[0], p[1]];
+  return [p.x ?? 0, p.y ?? 0];
+}
+
 export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted = false) {
   if (!osd) return;
 
-  const lc  = el.lineColor || fallbackColor;
-  const fc  = el.fillColor || hexToRgba(fallbackColor, 0.15);
+  const lc  = normalizeColor(el.lineColor, fallbackColor);
+  const fc  = normalizeColor(el.fillColor, null) || hexToRgba(fallbackColor, 0.15);
   const lw  = highlighted ? (el.lineWidth || 2) + 1.5 : (el.lineWidth || 2);
 
   ctx.save();
@@ -120,8 +139,8 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
 
   try {
     if (el.type === 'point') {
-      const c  = el.center;
-      const vp = imgToViewer(osd, c[0], c[1]);
+      const [cx, cy] = ptXY(el.center);
+      const vp = imgToViewer(osd, cx, cy);
       // Outer glow ring
       ctx.beginPath();
       ctx.arc(vp.x, vp.y, highlighted ? 10 : 8, 0, Math.PI * 2);
@@ -142,7 +161,7 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
       ctx.fill();
 
     } else if (el.type === 'rectangle') {
-      const [cx, cy] = el.center;
+      const [cx, cy] = ptXY(el.center);
       const w = el.width, h = el.height;
       const corners = [
         imgToViewer(osd, cx - w/2, cy - h/2),
@@ -161,7 +180,7 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
       ctx.stroke();
 
     } else if (el.type === 'ellipse') {
-      const [cx, cy] = el.center;
+      const [cx, cy] = ptXY(el.center);
       const vc = imgToViewer(osd, cx, cy);
       const vr = imgToViewer(osd, cx + el.width/2, cy);
       const vb = imgToViewer(osd, cx, cy + el.height/2);
@@ -175,12 +194,30 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
       ctx.lineWidth = lw;
       ctx.stroke();
 
-    } else if (el.type === 'polyline' && el.points?.length >= 2) {
-      const pts = el.points.map(([x, y]) => imgToViewer(osd, x, y));
+    } else if (el.type === 'circle') {
+      // circle: { center, radius }
+      const [cx, cy] = ptXY(el.center);
+      const vc = imgToViewer(osd, cx, cy);
+      const ve = imgToViewer(osd, cx + (el.radius || 0), cy);
+      const r  = Math.max(Math.abs(ve.x - vc.x), 1);
+      ctx.beginPath();
+      ctx.arc(vc.x, vc.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fc;
+      ctx.fill();
+      ctx.strokeStyle = highlighted ? '#ffffff' : lc;
+      ctx.lineWidth = lw;
+      ctx.stroke();
+
+    } else if (
+      (el.type === 'polyline' || el.type === 'polygon') && el.points?.length >= 2
+    ) {
+      // 'polygon' is a closed polyline; 'polyline' respects el.closed flag
+      const closed = el.type === 'polygon' || !!el.closed;
+      const pts = el.points.map(p => { const [x, y] = ptXY(p); return imgToViewer(osd, x, y); });
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      if (el.closed) {
+      if (closed) {
         ctx.closePath();
         ctx.fillStyle = fc;
         ctx.fill();
@@ -200,15 +237,55 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
           ctx.stroke();
         });
       }
+
+    } else if (el.type === 'line' && el.points?.length >= 2) {
+      // Simple two-point line (no arrowhead) — common in HistomicsUI
+      const [x0, y0] = ptXY(el.points[0]);
+      const [x1, y1] = ptXY(el.points[1]);
+      const from = imgToViewer(osd, x0, y0);
+      const to   = imgToViewer(osd, x1, y1);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = highlighted ? '#ffffff' : lc;
+      ctx.lineWidth = lw;
+      ctx.stroke();
+
+    } else if (el.type === 'arrow' && el.points?.length >= 2) {
+      // arrow: line from points[0] to points[1] with arrowhead at points[1]
+      const [x0, y0] = ptXY(el.points[0]);
+      const [x1, y1] = ptXY(el.points[1]);
+      const from = imgToViewer(osd, x0, y0);
+      const to   = imgToViewer(osd, x1, y1);
+      const angle   = Math.atan2(to.y - from.y, to.x - from.x);
+      const headLen = Math.max(lw * 4, 10);
+      // Shaft
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = highlighted ? '#ffffff' : lc;
+      ctx.lineWidth = lw;
+      ctx.stroke();
+      // Arrowhead
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - headLen * Math.cos(angle - Math.PI/6), to.y - headLen * Math.sin(angle - Math.PI/6));
+      ctx.lineTo(to.x - headLen * Math.cos(angle + Math.PI/6), to.y - headLen * Math.sin(angle + Math.PI/6));
+      ctx.closePath();
+      ctx.fillStyle = lc;
+      ctx.fill();
+
+    } else if (el.type) {
+      // Unknown type — log so it can be diagnosed
+      console.warn('[Annotation] Unhandled element type:', el.type);
     }
 
     // Label tooltip
     if (el.label?.value) {
-      const ref = el.center
-        ? imgToViewer(osd, el.center[0], el.center[1])
-        : el.points
-          ? imgToViewer(osd, el.points[0][0], el.points[0][1])
-          : null;
+      const refPt = el.center
+        ? el.center
+        : el.points?.[0] ?? null;
+      const ref = refPt ? imgToViewer(osd, ...ptXY(refPt)) : null;
       if (ref) {
         const txt = el.label.value;
         ctx.font = 'bold 11px "IBM Plex Mono", monospace';
@@ -224,7 +301,9 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
         ctx.fillText(txt, px2 + 1, py2 + 1);
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn('[Annotation] Render error for element type', el.type, err);
+  }
   ctx.restore();
 }
 

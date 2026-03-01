@@ -466,13 +466,37 @@ export default function AnnotationsPanel() {
     queryKey: ['annotations', activeItem?._id],
     queryFn: async () => {
       const list = await getAnnotationList(activeItem._id);
-      // For any annotation whose elements are missing, load them now
-      return Promise.all(
+      console.log('[Annotations] List loaded:', list.length, 'annotations');
+
+      // For any annotation whose elements are missing, load the full document
+      const result = await Promise.all(
         list.map(async (ann) => {
-          if ((ann.annotation?.elements ?? []).length > 0) return ann;
-          try { return await getAnnotationFull(ann._id); } catch { return ann; }
+          const existingElements = ann.annotation?.elements ?? [];
+          if (existingElements.length > 0) return ann;
+          try {
+            const full = await getAnnotationFull(ann._id);
+            const elCount = full.annotation?.elements?.length ?? 0;
+            console.log(`[Annotations] Full load "${full.annotation?.name}": ${elCount} elements`);
+            return full;
+          } catch (err) {
+            console.error('[Annotations] getAnnotationFull failed for', ann._id, err?.response?.status, err?.message);
+            return ann;
+          }
         })
       );
+
+      // Diagnostic: log element summary to help debug rendering issues
+      result.forEach((ann, i) => {
+        const els = ann.annotation?.elements ?? [];
+        if (els.length === 0 && (ann.elementCount ?? 0) > 0) {
+          console.warn(`[Annotations] #${i} "${ann.annotation?.name}": elementCount=${ann.elementCount} but elements=[] — fetch may have failed`);
+        } else {
+          const types = [...new Set(els.map(e => e.type))].join(', ');
+          console.log(`[Annotations] #${i} "${ann.annotation?.name}": ${els.length} elements [${types}]`);
+        }
+      });
+
+      return result;
     },
     enabled: !!activeItem?._id,
     refetchOnWindowFocus: false,
