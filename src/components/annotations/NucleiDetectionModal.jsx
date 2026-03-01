@@ -96,6 +96,7 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
   useEffect(() => {
     getDockerImages()
       .then(images => {
+        console.log('[NucleiModal] raw docker images response:', JSON.stringify(images, null, 2));
         const filtered = extractNucleiClis(images);
         setClis(filtered);
         if (filtered.length === 1) setSelected(filtered[0]);
