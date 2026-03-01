@@ -120,6 +120,105 @@ function ptXY(p) {
   return [p.x ?? 0, p.y ?? 0];
 }
 
+// ─── Hit testing ──────────────────────────────────────────────────────────────
+
+function pointInPolygon(px, py, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+    if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)
+      inside = !inside;
+  }
+  return inside;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+// Returns true if the viewer-space click (vx, vy) lands on the given element.
+export function hitTestElement(el, vx, vy, osd, threshold = 10) {
+  if (!osd) return false;
+  try {
+    const img = viewerToImg(osd, vx, vy);
+    switch (el.type) {
+      case 'point': {
+        const [cx, cy] = ptXY(el.center);
+        const vp = imgToViewer(osd, cx, cy);
+        return Math.hypot(vx - vp.x, vy - vp.y) <= threshold;
+      }
+      case 'rectangle': {
+        const [cx, cy] = ptXY(el.center);
+        return Math.abs(img.x - cx) <= el.width / 2 && Math.abs(img.y - cy) <= el.height / 2;
+      }
+      case 'ellipse': {
+        const [cx, cy] = ptXY(el.center);
+        return ((img.x - cx) ** 2 / (el.width / 2) ** 2) + ((img.y - cy) ** 2 / (el.height / 2) ** 2) <= 1;
+      }
+      case 'circle': {
+        const [cx, cy] = ptXY(el.center);
+        return Math.hypot(img.x - cx, img.y - cy) <= (el.radius || 0);
+      }
+      case 'polyline':
+      case 'polygon': {
+        if (!el.points?.length) return false;
+        const pts = el.points.map(p => { const [x, y] = ptXY(p); return { x, y }; });
+        const closed = el.type === 'polygon' || !!el.closed;
+        if (closed && pointInPolygon(img.x, img.y, pts)) return true;
+        for (let i = 1; i < pts.length; i++) {
+          if (distToSegment(img.x, img.y, pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y) < threshold * 2) return true;
+        }
+        if (closed && pts.length > 1) {
+          const last = pts[pts.length - 1];
+          if (distToSegment(img.x, img.y, last.x, last.y, pts[0].x, pts[0].y) < threshold * 2) return true;
+        }
+        return false;
+      }
+      case 'line':
+      case 'arrow': {
+        if (!el.points?.length >= 2) return false;
+        const [x0, y0] = ptXY(el.points[0]);
+        const [x1, y1] = ptXY(el.points[1]);
+        return distToSegment(img.x, img.y, x0, y0, x1, y1) <= threshold * 2;
+      }
+      default: return false;
+    }
+  } catch (_) { return false; }
+}
+
+// Find the topmost annotation under a viewer-space click. Returns the annotation or null.
+export function findAnnotationAtViewer(annotations, vx, vy, osd) {
+  for (const ann of [...annotations].reverse()) {
+    for (const el of ann.annotation?.elements ?? []) {
+      if (hitTestElement(el, vx, vy, osd)) return ann;
+    }
+  }
+  return null;
+}
+
+// Compute axis-aligned bounding box of all elements. Returns {x, y, width, height} or null.
+export function getAnnotationBBox(ann) {
+  const xs = [], ys = [];
+  for (const el of ann?.annotation?.elements ?? []) {
+    if (el.center) {
+      const [cx, cy] = ptXY(el.center);
+      const rw = ((el.width ?? 0) || (el.radius ?? 0) * 2) / 2;
+      const rh = ((el.height ?? 0) || (el.radius ?? 0) * 2) / 2;
+      xs.push(cx - rw, cx + rw); ys.push(cy - rh, cy + rh);
+    }
+    if (el.points?.length) {
+      el.points.forEach(p => { const [x, y] = ptXY(p); xs.push(x); ys.push(y); });
+    }
+  }
+  if (!xs.length) return null;
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  return { x: Math.round(minX), y: Math.round(minY), width: Math.round(Math.max(...xs) - minX), height: Math.round(Math.max(...ys) - minY) };
+}
+
 export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted = false) {
   if (!osd) return;
 

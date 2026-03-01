@@ -102,3 +102,14 @@ export const getDockerImages = () =>
 export const getJobs = () =>
   client.get('/job?limit=50&sort=created&sortdir=-1').then((r) => r.data);
 export const getJob = (id) => client.get(`/job/${id}`).then((r) => r.data);
+
+// ─── Slicer CLI execution ─────────────────────────────────────────────────────
+// GET the CLI's XML descriptor (describes parameters)
+export const getCliXml = (imageName, cliName) =>
+  client.get(`/slicer_cli_web/${encodeURIComponent(imageName)}/${cliName}/xml`, { responseType: 'text' })
+    .then((r) => r.data);
+
+// POST to submit a Slicer CLI job. params is a plain object of parameter values.
+export const runCliJob = (imageName, cliName, params) =>
+  client.post(`/slicer_cli_web/${encodeURIComponent(imageName)}/${cliName}/run`, params)
+    .then((r) => r.data);

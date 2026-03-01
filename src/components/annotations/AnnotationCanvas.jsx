@@ -1,5 +1,5 @@
 // src/components/annotations/AnnotationCanvas.jsx
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { createAnnotation } from '../../api/index.js';
@@ -7,7 +7,10 @@ import {
   ANN_COLORS, hexToRgba, viewerToImg,
   makePoint, makeRectangle, makePolyline, makeEllipse,
   renderElementOnCanvas, renderDrawingPreview,
+  findAnnotationAtViewer,
 } from './annotationUtils.js';
+import ContextMenu from './ContextMenu.jsx';
+import NucleiDetectionModal from './NucleiDetectionModal.jsx';
 
 export default function AnnotationCanvas({ viewer }) {
   const canvasRef = useRef(null);
@@ -24,6 +27,10 @@ export default function AnnotationCanvas({ viewer }) {
 
   // mutable draw state (not React state — avoids re-renders on mouse move)
   const ds = useRef({ active: false, points: [], start: null, cursor: null });
+
+  // Context menu + nuclei detection modal state
+  const [ctxMenu, setCtxMenu]   = useState(null); // { x, y, ann }
+  const [nucleiAnn, setNucleiAnn] = useState(null); // annotation to run nuclei detection on
 
   // ── Canvas resize ───────────────────────────────────────────────────────────
   const syncCanvasSize = useCallback(() => {
@@ -84,6 +91,23 @@ export default function AnnotationCanvas({ viewer }) {
   }, [viewer.current, render, syncCanvasSize]); // eslint-disable-line
 
   useEffect(() => { render(); }, [annotations, visibleAnnotations, selectedAnnotation, render]);
+
+  // ── Right-click / context menu ──────────────────────────────────────────────
+  // Attach to osd.element so it fires even when canvas has pointerEvents:none
+  useEffect(() => {
+    const osd = viewer.current;
+    if (!osd?.element) return;
+    const el = osd.element;
+    const handler = (e) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const vx = e.clientX - rect.left, vy = e.clientY - rect.top;
+      const ann = findAnnotationAtViewer(annotations, vx, vy, osd);
+      setCtxMenu({ x: e.clientX, y: e.clientY, ann });
+    };
+    el.addEventListener('contextmenu', handler);
+    return () => el.removeEventListener('contextmenu', handler);
+  }, [viewer.current, annotations]); // eslint-disable-line
 
   // ── Coordinate helper ───────────────────────────────────────────────────────
   const getImgCoords = useCallback((e) => {
@@ -231,22 +255,43 @@ export default function AnnotationCanvas({ viewer }) {
   }, [setDrawingMode, render]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        position: 'absolute', top: 0, left: 0,
-        width: '100%', height: '100%', zIndex: 5,
-        pointerEvents: drawingMode ? 'all' : 'none',
-        cursor: !drawingMode ? 'default'
-          : drawingMode === 'point' ? 'crosshair'
-          : (drawingMode === 'rectangle' || drawingMode === 'ellipse')
-            ? (ds.current.active ? 'crosshair' : 'cell')
-          : 'crosshair',
-      }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onDoubleClick={onDblClick}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute', top: 0, left: 0,
+          width: '100%', height: '100%', zIndex: 5,
+          pointerEvents: drawingMode ? 'all' : 'none',
+          cursor: !drawingMode ? 'default'
+            : drawingMode === 'point' ? 'crosshair'
+            : (drawingMode === 'rectangle' || drawingMode === 'ellipse')
+              ? (ds.current.active ? 'crosshair' : 'cell')
+            : 'crosshair',
+        }}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onDoubleClick={onDblClick}
+      />
+
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          ann={ctxMenu.ann}
+          viewer={viewer}
+          onClose={() => setCtxMenu(null)}
+          onAnnotateNuclei={(ann) => { setCtxMenu(null); setNucleiAnn(ann); }}
+        />
+      )}
+
+      {nucleiAnn && (
+        <NucleiDetectionModal
+          ann={nucleiAnn}
+          item={activeItem}
+          onClose={() => setNucleiAnn(null)}
+        />
+      )}
+    </>
   );
 }
