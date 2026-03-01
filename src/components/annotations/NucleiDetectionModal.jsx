@@ -57,9 +57,11 @@ function buildJobParams(cliParams, item, bbox, fileId) {
   // leaving fewer than 4 elements → ValueError in the CLI.
   const bx = Number(bbox?.x), by = Number(bbox?.y);
   const bw = Number(bbox?.width), bh = Number(bbox?.height);
+  // Slicer CLI Web 'region' type expects JSON array format (python json.dumps),
+  // e.g. "[x, y, w, h]" — NOT comma-separated "x,y,w,h"
   const roiStr = (bbox && isFinite(bx) && isFinite(by) && bw > 0 && bh > 0)
-    ? `${Math.round(bx)},${Math.round(by)},${Math.round(bw)},${Math.round(bh)}`
-    : '-1,-1,-1,-1';
+    ? `[${Math.round(bx)}, ${Math.round(by)}, ${Math.round(bw)}, ${Math.round(bh)}]`
+    : '[-1, -1, -1, -1]';
 
   if (cliParams.inputImage)  params[cliParams.inputImage]  = inputId;
   if (cliParams.outputFile)  params[cliParams.outputFile]  = folderId;
