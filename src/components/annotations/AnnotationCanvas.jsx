@@ -29,8 +29,17 @@ export default function AnnotationCanvas({ viewer }) {
   const ds = useRef({ active: false, points: [], start: null, cursor: null });
 
   // Context menu + nuclei detection modal state
-  const [ctxMenu, setCtxMenu]   = useState(null); // { x, y, ann }
+  const [ctxMenu, setCtxMenu]     = useState(null); // { x, y, ann }
   const [nucleiAnn, setNucleiAnn] = useState(null); // annotation to run nuclei detection on
+
+  // Save-error notification (replaces browser alert)
+  const [saveError, setSaveError] = useState(null); // { msg, hint } | null
+  const saveErrorTimer = useRef(null);
+  const showSaveError = useCallback((msg, hint) => {
+    setSaveError({ msg, hint });
+    clearTimeout(saveErrorTimer.current);
+    saveErrorTimer.current = setTimeout(() => setSaveError(null), 7000);
+  }, []);
 
   // ── Canvas resize ───────────────────────────────────────────────────────────
   const syncCanvasSize = useCallback(() => {
@@ -141,10 +150,19 @@ export default function AnnotationCanvas({ viewer }) {
       }
       qc.invalidateQueries({ queryKey: ['annotations', activeItem._id] });
     } catch (err) {
-      console.error('[AnnotationCanvas] Save failed:', err?.response?.data || err.message);
-      alert(`Failed to save annotation: ${err?.response?.data?.message || err.message}`);
+      const status = err?.response?.status;
+      const serverMsg = err?.response?.data?.message || err.message;
+      console.error('[AnnotationCanvas] Save failed:', status, serverMsg);
+      if (status === 403) {
+        showSaveError(
+          'Permission denied — cannot annotate this slide.',
+          'Ask your Girder admin to grant Write access on this collection or folder.'
+        );
+      } else {
+        showSaveError(`Failed to save annotation: ${serverMsg}`);
+      }
     }
-  }, [activeItem, drawLabel, drawGroup, setAnnotations, qc]);
+  }, [activeItem, drawLabel, drawGroup, setAnnotations, qc, showSaveError]);
 
   // ── Mouse events ────────────────────────────────────────────────────────────
   const onMouseDown = useCallback((e) => {
@@ -273,6 +291,31 @@ export default function AnnotationCanvas({ viewer }) {
         onMouseUp={onMouseUp}
         onDoubleClick={onDblClick}
       />
+
+      {/* Save-error notification banner */}
+      {saveError && (
+        <div style={{
+          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 20, maxWidth: 420, width: 'calc(100% - 32px)',
+          background: 'rgba(233,69,96,0.15)', border: '1px solid rgba(233,69,96,0.4)',
+          borderRadius: 10, padding: '10px 14px',
+          backdropFilter: 'blur(8px)', boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="2" style={{ flexShrink: 0, marginTop: 2 }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: '#e94560', fontSize: 12, fontWeight: 600 }}>{saveError.msg}</div>
+            {saveError.hint && <div style={{ color: '#9ca3af', fontSize: 11, marginTop: 3 }}>{saveError.hint}</div>}
+          </div>
+          <button onClick={() => setSaveError(null)} style={{ color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      )}
 
       {ctxMenu && (
         <ContextMenu
