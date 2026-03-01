@@ -60,14 +60,13 @@ export const getAnnotationList = (itemId) =>
 export const getAnnotationFull = (annId) =>
   client.get(`/annotation/${annId}`).then((r) => r.data);
 
-// POST body MUST be: { annotation: { name, description, elements: [...] } }
-// This is the correct Girder large_image schema
+// POST body is the annotation document directly: { name, description, elements: [...] }
 export const createAnnotation = (itemId, annotationDoc) =>
-  client.post(`/annotation?itemId=${itemId}`, { annotation: annotationDoc }).then((r) => r.data);
+  client.post(`/annotation?itemId=${itemId}`, annotationDoc).then((r) => r.data);
 
 // PUT to update an existing annotation
 export const updateAnnotation = (annId, annotationDoc) =>
-  client.put(`/annotation/${annId}`, { annotation: annotationDoc }).then((r) => r.data);
+  client.put(`/annotation/${annId}`, annotationDoc).then((r) => r.data);
 
 export const deleteAnnotation = (id) =>
   client.delete(`/annotation/${id}`).then((r) => r.data);
@@ -90,6 +89,12 @@ export const getAllItemsInFolder = (folderId, limit = 50, offset = 0) =>
 
 export const getFolderDetails = (folderId) =>
   client.get(`/folder/${folderId}`).then((r) => r.data);
+
+// ─── Large Image tile creation ────────────────────────────────────────────────
+// POST creates a large_image tile source for the item (async job).
+// Returns the created job object with a _id.
+export const createItemTiles = (itemId) =>
+  client.post(`/item/${itemId}/tiles`).then((r) => r.data);
 
 // ─── Jobs / Tasks ─────────────────────────────────────────────────────────────
 export const getDockerImages = () =>

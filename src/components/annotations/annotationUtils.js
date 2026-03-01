@@ -39,18 +39,18 @@ export function viewerToImg(osd, px, py) {
 
 // ─── Element builders (large_image schema) ────────────────────────────────────
 
-export function makePoint(x, y, { lineColor, label, group } = {}) {
+export function makePoint(x, y, { lineColor, label, group, lineWidth } = {}) {
   return {
     type: 'point',
     center: [x, y, 0],
     lineColor: lineColor || '#4da6ff',
-    lineWidth: 2,
+    lineWidth: lineWidth || 2,
     ...(label ? { label: { value: label } } : {}),
     ...(group ? { group } : {}),
   };
 }
 
-export function makeRectangle(x1, y1, x2, y2, { lineColor, fillColor, label, group } = {}) {
+export function makeRectangle(x1, y1, x2, y2, { lineColor, fillColor, label, group, lineWidth } = {}) {
   const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
   const w  = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
   return {
@@ -60,27 +60,29 @@ export function makeRectangle(x1, y1, x2, y2, { lineColor, fillColor, label, gro
     height: h,
     rotation: 0,
     lineColor: lineColor || '#4da6ff',
-    lineWidth: 2,
+    lineWidth: lineWidth || 2,
     fillColor: fillColor || hexToRgba(lineColor || '#4da6ff', 0.15),
     ...(label ? { label: { value: label } } : {}),
     ...(group ? { group } : {}),
   };
 }
 
-export function makePolyline(points, closed, { lineColor, fillColor, label, group } = {}) {
+export function makePolyline(points, closed, { lineColor, fillColor, label, group, lineWidth } = {}) {
   return {
     type: 'polyline',
     points: points.map(([x, y]) => [x, y, 0]),
     closed: !!closed,
     lineColor: lineColor || '#4da6ff',
-    lineWidth: 2,
-    fillColor: fillColor || (closed ? hexToRgba(lineColor || '#4da6ff', 0.15) : 'rgba(0,0,0,0)'),
+    lineWidth: lineWidth || 2,
+    fillColor: closed
+      ? (fillColor || hexToRgba(lineColor || '#4da6ff', 0.15))
+      : 'rgba(0,0,0,0)',
     ...(label ? { label: { value: label } } : {}),
     ...(group ? { group } : {}),
   };
 }
 
-export function makeEllipse(x1, y1, x2, y2, { lineColor, fillColor, label, group } = {}) {
+export function makeEllipse(x1, y1, x2, y2, { lineColor, fillColor, label, group, lineWidth } = {}) {
   const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
   const w  = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
   return {
@@ -90,7 +92,7 @@ export function makeEllipse(x1, y1, x2, y2, { lineColor, fillColor, label, group
     height: h,
     rotation: 0,
     lineColor: lineColor || '#4da6ff',
-    lineWidth: 2,
+    lineWidth: lineWidth || 2,
     fillColor: fillColor || hexToRgba(lineColor || '#4da6ff', 0.15),
     ...(label ? { label: { value: label } } : {}),
     ...(group ? { group } : {}),

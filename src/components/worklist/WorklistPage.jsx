@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../../store/index.js';
 import { updateItemMetadata } from '../../api/index.js';
 import { GIRDER_BASE } from '../../config/girder.js';
-import StatusEditor from './StatusEditor.jsx';
+import LeftSidebar from '../sidebar/LeftSidebar.jsx';
 
 const PAGE_SIZE = 24;
 
@@ -255,7 +255,15 @@ function TableRow({ item, collectionName, folderPath, onOpen, onStatusChange, in
 
 // ── Main Worklist ─────────────────────────────────────────────────────────────
 export default function WorklistPage() {
-  const { setPage, setActiveItem, activeCollection, user } = useStore();
+  const {
+    setPage,
+    setActiveItem,
+    activeCollection,
+    activeFolder,
+    clearActiveNavigation,
+    setLeftPanelOpen,
+    user,
+  } = useStore();
   const [view, setView] = useState('grid'); // 'grid' | 'table'
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -264,12 +272,13 @@ export default function WorklistPage() {
   const [page, setPageNum] = useState(0);
   const [allItems, setAllItems] = useState([]);  // [{item, collectionName, folderPath}]
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
   const [collections, setCollections] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
   const token = localStorage.getItem('girderToken') || '';
   const searchTimer = useRef(null);
+
+  useEffect(() => {
+    setLeftPanelOpen(true);
+  }, [setLeftPanelOpen]);
 
   // Debounce search
   useEffect(() => {
@@ -282,21 +291,18 @@ export default function WorklistPage() {
   useEffect(() => {
     fetch(`${GIRDER_BASE}/collection?limit=200&sort=name`, { headers:{ 'Girder-Token': token }})
       .then(r => r.json()).then(setCollections).catch(console.error);
-  }, []);
+  }, [token]);
 
   // Flatten all items from all collections / selected collection
-  const loadItems = useCallback(async (reset = true) => {
-    if (reset) { setLoading(true); setAllItems([]); setPageNum(0); }
-    else setLoadingMore(true);
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    setAllItems([]);
+    setPageNum(0);
 
     try {
-      const targetCols = activeCollection
-        ? [activeCollection]
-        : collections;
+      const targetCols = collections;
 
       let gathered = [];
-      let offset = reset ? 0 : allItems.length;
-
       for (const col of targetCols) {
         if (colFilter !== 'All' && col._id !== colFilter) continue;
 
@@ -320,6 +326,7 @@ export default function WorklistPage() {
               collectionName: col.name,
               folderPath: folder.name,
               collectionId: col._id,
+              folderIds: [folder._id],
             });
           }
 
@@ -341,26 +348,24 @@ export default function WorklistPage() {
                 collectionName: col.name,
                 folderPath: `${folder.name}/${sub.name}`,
                 collectionId: col._id,
+                folderIds: [folder._id, sub._id],
               });
             }
           }
         }
       }
 
-      setTotalCount(gathered.length);
-      setAllItems(reset ? gathered : [...allItems, ...gathered]);
-      setHasMore(false); // All loaded at once
+      setAllItems(gathered);
     } catch(err) {
       console.error('Load items failed:', err);
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
-  }, [collections, activeCollection, colFilter, token]);
+  }, [collections, colFilter, token]);
 
   useEffect(() => {
-    if (collections.length > 0) loadItems(true);
-  }, [collections.length, colFilter]);
+    if (collections.length > 0) loadItems();
+  }, [collections.length, colFilter, loadItems]);
 
   // Update item meta locally after save
   const handleStatusChange = (itemId, newMeta) => {
@@ -370,15 +375,18 @@ export default function WorklistPage() {
   };
 
   // Filtered items
-  const filtered = allItems.filter(({ item, collectionName, folderPath }) => {
+  const activeCollectionId = colFilter !== 'All' ? colFilter : activeCollection?._id || null;
+  const filtered = allItems.filter(({ item, collectionName, folderPath, collectionId, folderIds = [] }) => {
     const q = debouncedSearch.toLowerCase();
     const matchSearch = !q || item.name.toLowerCase().includes(q)
       || collectionName.toLowerCase().includes(q)
       || (folderPath || '').toLowerCase().includes(q)
       || (item.meta?.diagnosis || '').toLowerCase().includes(q)
       || (item.meta?.status || '').toLowerCase().includes(q);
+    const matchCollection = !activeCollectionId || collectionId === activeCollectionId;
+    const matchFolder = !activeFolder || folderIds.includes(activeFolder._id);
     const matchStatus = statusFilter === 'All' || (item.meta?.status || 'No Status') === statusFilter;
-    return matchSearch && matchStatus;
+    return matchSearch && matchCollection && matchFolder && matchStatus;
   });
 
   // Paginated
@@ -443,7 +451,9 @@ export default function WorklistPage() {
         </div>
       </nav>
 
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex">
+        <LeftSidebar />
+        <div className="flex-1 overflow-hidden flex flex-col">
 
         {/* ── Toolbar ── */}
         <div className="px-6 py-4 flex flex-col gap-3 shrink-0"
@@ -520,6 +530,27 @@ export default function WorklistPage() {
                 </button>
               );
             })}
+
+            {(activeCollection || activeFolder) && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-600">
+                  Tree filter:
+                  {activeCollection && (
+                    <span className="ml-1 text-gray-300">{activeCollection.name}</span>
+                  )}
+                  {activeFolder && (
+                    <span className="ml-1 text-gray-400">/ {activeFolder.name}</span>
+                  )}
+                </span>
+                <button
+                  onClick={() => { clearActiveNavigation(); setPageNum(0); }}
+                  className="px-2 py-1 rounded transition-colors"
+                  style={{ border:'1px solid rgba(255,255,255,0.08)', color:'#9ca3af' }}
+                >
+                  Clear Tree
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -621,6 +652,7 @@ export default function WorklistPage() {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

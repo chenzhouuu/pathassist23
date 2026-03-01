@@ -1,9 +1,11 @@
 // src/components/panels/AnnotationsPanel.jsx
-// Foldable annotation list matching HistomicsUI style
 import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getAnnotationList, getAnnotationFull, deleteAnnotation, updateAnnotation } from '../../api/index.js';
+import {
+  getAnnotationList, getAnnotationFull,
+  deleteAnnotation, updateAnnotation,
+} from '../../api/index.js';
 import { ANN_COLORS, hexToRgba } from '../annotations/annotationUtils.js';
 
 const DRAW_COLORS = [
@@ -49,18 +51,51 @@ function ElementRow({ el, idx, annColor }) {
   );
 }
 
-// Annotation rename modal
-function RenameModal({ ann, onSave, onClose }) {
-  const [name, setName] = useState(ann.annotation?.name || '');
-  const [desc, setDesc] = useState(ann.annotation?.description || '');
-  const [saving, setSaving] = useState(false);
+// ─── Edit annotation modal (name, description, color, line width) ─────────────
+function EditModal({ ann, onSave, onClose }) {
+  const qc = useQueryClient();
+  const [name, setName]         = useState(ann.annotation?.name || '');
+  const [desc, setDesc]         = useState(ann.annotation?.description || '');
+  const [color, setColor]       = useState(() => ann.annotation?.elements?.[0]?.lineColor || '#4da6ff');
+  const [lineWidth, setLineWidth] = useState(() => ann.annotation?.elements?.[0]?.lineWidth ?? 2);
+  const [fullAnn, setFullAnn]   = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+
+  // Fetch full annotation so we have all elements for the PUT
+  useEffect(() => {
+    getAnnotationFull(ann._id)
+      .then(full => {
+        setFullAnn(full);
+        const el = full.annotation?.elements?.[0];
+        if (el) {
+          setColor(el.lineColor || '#4da6ff');
+          setLineWidth(el.lineWidth ?? 2);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [ann._id]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateAnnotation(ann._id, { ...ann.annotation, name, description: desc });
-      onSave(name, desc);
-    } catch(e) { console.error(e); }
+      const src = fullAnn || ann;
+      const updatedElements = (src.annotation?.elements || []).map(el => ({
+        ...el,
+        lineColor: color,
+        lineWidth: lineWidth,
+        ...(el.type !== 'point' ? { fillColor: hexToRgba(color, 0.15) } : {}),
+      }));
+      await updateAnnotation(ann._id, {
+        ...src.annotation,
+        name,
+        description: desc,
+        elements: updatedElements,
+      });
+      qc.invalidateQueries({ queryKey: ['annotations'] });
+      onSave({ name, desc, color, lineWidth });
+    } catch (e) { console.error(e); }
     setSaving(false);
   };
 
@@ -68,29 +103,84 @@ function RenameModal({ ann, onSave, onClose }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center"
       style={{ background:'rgba(0,0,0,0.7)', backdropFilter:'blur(6px)' }}>
       <div className="rounded-xl w-80 mx-4" style={{ background:'#13151f', border:'1px solid rgba(255,255,255,0.1)' }}>
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3"
+          style={{ borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
           <span className="text-sm font-semibold text-white">Edit Annotation</span>
           <button onClick={onClose} className="text-gray-600 hover:text-white">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
           </button>
         </div>
-        <div className="p-4 space-y-3">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Name</label>
-            <input value={name} onChange={e => setName(e.target.value)}
-              className="login-input text-xs w-full" placeholder="Annotation name"
-              onKeyDown={e => e.key === 'Enter' && handleSave()}/>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-8 gap-2">
+            <div className="spinner" style={{ width:14, height:14 }}/>
+            <span className="text-xs text-gray-500">Loading…</span>
           </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Description</label>
-            <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2}
-              className="login-input text-xs w-full resize-none" placeholder="Optional description"/>
+        ) : (
+          <div className="p-4 space-y-3">
+            {/* Name */}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Name</label>
+              <input value={name} onChange={e => setName(e.target.value)}
+                className="login-input text-xs w-full" placeholder="Annotation name"
+                onKeyDown={e => e.key === 'Enter' && handleSave()}/>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Description</label>
+              <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2}
+                className="login-input text-xs w-full resize-none" placeholder="Optional description"/>
+            </div>
+
+            {/* Color */}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Color</label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {DRAW_COLORS.map(c => (
+                  <button key={c} onClick={() => setColor(c)}
+                    className="w-5 h-5 rounded-full transition-transform hover:scale-110 shrink-0"
+                    style={{
+                      background: c,
+                      outline: color === c ? '2px solid white' : 'none',
+                      outlineOffset: 2,
+                    }}/>
+                ))}
+                <input type="color" value={color} onChange={e => setColor(e.target.value)}
+                  className="w-6 h-6 rounded cursor-pointer border-0 p-0"
+                  style={{ background:'transparent' }} title="Custom color"/>
+                <span className="font-mono text-xs text-gray-500">{color}</span>
+              </div>
+              {/* Preview swatch */}
+              <div className="mt-1.5 h-2 rounded" style={{ background: hexToRgba(color, 0.6), border:`1px solid ${color}` }}/>
+            </div>
+
+            {/* Line width */}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">
+                Line thickness — <span className="text-gray-300">{lineWidth}px</span>
+              </label>
+              <input
+                type="range" min={1} max={12} step={0.5}
+                value={lineWidth}
+                onChange={e => setLineWidth(Number(e.target.value))}
+                className="w-full accent-blue-400"
+              />
+              <div className="flex justify-between text-xs text-gray-700 mt-0.5">
+                <span>1</span><span>12</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="px-4 py-3 flex gap-2 justify-end" style={{ borderTop:'1px solid rgba(255,255,255,0.07)' }}>
+        )}
+
+        <div className="px-4 py-3 flex gap-2 justify-end"
+          style={{ borderTop:'1px solid rgba(255,255,255,0.07)' }}>
           <button onClick={onClose} className="btn-ghost text-xs px-3">Cancel</button>
-          <button onClick={handleSave} disabled={saving}
-            className="text-xs px-3 py-1.5 rounded transition-all"
+          <button onClick={handleSave} disabled={saving || loading}
+            className="text-xs px-3 py-1.5 rounded transition-all disabled:opacity-50"
             style={{ background:'rgba(77,166,255,0.15)', color:'#4da6ff', border:'1px solid rgba(77,166,255,0.3)' }}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -102,16 +192,17 @@ function RenameModal({ ann, onSave, onClose }) {
 
 // ── Single foldable annotation row ────────────────────────────────────────────
 function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, onToggleVisibility }) {
-  const [expanded, setExpanded] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  const [expanded, setExpanded]   = useState(false);
+  const [editing, setEditing]     = useState(false);
   const [localName, setLocalName] = useState(ann.annotation?.name || `Annotation ${idx + 1}`);
   const [localDesc, setLocalDesc] = useState(ann.annotation?.description || '');
+  const [localColor, setLocalColor] = useState(ann.annotation?.elements?.[0]?.lineColor || null);
   const [fullElements, setFullElements] = useState(null);
   const [loadingEl, setLoadingEl] = useState(false);
 
-  const annColor = ANN_COLORS[idx % ANN_COLORS.length];
+  const annColor = localColor || ANN_COLORS[idx % ANN_COLORS.length];
   const elements = fullElements || ann.annotation?.elements || [];
-  const elCount  = ann.annotation?.elementCount ?? elements.length;
+  const elCount  = ann.elementCount ?? ann.annotation?.elementCount ?? elements.length;
 
   const handleExpand = async () => {
     const next = !expanded;
@@ -121,21 +212,30 @@ function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, on
       try {
         const full = await getAnnotationFull(ann._id);
         setFullElements(full.annotation?.elements || []);
+        const el0 = full.annotation?.elements?.[0];
+        if (el0?.lineColor) setLocalColor(el0.lineColor);
       } catch(e) { console.error(e); }
       setLoadingEl(false);
     }
   };
 
-  const handleRename = (name, desc) => {
+  const handleEdit = ({ name, desc, color }) => {
     setLocalName(name);
     setLocalDesc(desc);
-    setRenaming(false);
+    if (color) setLocalColor(color);
+    setFullElements(null); // re-fetch elements next expand so they reflect the update
+    setEditing(false);
   };
 
   return (
     <>
-      {renaming && <RenameModal ann={{ ...ann, annotation: { ...ann.annotation, name: localName, description: localDesc }}}
-        onSave={handleRename} onClose={() => setRenaming(false)}/>}
+      {editing && (
+        <EditModal
+          ann={{ ...ann, annotation: { ...ann.annotation, name: localName, description: localDesc }}}
+          onSave={handleEdit}
+          onClose={() => setEditing(false)}
+        />
+      )}
 
       <div className="annotation-group" style={{ opacity: isVisible ? 1 : 0.4 }}>
         {/* ── Header row ── */}
@@ -185,8 +285,8 @@ function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, on
                 : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>}
             </button>
 
-            {/* Rename */}
-            <button title="Edit name" className="btn-icon" onClick={() => setRenaming(true)}>
+            {/* Edit (color + thickness + name) */}
+            <button title="Edit annotation" className="btn-icon" onClick={() => setEditing(true)}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -236,7 +336,13 @@ function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, on
 
 // ── Drawing controls bar ───────────────────────────────────────────────────────
 function DrawingControls() {
-  const { drawingMode, setDrawingMode, drawColor, setDrawColor, drawLabel, setDrawLabel, drawGroup, setDrawGroup } = useStore();
+  const {
+    drawingMode, setDrawingMode,
+    drawColor, setDrawColor,
+    drawLineWidth, setDrawLineWidth,
+    drawLabel, setDrawLabel,
+    drawGroup, setDrawGroup,
+  } = useStore();
   const [showSettings, setShowSettings] = useState(false);
 
   const tools = [
@@ -281,6 +387,7 @@ function DrawingControls() {
       {/* Drawing settings */}
       {showSettings && (
         <div className="space-y-2 pb-1">
+          {/* Color */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 w-10 shrink-0">Color</span>
             <div className="flex items-center gap-1 flex-wrap">
@@ -294,6 +401,20 @@ function DrawingControls() {
                 style={{ background:'transparent' }} title="Custom color"/>
             </div>
           </div>
+
+          {/* Line width */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 w-10 shrink-0">Width</span>
+            <input
+              type="range" min={1} max={12} step={0.5}
+              value={drawLineWidth || 2}
+              onChange={e => setDrawLineWidth(Number(e.target.value))}
+              className="flex-1 accent-blue-400"
+            />
+            <span className="text-xs text-gray-400 font-mono w-6 text-right">{drawLineWidth || 2}</span>
+          </div>
+
+          {/* Label */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 w-10 shrink-0">Label</span>
             <input value={drawLabel || ''} onChange={e => setDrawLabel(e.target.value)}
@@ -301,6 +422,8 @@ function DrawingControls() {
               className="flex-1 text-xs rounded px-2 py-1 outline-none"
               style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', color:'#d1d5db' }}/>
           </div>
+
+          {/* Group */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 w-10 shrink-0">Group</span>
             <input value={drawGroup || ''} onChange={e => setDrawGroup(e.target.value)}
@@ -337,27 +460,24 @@ export default function AnnotationsPanel() {
   } = useStore();
   const qc = useQueryClient();
 
-  // Fetch annotation list (headers only — elements may be truncated)
-  const { isLoading, isError } = useQuery({
+  // Fetch annotation list; ensure elements are present for canvas rendering.
+  // The list endpoint may omit elements — if so, fetch each annotation in full.
+  const { data: annData, isLoading, isError } = useQuery({
     queryKey: ['annotations', activeItem?._id],
     queryFn: async () => {
       const list = await getAnnotationList(activeItem._id);
-      // For each annotation with few elements, the list already includes them.
-      // For large ones, elements will be loaded on expand.
-      return list;
+      // For any annotation whose elements are missing, load them now
+      return Promise.all(
+        list.map(async (ann) => {
+          if ((ann.annotation?.elements ?? []).length > 0) return ann;
+          try { return await getAnnotationFull(ann._id); } catch { return ann; }
+        })
+      );
     },
     enabled: !!activeItem?._id,
     refetchOnWindowFocus: false,
-    onSuccess: setAnnotations,
   });
 
-  // TanStack v5 compat — onSuccess was removed; use useEffect instead
-  const { data: annData } = useQuery({
-    queryKey: ['annotations', activeItem?._id],
-    queryFn: () => getAnnotationList(activeItem._id),
-    enabled: !!activeItem?._id,
-    refetchOnWindowFocus: false,
-  });
   useEffect(() => { if (annData) setAnnotations(annData); }, [annData, setAnnotations]);
 
   const handleDelete = async (ann) => {
@@ -428,7 +548,8 @@ export default function AnnotationsPanel() {
         {isError && (
           <div className="text-xs text-red-400 text-center py-4 px-3">
             Failed to load annotations.
-            <button className="block mx-auto mt-1 underline" onClick={() => qc.invalidateQueries({ queryKey: ['annotations', activeItem?._id] })}>
+            <button className="block mx-auto mt-1 underline"
+              onClick={() => qc.invalidateQueries({ queryKey: ['annotations', activeItem?._id] })}>
               Retry
             </button>
           </div>

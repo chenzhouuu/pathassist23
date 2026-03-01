@@ -16,8 +16,8 @@ export default function AnnotationCanvas({ viewer }) {
   const {
     activeItem,
     drawingMode, setDrawingMode,
-    drawColor, drawLabel, drawGroup,
-    annotations,
+    drawColor, drawLineWidth, drawLabel, drawGroup,
+    annotations, setAnnotations,
     visibleAnnotations,
     selectedAnnotation,
   } = useStore();
@@ -94,26 +94,28 @@ export default function AnnotationCanvas({ viewer }) {
   const save = useCallback(async (element) => {
     if (!activeItem) return;
     const name  = drawLabel?.trim() || `${(drawGroup || 'Annotation')} ${new Date().toLocaleTimeString()}`;
-    const group = drawGroup || 'default';
 
-    // The API wrapper now wraps in { annotation: ... } automatically
-    // So we pass the annotation document directly
     const doc = {
       name,
       description: '',
-      attributes: { group },
+      attributes: { group: drawGroup || 'default' },
       elements: [element],
     };
 
     try {
-      await createAnnotation(activeItem._id, doc);
-      // Refresh annotation list
+      const created = await createAnnotation(activeItem._id, doc);
+      // Immediately add to store so canvas renders without waiting for list refetch.
+      // createAnnotation (POST /annotation) returns the full annotation with elements.
+      if (created?._id) {
+        const current = useStore.getState().annotations;
+        setAnnotations([created, ...current.filter(a => a._id !== created._id)]);
+      }
       qc.invalidateQueries({ queryKey: ['annotations', activeItem._id] });
     } catch (err) {
       console.error('[AnnotationCanvas] Save failed:', err?.response?.data || err.message);
       alert(`Failed to save annotation: ${err?.response?.data?.message || err.message}`);
     }
-  }, [activeItem, drawLabel, drawGroup, qc]);
+  }, [activeItem, drawLabel, drawGroup, setAnnotations, qc]);
 
   // ── Mouse events ────────────────────────────────────────────────────────────
   const onMouseDown = useCallback((e) => {
@@ -157,7 +159,14 @@ export default function AnnotationCanvas({ viewer }) {
     if (!xy) return;
     const d = ds.current;
     const color = drawColor || ANN_COLORS[0];
-    const opts  = { lineColor: color, fillColor: hexToRgba(color, 0.15), label: drawLabel, group: drawGroup };
+    const lw    = drawLineWidth || 2;
+    const opts  = {
+      lineColor: color,
+      lineWidth: lw,
+      fillColor: hexToRgba(color, 0.15),
+      label: drawLabel,
+      group: drawGroup,
+    };
 
     if (drawingMode === 'point') {
       d.active = false;
@@ -178,7 +187,7 @@ export default function AnnotationCanvas({ viewer }) {
       await save(makeEllipse(sx, sy, ex, ey, opts));
     }
     render();
-  }, [drawingMode, getImgCoords, drawColor, drawLabel, drawGroup, save, render]);
+  }, [drawingMode, getImgCoords, drawColor, drawLineWidth, drawLabel, drawGroup, save, render]);
 
   // Double-click finishes polygon / polyline
   const onDblClick = useCallback(async (e) => {
@@ -186,15 +195,22 @@ export default function AnnotationCanvas({ viewer }) {
     e.preventDefault();
     e.stopPropagation();
     const d = ds.current;
-    // Remove duplicate point added by the second click of dblclick
+    // Remove duplicate point added by the second mousedown of the dblclick
     const pts = d.points.length >= 3 ? d.points.slice(0, -1) : d.points;
     if (pts.length < 2) { d.active = false; d.points = []; render(); return; }
     d.active = false; d.points = [];
     const color = drawColor || ANN_COLORS[0];
-    const opts  = { lineColor: color, fillColor: hexToRgba(color, 0.15), label: drawLabel, group: drawGroup };
+    const lw    = drawLineWidth || 2;
+    const opts  = {
+      lineColor: color,
+      lineWidth: lw,
+      fillColor: hexToRgba(color, 0.15),
+      label: drawLabel,
+      group: drawGroup,
+    };
     render();
     await save(makePolyline(pts, drawingMode === 'polygon', opts));
-  }, [drawingMode, drawColor, drawLabel, drawGroup, save, render]);
+  }, [drawingMode, drawColor, drawLineWidth, drawLabel, drawGroup, save, render]);
 
   // Escape cancels drawing
   useEffect(() => {
