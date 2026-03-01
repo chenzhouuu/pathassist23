@@ -105,11 +105,28 @@ export const getJob = (id) => client.get(`/job/${id}`).then((r) => r.data);
 
 // ─── Slicer CLI execution ─────────────────────────────────────────────────────
 // GET the CLI's XML descriptor (describes parameters)
+// NOTE: imageName (e.g. "dsarchive/histomicstk") contains a real path slash —
+// the Slicer CLI Web route is /<namespace>/<image>/<cli>/xml so the slash must
+// NOT be percent-encoded (encodeURIComponent would turn it into %2F which breaks routing).
 export const getCliXml = (imageName, cliName) =>
-  client.get(`/slicer_cli_web/${encodeURIComponent(imageName)}/${cliName}/xml`, { responseType: 'text' })
+  client.get(`/slicer_cli_web/${imageName}/${cliName}/xml`, { responseType: 'text' })
     .then((r) => r.data);
 
 // POST to submit a Slicer CLI job. params is a plain object of parameter values.
 export const runCliJob = (imageName, cliName, params) =>
-  client.post(`/slicer_cli_web/${encodeURIComponent(imageName)}/${cliName}/run`, params)
+  client.post(`/slicer_cli_web/${imageName}/${cliName}/run`, params)
     .then((r) => r.data);
+
+// POST using the exact run path from the docker_image response (val.run).
+// This is more reliable than constructing the path ourselves because Girder
+// may use database IDs, encoded image names, or other formats we can't predict.
+export const runCliByPath = (runPath, params) => {
+  const path = runPath.startsWith('/') ? runPath : `/${runPath}`;
+  return client.post(path, params).then((r) => r.data);
+};
+
+// GET CLI XML using the xmlspec path from the docker_image response (val.xmlspec).
+export const getCliXmlByPath = (xmlPath) => {
+  const path = (xmlPath || '').startsWith('/') ? xmlPath : `/${xmlPath}`;
+  return client.get(path, { responseType: 'text' }).then((r) => r.data);
+};

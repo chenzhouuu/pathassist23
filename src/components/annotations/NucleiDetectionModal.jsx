@@ -2,8 +2,9 @@
 // Submit a Slicer CLI nuclei detection job for a selected ROI annotation.
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getDockerImages, getCliXml, runCliJob, getJob } from '../../api/index.js';
+import { getDockerImages, getCliXml, getCliXmlByPath, runCliJob, runCliByPath, getJob } from '../../api/index.js';
 import { getAnnotationBBox } from './annotationUtils.js';
+import { GIRDER_BASE } from '../../config/girder.js';
 
 // Parse Slicer CLI XML → extract parameter names by element type
 function parseCliXml(xmlText) {
@@ -28,65 +29,77 @@ function buildJobParams(cliParams, item, bbox) {
   const params = {};
   const itemRef  = JSON.stringify({ _id: item._id, _modelType: 'item' });
   const folderRef = JSON.stringify({ _id: item.folderId, _modelType: 'folder' });
-  const roiStr    = bbox ? `${bbox.x},${bbox.y},${bbox.width},${bbox.height}` : '-1,-1,-1,-1';
+
+  // Validate all 4 ROI values are finite numbers before building the string.
+  // If any value is undefined/NaN, Python silently drops non-numeric tokens,
+  // leaving fewer than 4 elements → ValueError in the CLI.
+  const bx = Number(bbox?.x), by = Number(bbox?.y);
+  const bw = Number(bbox?.width), bh = Number(bbox?.height);
+  const roiStr = (bbox && isFinite(bx) && isFinite(by) && bw > 0 && bh > 0)
+    ? `${Math.round(bx)},${Math.round(by)},${Math.round(bw)},${Math.round(bh)}`
+    : '-1,-1,-1,-1';
 
   if (cliParams.inputImage)  params[cliParams.inputImage]  = itemRef;
   if (cliParams.outputFile)  params[cliParams.outputFile]  = folderRef;
   if (cliParams.roiParam)    params[cliParams.roiParam]    = roiStr;
 
   // Always include these common Slicer CLI girder params
-  params['girderApiUrl']   = window.location.origin + '/api/v1';
+  // Use GIRDER_BASE so the worker calls the real server, not localhost (dev)
+  params['girderApiUrl']   = GIRDER_BASE;
   params['girderToken']    = localStorage.getItem('girderToken') || '';
   return params;
 }
 
-// Parse image+cliName from a slicer_cli_web URL regardless of prefix or extra segments.
-// Works for /slicer_cli_web/{img}/{cli}/run  AND  /api/v1/slicer_cli_web/{img}/{cli}/run
-function parseCLiUrl(url) {
-  try {
-    // Strip query string before parsing path segments
-    const path  = url.split('?')[0];
-    const parts = path.split('/').filter(Boolean);
-    // Find 'run' or 'xml' at the end, then work backwards
-    const last = parts[parts.length - 1];
-    if ((last === 'run' || last === 'xml') && parts.length >= 3) {
-      const cliName   = parts[parts.length - 2];
-      const imageName = decodeURIComponent(parts[parts.length - 3]);
-      if (url.includes('slicer_cli_web') && imageName && cliName) {
-        return { imageName, cliName };
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
-// Walk any JSON depth to find CLI entries (objects with run/xmlspec).
+// Extract CLIs using KEY names from the response (not URL parsing).
+// The docker_image API returns: { "imageName": { "cliName": { run, xmlspec, ... } } }
+// or: { "imageName": { "tag": { "cliName": { ... } } } }
+// We walk the structure and treat any key whose VALUE has run/xmlspec as a CLI name.
 function extractNucleiClis(images) {
   const pattern = /nucle|cell|detect|segment|hover|stardist|deepliif/i;
   const seen = new Set();
   const all  = [];
 
-  function walk(node, depth) {
-    if (!node || typeof node !== 'object' || depth > 6) return;
-    if (Array.isArray(node)) { node.forEach(n => walk(n, depth + 1)); return; }
-
-    const url = node.run || node.xmlspec;
-    if (url && typeof url === 'string') {
-      const parsed = parseCLiUrl(url);
-      if (parsed) {
-        const { imageName, cliName } = parsed;
-        const key = `${imageName}::${cliName}`;
-        if (pattern.test(cliName) && !seen.has(key)) {
-          seen.add(key);
-          all.push({ imageName, cliName });
-        }
-      }
-      return;
-    }
-    Object.values(node).forEach(v => walk(v, depth + 1));
+  function addCli(imageName, cliName, runUrl, xmlUrl) {
+    if (!pattern.test(cliName) && !pattern.test(imageName)) return;
+    const key = `${imageName}::${cliName}`;
+    // Capture the run/xml URLs exactly as Girder provides them — these are the
+    // actual registered route paths. Using them directly avoids guessing the
+    // URL encoding/format (e.g. with or without tag, encoded slashes, etc.).
+    if (!seen.has(key)) { seen.add(key); all.push({ imageName, cliName, runUrl, xmlUrl }); }
   }
 
-  walk(images, 0);
+  function scanUnderImage(node, imageName, depth) {
+    if (!node || typeof node !== 'object' || depth > 4) return;
+    Object.entries(node).forEach(([key, val]) => {
+      if (!val || typeof val !== 'object') return;
+      if (val.run || val.xmlspec || val.type) {
+        // key is a CLI name; val.run / val.xmlspec are the Girder-provided endpoint paths
+        addCli(imageName, key, val.run, val.xmlspec);
+      } else {
+        // key might be a tag — recurse one more level
+        scanUnderImage(val, imageName, depth + 1);
+      }
+    });
+  }
+
+  if (!images || typeof images !== 'object') return all;
+
+  if (Array.isArray(images)) {
+    // Array format: [{ image, tag, CLIList }]
+    images.forEach(img => {
+      const name = img.image || img.name || '';
+      const tag  = img.tag || '';
+      const full = tag ? `${name}:${tag}` : name;
+      scanUnderImage(img.CLIList || img.cliList || {}, full, 0);
+    });
+  } else {
+    // Object format: top-level keys are image names
+    Object.entries(images).forEach(([imageName, val]) => {
+      scanUnderImage(val, imageName, 0);
+    });
+  }
+
+  console.log('[NucleiModal] extractNucleiClis result:', JSON.stringify(all));
   return all;
 }
 
@@ -142,9 +155,12 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
           try {
             await getCliXml(imageName, cliName);
             probed.push({ imageName, cliName });
-          } catch (_) {}
+          } catch (e) {
+            console.log(`[NucleiModal] probe failed: ${imageName}/${cliName} →`, e?.response?.status, e?.message);
+          }
         }
       }
+      console.log('[NucleiModal] probe result:', probed);
       setClis(probed);
       if (probed.length === 1) setSelected(probed[0]);
       setLoadingClis(false);
@@ -184,10 +200,13 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
     setErrorMsg('');
     setJobStatus(null);
     try {
-      // Fetch CLI XML to understand parameter names
+      // Fetch CLI XML to understand parameter names.
+      // Prefer the xmlspec URL Girder gave us; fall back to constructing it.
       let cliParams = {};
       try {
-        const xml = await getCliXml(selected.imageName, selected.cliName);
+        const xml = selected.xmlUrl
+          ? await getCliXmlByPath(selected.xmlUrl)
+          : await getCliXml(selected.imageName, selected.cliName);
         cliParams = parseCliXml(xml);
       } catch (_) {
         // If XML fetch fails, use fallback common parameter names
@@ -195,7 +214,12 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
       }
 
       const params = buildJobParams(cliParams, item, bbox);
-      const job = await runCliJob(selected.imageName, selected.cliName, params);
+
+      // Prefer the run URL Girder gave us; fall back to constructing it.
+      const job = selected.runUrl
+        ? await runCliByPath(selected.runUrl, params)
+        : await runCliJob(selected.imageName, selected.cliName, params);
+
       if (!job?._id) throw new Error('No job ID returned');
       setJobStatus(job);
       pollJob(job._id);
