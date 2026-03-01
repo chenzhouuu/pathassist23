@@ -44,7 +44,9 @@ function buildJobParams(cliParams, item, bbox) {
 // Works for /slicer_cli_web/{img}/{cli}/run  AND  /api/v1/slicer_cli_web/{img}/{cli}/run
 function parseCLiUrl(url) {
   try {
-    const parts = url.split('/').filter(Boolean);
+    // Strip query string before parsing path segments
+    const path  = url.split('?')[0];
+    const parts = path.split('/').filter(Boolean);
     // Find 'run' or 'xml' at the end, then work backwards
     const last = parts[parts.length - 1];
     if ((last === 'run' || last === 'xml') && parts.length >= 3) {
@@ -103,23 +105,25 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
 
   const [rawApiInfo, setRawApiInfo] = useState('');
 
-  // Load available CLIs — try API first, then probe known HistomicsTK CLIs as fallback
+  // Load available CLIs — try API first, then probe using actual image names as fallback
   useEffect(() => {
-    const PROBE_IMAGES = ['dsarchive/histomicstk:latest', 'dsarchive/histomicstk_extras:latest'];
-    const PROBE_CLIS   = ['NucleiDetection', 'NucleiClassification', 'ComputeNucleiFeatures'];
+    const PROBE_CLIS = ['NucleiDetection', 'NucleiClassification', 'ComputeNucleiFeatures'];
 
     async function load() {
-      // Step 1: try to parse docker_image API response
-      let fromApi = [];
+      let images = null;
+      let imageKeys = [];
+
+      // Step 1: fetch docker_image list
       try {
-        const images = await getDockerImages();
-        const keys = images ? Object.keys(images) : [];
-        setRawApiInfo(`API keys(${keys.length}): ${keys.slice(0,6).join(', ')}`);
-        fromApi = extractNucleiClis(images);
+        images = await getDockerImages();
+        imageKeys = images ? Object.keys(images) : [];
+        setRawApiInfo(`API keys(${imageKeys.length}): ${imageKeys.slice(0, 6).join(', ')}`);
       } catch (e) {
         setRawApiInfo(`API error: ${e?.message}`);
       }
 
+      // Step 2: try to extract CLIs from response structure
+      const fromApi = extractNucleiClis(images);
       if (fromApi.length > 0) {
         setClis(fromApi);
         if (fromApi.length === 1) setSelected(fromApi[0]);
@@ -127,9 +131,13 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
         return;
       }
 
-      // Step 2: fallback — probe known HistomicsTK CLIs directly
+      // Step 3: fallback — probe using ACTUAL image names from the API keys
+      const probeImages = imageKeys.length > 0
+        ? imageKeys
+        : ['dsarchive/histomicstk', 'dsarchive/histomicstk:latest'];
+
       const probed = [];
-      for (const imageName of PROBE_IMAGES) {
+      for (const imageName of probeImages) {
         for (const cliName of PROBE_CLIS) {
           try {
             await getCliXml(imageName, cliName);
