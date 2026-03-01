@@ -8,6 +8,7 @@ import {
 import AnnotationCanvas from '../annotations/AnnotationCanvas.jsx';
 import ViewerToolbar from './ViewerToolbar.jsx';
 import MagnificationBar from './MagnificationBar.jsx';
+import MeasureTool from './MeasureTool.jsx';
 import { GIRDER_BASE } from '../../config/girder.js';
 
 const LARGE_IMAGE_EXTS = ['svs','ndpi','scn','czi','lif','qptiff','tiff','tif','btf','tf2','tf8','mrxs','vms','vmu','vsf','ome.tif','ome.tiff'];
@@ -421,6 +422,9 @@ export default function ViewerPanel() {
 
         {/* Annotation canvas */}
         {activeItem && status.state === 'ok' && <AnnotationCanvas viewer={osdRef}/>}
+
+        {/* Measure tool overlay */}
+        {activeItem && status.state === 'ok' && <MeasureTool viewer={osdRef}/>}
 
         {/* Status bar */}
         {status.state === 'ok' && (

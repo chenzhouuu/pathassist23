@@ -110,10 +110,23 @@ export default function ViewerToolbar({ viewer }) {
       </ToolBtn>
 
       {/* Color preview dot */}
-      {drawingMode && (
+      {drawingMode && drawingMode !== 'measure' && (
         <div className="w-4 h-4 rounded-full ml-1 ring-1 ring-white/20 shrink-0"
           style={{ background: activeColor }}/>
       )}
+
+      <div className="divider"/>
+
+      {/* Measure tool */}
+      <ToolBtn title="Measure distance [M]" active={drawingMode === 'measure'} onClick={() => toggleDraw('measure')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <line x1="2" y1="8" x2="2" y2="16"/>
+          <line x1="22" y1="8" x2="22" y2="16"/>
+          <line x1="8" y1="10" x2="8" y2="14"/>
+          <line x1="14" y1="10" x2="14" y2="14"/>
+        </svg>
+      </ToolBtn>
 
       <div className="divider"/>
 
