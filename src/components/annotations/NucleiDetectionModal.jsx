@@ -44,15 +44,38 @@ function buildJobParams(cliParams, item, bbox) {
 function extractNucleiClis(images) {
   const pattern = /nucle|cell|detect|segment|hover|stardist|deepliif/i;
   const all = [];
-  (images || []).forEach(img => {
-    const imgName = img.name || img.image || img;
-    const cliList = img.CLIList || img.cliList || [];
-    Object.keys(cliList).forEach(cliName => {
-      if (pattern.test(cliName) || pattern.test(imgName)) {
-        all.push({ imageName: imgName, cliName });
-      }
+
+  if (Array.isArray(images)) {
+    // Array format: [{ image, tag, CLIList }, ...]
+    images.forEach(img => {
+      const imgName = img.image || img.name || String(img);
+      const tag     = img.tag ? `:${img.tag}` : '';
+      const fullName = tag ? `${imgName}${tag}` : imgName;
+      const cliList  = img.CLIList || img.cliList || {};
+      Object.keys(cliList).forEach(cliName => {
+        if (pattern.test(cliName) || pattern.test(imgName)) {
+          all.push({ imageName: fullName, cliName });
+        }
+      });
     });
-  });
+  } else if (images && typeof images === 'object') {
+    // Object format: { "imageName": { "tag": { CLIList: {...} } } }
+    Object.keys(images).forEach(imageName => {
+      const tags = images[imageName];
+      Object.keys(tags || {}).forEach(tag => {
+        const entry   = tags[tag];
+        const cliList = entry?.CLIList || entry?.cliList || {};
+        const fullName = `${imageName}:${tag}`;
+        Object.keys(cliList).forEach(cliName => {
+          if (pattern.test(cliName) || pattern.test(imageName)) {
+            all.push({ imageName: fullName, cliName });
+          }
+        });
+      });
+    });
+  }
+
+  console.debug('[NucleiModal] extracted CLIs:', all);
   return all;
 }
 
