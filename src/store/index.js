@@ -113,6 +113,7 @@ export const useStore = create((set, get) => ({
   rightPanelOpen: true,
   rightPanelTab: 'annotations',
   setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
+  setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),

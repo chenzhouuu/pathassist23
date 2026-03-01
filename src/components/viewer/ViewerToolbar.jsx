@@ -2,6 +2,7 @@
 import React from 'react';
 import { useStore } from '../../store/index.js';
 import { hexToRgba } from '../annotations/annotationUtils.js';
+import ImageFilters from './ImageFilters.jsx';
 
 const ToolBtn = ({ title, active, onClick, children, color }) => (
   <button
@@ -81,6 +82,11 @@ export default function ViewerToolbar({ viewer }) {
           <path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
         </svg>
       </ToolBtn>
+
+      <div className="divider"/>
+
+      {/* Image filters */}
+      <ImageFilters viewer={viewer}/>
 
       <div className="divider"/>
 

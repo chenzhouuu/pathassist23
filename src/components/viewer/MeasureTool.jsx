@@ -1,27 +1,28 @@
 // src/components/viewer/MeasureTool.jsx
 // Click two points on the slide to measure distance in μm (or mm / px).
-// Disable OSD mouse navigation while active so clicks don't pan.
+// The overlay div captures pointer events while active, bypassing OSD entirely.
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 
 export default function MeasureTool({ viewer }) {
   const { tilesInfo, drawingMode, setDrawingMode } = useStore();
 
-  // Use a ref for p1 so the click handler always sees the latest value
-  // without needing to re-register the event listener on every state change.
-  const p1Ref = useRef(null);
-  const [p1, setP1] = useState(null);        // { svgX, svgY, imgX, imgY }
-  const [mouse, setMouse] = useState(null);  // { svgX, svgY, imgX, imgY }
-  const [result, setResult] = useState(null);// { label, ax, ay, bx, by, mx, my }
+  const p1Ref    = useRef(null);
+  const overlayRef = useRef(null);
+  const [p1,     setP1]     = useState(null);   // { svgX, svgY, imgX, imgY }
+  const [mouse,  setMouse]  = useState(null);   // { svgX, svgY, imgX, imgY }
+  const [result, setResult] = useState(null);   // { label, ax, ay, bx, by, mx, my }
 
-  const mppRef = useRef(null); // keep mpp accessible in stable callbacks
+  const mppRef = useRef(null);
   mppRef.current = tilesInfo?.mm_x ? tilesInfo.mm_x * 1000 : null;
 
-  // ── Coordinate helper ───────────────────────────────────────────────────────
+  // ── Coordinate helper ─────────────────────────────────────────────────────
+  // Uses the overlay div's bounding rect (same position as OSD element).
   const getCoords = useCallback((e) => {
     const osd = viewer.current;
     if (!osd?.element) return null;
-    const rect = osd.element.getBoundingClientRect();
+    const el = overlayRef.current ?? osd.element;
+    const rect = el.getBoundingClientRect();
     const svgX = e.clientX - rect.left;
     const svgY = e.clientY - rect.top;
     const OSD = window.OpenSeadragon;
@@ -34,7 +35,7 @@ export default function MeasureTool({ viewer }) {
     }
   }, [viewer]);
 
-  // ── Disable OSD panning while measure mode is active ───────────────────────
+  // ── Disable OSD panning while active ─────────────────────────────────────
   useEffect(() => {
     const osd = viewer.current;
     if (!osd) return;
@@ -42,7 +43,6 @@ export default function MeasureTool({ viewer }) {
       osd.setMouseNavEnabled(false);
     } else {
       osd.setMouseNavEnabled(true);
-      // Reset all state when exiting measure mode
       p1Ref.current = null;
       setP1(null);
       setMouse(null);
@@ -51,12 +51,11 @@ export default function MeasureTool({ viewer }) {
     return () => { osd.setMouseNavEnabled(true); };
   }, [drawingMode, viewer]);
 
-  // ── Mouse / click / keyboard event listeners ───────────────────────────────
+  // ── Pointer events on the overlay div (not on osd.element) ───────────────
   useEffect(() => {
     if (drawingMode !== 'measure') return;
-    const osd = viewer.current;
-    if (!osd?.element) return;
-    const el = osd.element;
+    const overlay = overlayRef.current;
+    if (!overlay) return;
 
     const onMove = (e) => {
       const c = getCoords(e);
@@ -69,12 +68,12 @@ export default function MeasureTool({ viewer }) {
       if (!c) return;
 
       if (!p1Ref.current) {
-        // First click → set start point
+        // First click — set start point
         p1Ref.current = c;
         setP1(c);
         setResult(null);
       } else {
-        // Second click → compute & display distance
+        // Second click — compute distance
         const prev = p1Ref.current;
         const dx = c.imgX - prev.imgX;
         const dy = c.imgY - prev.imgY;
@@ -101,7 +100,6 @@ export default function MeasureTool({ viewer }) {
 
     const onKey = (e) => {
       if (e.key === 'Escape') { setDrawingMode(null); }
-      // 'c' clears last result and resets for a new measurement
       if (e.key === 'c' || e.key === 'C') {
         p1Ref.current = null;
         setP1(null);
@@ -109,19 +107,19 @@ export default function MeasureTool({ viewer }) {
       }
     };
 
-    el.addEventListener('mousemove', onMove);
-    el.addEventListener('click', onClick);
+    overlay.addEventListener('mousemove', onMove);
+    overlay.addEventListener('click', onClick);
     window.addEventListener('keydown', onKey);
     return () => {
-      el.removeEventListener('mousemove', onMove);
-      el.removeEventListener('click', onClick);
+      overlay.removeEventListener('mousemove', onMove);
+      overlay.removeEventListener('click', onClick);
       window.removeEventListener('keydown', onKey);
     };
-  }, [drawingMode, viewer, getCoords, setDrawingMode]);
+  }, [drawingMode, getCoords, setDrawingMode]);
 
   if (drawingMode !== 'measure') return null;
 
-  // ── Live distance label while dragging ─────────────────────────────────────
+  // ── Live distance while dragging ──────────────────────────────────────────
   const liveLabel = (() => {
     if (!p1 || !mouse) return null;
     const dx = mouse.imgX - p1.imgX;
@@ -134,19 +132,23 @@ export default function MeasureTool({ viewer }) {
   })();
 
   return (
-    <div className="absolute inset-0 z-30" style={{ pointerEvents: 'none' }}>
-
+    // pointerEvents: auto — the overlay captures clicks, OSD is behind it
+    <div
+      ref={overlayRef}
+      className="absolute inset-0 z-30"
+      style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
+    >
       {/* SVG overlay — lines, circles, labels */}
-      <svg className="absolute inset-0 w-full h-full" style={{ overflow: 'visible' }}>
+      <svg className="absolute inset-0 w-full h-full" style={{ overflow: 'visible', pointerEvents: 'none' }}>
 
-        {/* ── Rubber-band line (point 1 set, waiting for point 2) ── */}
+        {/* ── Rubber-band line (p1 set, waiting for second click) ── */}
         {p1 && mouse && (
           <>
             <line x1={p1.svgX} y1={p1.svgY} x2={mouse.svgX} y2={mouse.svgY}
               stroke="#f5a623" strokeWidth="1.5" strokeDasharray="6 3" strokeLinecap="round"/>
             {/* Start dot */}
             <circle cx={p1.svgX} cy={p1.svgY} r="5" fill="#f5a623"/>
-            <circle cx={p1.svgX} cy={p1.svgY} r="8" fill="none" stroke="#f5a623" strokeWidth="1" opacity="0.4"/>
+            <circle cx={p1.svgX} cy={p1.svgY} r="9" fill="none" stroke="#f5a623" strokeWidth="1" opacity="0.4"/>
             {/* Cursor dot */}
             <circle cx={mouse.svgX} cy={mouse.svgY} r="3" fill="#f5a623" opacity="0.8"/>
             {/* Live distance badge at midpoint */}
@@ -179,7 +181,7 @@ export default function MeasureTool({ viewer }) {
             {/* Main line */}
             <line x1={result.ax} y1={result.ay} x2={result.bx} y2={result.by}
               stroke="#4caf82" strokeWidth="2" strokeLinecap="round"/>
-            {/* End-cap ticks (perpendicular) */}
+            {/* End-cap ticks */}
             {(() => {
               const dx = result.bx - result.ax, dy = result.by - result.ay;
               const len = Math.hypot(dx, dy) || 1;
@@ -223,18 +225,19 @@ export default function MeasureTool({ viewer }) {
           fontFamily: 'monospace',
           whiteSpace: 'nowrap',
           userSelect: 'none',
+          pointerEvents: 'none',
         }}>
           {p1 ? 'Click endpoint · C=clear · Esc=exit' : 'Click start point'}
         </div>
       )}
 
-      {/* ── Result badge with clear button (bottom of screen) ── */}
+      {/* ── Result badge (bottom-center) ── */}
       {result && (
         <div style={{
           position: 'absolute', bottom: 48, left: '50%', transform: 'translateX(-50%)',
           display: 'flex', alignItems: 'center', gap: 8,
           background: 'rgba(10,15,25,0.9)', border: '1px solid rgba(76,175,130,0.4)',
-          borderRadius: 8, padding: '6px 14px', pointerEvents: 'auto',
+          borderRadius: 8, padding: '6px 14px',
         }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2">
             <line x1="2" y1="12" x2="22" y2="12"/>
