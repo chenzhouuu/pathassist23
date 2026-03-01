@@ -40,41 +40,51 @@ function buildJobParams(cliParams, item, bbox) {
   return params;
 }
 
-// Walk any JSON structure and collect CLIs by extracting image+cliName from run/xmlspec URLs.
-// This is format-agnostic: it finds every node that has a "run" or "xmlspec" property,
-// then reads image+cliName straight from the URL path.
+// Parse image+cliName from a slicer_cli_web URL regardless of prefix or extra segments.
+// Works for /slicer_cli_web/{img}/{cli}/run  AND  /api/v1/slicer_cli_web/{img}/{cli}/run
+function parseCLiUrl(url) {
+  try {
+    const parts = url.split('/').filter(Boolean);
+    // Find 'run' or 'xml' at the end, then work backwards
+    const last = parts[parts.length - 1];
+    if ((last === 'run' || last === 'xml') && parts.length >= 3) {
+      const cliName   = parts[parts.length - 2];
+      const imageName = decodeURIComponent(parts[parts.length - 3]);
+      if (url.includes('slicer_cli_web') && imageName && cliName) {
+        return { imageName, cliName };
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Walk any JSON depth to find CLI entries (objects with run/xmlspec).
 function extractNucleiClis(images) {
   const pattern = /nucle|cell|detect|segment|hover|stardist|deepliif/i;
   const seen = new Set();
   const all  = [];
 
   function walk(node, depth) {
-    if (!node || typeof node !== 'object' || depth > 5) return;
+    if (!node || typeof node !== 'object' || depth > 6) return;
     if (Array.isArray(node)) { node.forEach(n => walk(n, depth + 1)); return; }
 
     const url = node.run || node.xmlspec;
     if (url && typeof url === 'string') {
-      // URL format: /slicer_cli_web/{encodedImage}/{cliName}/run  (or /xml)
-      const parts = url.split('/').filter(Boolean);
-      if (parts.length >= 3 && parts[0] === 'slicer_cli_web') {
-        try {
-          const imageName = decodeURIComponent(parts[1]);
-          const cliName   = parts[2];
-          const key = `${imageName}::${cliName}`;
-          if (pattern.test(cliName) && !seen.has(key)) {
-            seen.add(key);
-            all.push({ imageName, cliName });
-          }
-        } catch (_) {}
+      const parsed = parseCLiUrl(url);
+      if (parsed) {
+        const { imageName, cliName } = parsed;
+        const key = `${imageName}::${cliName}`;
+        if (pattern.test(cliName) && !seen.has(key)) {
+          seen.add(key);
+          all.push({ imageName, cliName });
+        }
       }
-      return; // leaf node — no need to recurse further
+      return;
     }
-
     Object.values(node).forEach(v => walk(v, depth + 1));
   }
 
   walk(images, 0);
-  console.log('[NucleiModal] extracted CLIs:', all);
   return all;
 }
 
@@ -91,17 +101,48 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
   const [jobStatus, setJobStatus] = useState(null);    // job object from Girder
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Load available CLIs
+  const [rawApiInfo, setRawApiInfo] = useState('');
+
+  // Load available CLIs — try API first, then probe known HistomicsTK CLIs as fallback
   useEffect(() => {
-    getDockerImages()
-      .then(images => {
-        console.log('[NucleiModal] raw docker images response:', JSON.stringify(images, null, 2));
-        const filtered = extractNucleiClis(images);
-        setClis(filtered);
-        if (filtered.length === 1) setSelected(filtered[0]);
-      })
-      .catch(e => console.error('[NucleiModal] Failed to load CLIs:', e))
-      .finally(() => setLoadingClis(false));
+    const PROBE_IMAGES = ['dsarchive/histomicstk:latest', 'dsarchive/histomicstk_extras:latest'];
+    const PROBE_CLIS   = ['NucleiDetection', 'NucleiClassification', 'ComputeNucleiFeatures'];
+
+    async function load() {
+      // Step 1: try to parse docker_image API response
+      let fromApi = [];
+      try {
+        const images = await getDockerImages();
+        const keys = images ? Object.keys(images) : [];
+        setRawApiInfo(`API keys(${keys.length}): ${keys.slice(0,6).join(', ')}`);
+        fromApi = extractNucleiClis(images);
+      } catch (e) {
+        setRawApiInfo(`API error: ${e?.message}`);
+      }
+
+      if (fromApi.length > 0) {
+        setClis(fromApi);
+        if (fromApi.length === 1) setSelected(fromApi[0]);
+        setLoadingClis(false);
+        return;
+      }
+
+      // Step 2: fallback — probe known HistomicsTK CLIs directly
+      const probed = [];
+      for (const imageName of PROBE_IMAGES) {
+        for (const cliName of PROBE_CLIS) {
+          try {
+            await getCliXml(imageName, cliName);
+            probed.push({ imageName, cliName });
+          } catch (_) {}
+        }
+      }
+      setClis(probed);
+      if (probed.length === 1) setSelected(probed[0]);
+      setLoadingClis(false);
+    }
+
+    load();
   }, []);
 
   // Poll job status
@@ -214,6 +255,7 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
                 ) : clis.length === 0 ? (
                   <div className="text-xs rounded-lg p-3" style={{ background: 'rgba(233,69,96,0.08)', border: '1px solid rgba(233,69,96,0.2)', color: '#e94560' }}>
                     No nuclei detection CLIs found in Girder.
+                    {rawApiInfo && <div className="font-mono text-yellow-600 mt-1 text-xs break-all">{rawApiInfo}</div>}
                     <div className="text-gray-500 mt-1">
                       Install a nuclei detection Docker image (e.g. HistomicsTK, HoVer-Net, StarDist) via the Girder admin panel.
                     </div>
