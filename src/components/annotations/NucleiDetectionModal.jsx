@@ -40,67 +40,41 @@ function buildJobParams(cliParams, item, bbox) {
   return params;
 }
 
-// Flatten docker image list into { imageName, cliName } pairs filtered by nuclei-related names
-// Extract image name from a run/xmlspec URL: /slicer_cli_web/{encodedImage}/{cli}/run
-function imageNameFromUrl(url) {
-  try {
-    const parts = url.split('/').filter(Boolean);
-    // parts: ['slicer_cli_web', encodedImage, cliName, 'run'|'xml']
-    if (parts.length >= 2 && parts[0] === 'slicer_cli_web') {
-      return decodeURIComponent(parts[1]);
-    }
-  } catch (_) {}
-  return '';
-}
-
+// Walk any JSON structure and collect CLIs by extracting image+cliName from run/xmlspec URLs.
+// This is format-agnostic: it finds every node that has a "run" or "xmlspec" property,
+// then reads image+cliName straight from the URL path.
 function extractNucleiClis(images) {
   const pattern = /nucle|cell|detect|segment|hover|stardist|deepliif/i;
-  const all = [];
+  const seen = new Set();
+  const all  = [];
 
-  if (Array.isArray(images)) {
-    // Array format: [{ image, tag, CLIList }, ...]
-    images.forEach(img => {
-      const imgName  = img.image || img.name || String(img);
-      const tag      = img.tag ? `:${img.tag}` : '';
-      const fullName = tag ? `${imgName}${tag}` : imgName;
-      const cliList  = img.CLIList || img.cliList || {};
-      Object.keys(cliList).forEach(cliName => {
-        if (pattern.test(cliName) || pattern.test(imgName)) {
-          all.push({ imageName: fullName, cliName });
-        }
-      });
-    });
-  } else if (images && typeof images === 'object') {
-    const firstVal = Object.values(images)[0];
-    const isFlatCliMap = firstVal && typeof firstVal === 'object' && (firstVal.run || firstVal.xmlspec);
+  function walk(node, depth) {
+    if (!node || typeof node !== 'object' || depth > 5) return;
+    if (Array.isArray(node)) { node.forEach(n => walk(n, depth + 1)); return; }
 
-    if (isFlatCliMap) {
-      // Flat format (DSA actual): { "CLIName": { run: "/slicer_cli_web/{img}/{cli}/run", ... } }
-      Object.keys(images).forEach(cliName => {
-        if (!pattern.test(cliName)) return;
-        const entry     = images[cliName];
-        const imageName = imageNameFromUrl(entry.run || entry.xmlspec || '');
-        all.push({ imageName, cliName });
-      });
-    } else {
-      // Nested format: { "imageName": { "tag": { CLIList: {...} } } }
-      Object.keys(images).forEach(imageName => {
-        const tags = images[imageName];
-        Object.keys(tags || {}).forEach(tag => {
-          const entry   = tags[tag];
-          const cliList = entry?.CLIList || entry?.cliList || {};
-          const fullName = `${imageName}:${tag}`;
-          Object.keys(cliList).forEach(cliName => {
-            if (pattern.test(cliName) || pattern.test(imageName)) {
-              all.push({ imageName: fullName, cliName });
-            }
-          });
-        });
-      });
+    const url = node.run || node.xmlspec;
+    if (url && typeof url === 'string') {
+      // URL format: /slicer_cli_web/{encodedImage}/{cliName}/run  (or /xml)
+      const parts = url.split('/').filter(Boolean);
+      if (parts.length >= 3 && parts[0] === 'slicer_cli_web') {
+        try {
+          const imageName = decodeURIComponent(parts[1]);
+          const cliName   = parts[2];
+          const key = `${imageName}::${cliName}`;
+          if (pattern.test(cliName) && !seen.has(key)) {
+            seen.add(key);
+            all.push({ imageName, cliName });
+          }
+        } catch (_) {}
+      }
+      return; // leaf node — no need to recurse further
     }
+
+    Object.values(node).forEach(v => walk(v, depth + 1));
   }
 
-  console.debug('[NucleiModal] extracted CLIs:', all);
+  walk(images, 0);
+  console.log('[NucleiModal] extracted CLIs:', all);
   return all;
 }
 
