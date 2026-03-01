@@ -118,11 +118,11 @@ export const runCliJob = (imageName, cliName, params) =>
     .then((r) => r.data);
 
 // POST using the exact run path from the docker_image response (val.run).
-// This is more reliable than constructing the path ourselves because Girder
-// may use database IDs, encoded image names, or other formats we can't predict.
+// Slicer CLI Web expects application/x-www-form-urlencoded (not JSON).
+// URLSearchParams serialises the plain-object params as form fields automatically.
 export const runCliByPath = (runPath, params) => {
   const path = runPath.startsWith('/') ? runPath : `/${runPath}`;
-  return client.post(path, params).then((r) => r.data);
+  return client.post(path, new URLSearchParams(params)).then((r) => r.data);
 };
 
 // GET CLI XML using the xmlspec path from the docker_image response (val.xmlspec).

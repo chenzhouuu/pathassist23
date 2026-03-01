@@ -11,13 +11,33 @@ function parseCliXml(xmlText) {
   try {
     const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
     const params = {};
-    const find = (tag) => doc.querySelector(tag)?.querySelector('name')?.textContent?.trim();
-    // Common tags for image input, output file, and region
-    params.inputImage  = find('image') || find('item') || find('file');
-    params.outputFile  = find('new-file') || find('file-out');
-    params.roiParam    = find('region') || find('roi');
+
+    // Find the <name> text of the first element matching `tag` whose optional
+    // <channel> child equals `channel` (if provided).
+    const findName = (tag, channel) => {
+      for (const el of doc.querySelectorAll(tag)) {
+        const ch = el.querySelector('channel')?.textContent?.trim();
+        if (!channel || ch === channel) {
+          const name = el.querySelector('name')?.textContent?.trim();
+          if (name) return name;
+        }
+      }
+      return undefined;
+    };
+
+    // NucleiDetection uses <image channel=input>, <new-file channel=output>,
+    // and <float-vector> for analysis_roi (NOT <region>).
+    params.inputImage = findName('image', 'input') || findName('image') || findName('item', 'input');
+    // HistomicsTK uses <new-file> not <file channel="output">
+    params.outputFile = findName('new-file', 'output') || findName('new-file')
+                      || findName('file', 'output') || findName('file-out');
+    // HistomicsTK encodes ROI as <float-vector name="analysis_roi">, not <region>
+    params.roiParam   = findName('region') || findName('roi')
+                      || findName('float-vector') || undefined;
     params.title       = doc.querySelector('title')?.textContent?.trim() || '';
     params.description = doc.querySelector('description')?.textContent?.trim() || '';
+
+    console.log('[NucleiModal] parsed CLI params:', params);
     return params;
   } catch (_) {
     return {};
@@ -209,11 +229,12 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
           : await getCliXml(selected.imageName, selected.cliName);
         cliParams = parseCliXml(xml);
       } catch (_) {
-        // If XML fetch fails, use fallback common parameter names
-        cliParams = { inputImage: 'inputImageFile', outputFile: 'outputAnnotationFile', roiParam: 'analysis_roi' };
+        // If XML fetch fails, use HistomicsTK NucleiDetection param names as fallback
+        cliParams = { inputImage: 'inputImageFile', outputFile: 'outputNucleiAnnotationFile', roiParam: 'analysis_roi' };
       }
 
       const params = buildJobParams(cliParams, item, bbox);
+      console.log('[NucleiModal] submitting job params:', params);
 
       // Prefer the run URL Girder gave us; fall back to constructing it.
       const job = selected.runUrl
@@ -225,7 +246,10 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
       pollJob(job._id);
     } catch (e) {
       setStep('error');
-      setErrorMsg(e?.response?.data?.message || e?.message || 'Job submission failed');
+      const serverMsg = e?.response?.data?.message || e?.response?.data;
+      const detail = typeof serverMsg === 'string' ? serverMsg : JSON.stringify(serverMsg);
+      console.error('[NucleiModal] job error:', e?.response?.status, e?.response?.data, e?.message);
+      setErrorMsg(detail || e?.message || 'Job submission failed');
     }
   };
 
