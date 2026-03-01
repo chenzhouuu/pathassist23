@@ -41,6 +41,18 @@ function buildJobParams(cliParams, item, bbox) {
 }
 
 // Flatten docker image list into { imageName, cliName } pairs filtered by nuclei-related names
+// Extract image name from a run/xmlspec URL: /slicer_cli_web/{encodedImage}/{cli}/run
+function imageNameFromUrl(url) {
+  try {
+    const parts = url.split('/').filter(Boolean);
+    // parts: ['slicer_cli_web', encodedImage, cliName, 'run'|'xml']
+    if (parts.length >= 2 && parts[0] === 'slicer_cli_web') {
+      return decodeURIComponent(parts[1]);
+    }
+  } catch (_) {}
+  return '';
+}
+
 function extractNucleiClis(images) {
   const pattern = /nucle|cell|detect|segment|hover|stardist|deepliif/i;
   const all = [];
@@ -48,8 +60,8 @@ function extractNucleiClis(images) {
   if (Array.isArray(images)) {
     // Array format: [{ image, tag, CLIList }, ...]
     images.forEach(img => {
-      const imgName = img.image || img.name || String(img);
-      const tag     = img.tag ? `:${img.tag}` : '';
+      const imgName  = img.image || img.name || String(img);
+      const tag      = img.tag ? `:${img.tag}` : '';
       const fullName = tag ? `${imgName}${tag}` : imgName;
       const cliList  = img.CLIList || img.cliList || {};
       Object.keys(cliList).forEach(cliName => {
@@ -59,20 +71,33 @@ function extractNucleiClis(images) {
       });
     });
   } else if (images && typeof images === 'object') {
-    // Object format: { "imageName": { "tag": { CLIList: {...} } } }
-    Object.keys(images).forEach(imageName => {
-      const tags = images[imageName];
-      Object.keys(tags || {}).forEach(tag => {
-        const entry   = tags[tag];
-        const cliList = entry?.CLIList || entry?.cliList || {};
-        const fullName = `${imageName}:${tag}`;
-        Object.keys(cliList).forEach(cliName => {
-          if (pattern.test(cliName) || pattern.test(imageName)) {
-            all.push({ imageName: fullName, cliName });
-          }
+    const firstVal = Object.values(images)[0];
+    const isFlatCliMap = firstVal && typeof firstVal === 'object' && (firstVal.run || firstVal.xmlspec);
+
+    if (isFlatCliMap) {
+      // Flat format (DSA actual): { "CLIName": { run: "/slicer_cli_web/{img}/{cli}/run", ... } }
+      Object.keys(images).forEach(cliName => {
+        if (!pattern.test(cliName)) return;
+        const entry     = images[cliName];
+        const imageName = imageNameFromUrl(entry.run || entry.xmlspec || '');
+        all.push({ imageName, cliName });
+      });
+    } else {
+      // Nested format: { "imageName": { "tag": { CLIList: {...} } } }
+      Object.keys(images).forEach(imageName => {
+        const tags = images[imageName];
+        Object.keys(tags || {}).forEach(tag => {
+          const entry   = tags[tag];
+          const cliList = entry?.CLIList || entry?.cliList || {};
+          const fullName = `${imageName}:${tag}`;
+          Object.keys(cliList).forEach(cliName => {
+            if (pattern.test(cliName) || pattern.test(imageName)) {
+              all.push({ imageName: fullName, cliName });
+            }
+          });
         });
       });
-    });
+    }
   }
 
   console.debug('[NucleiModal] extracted CLIs:', all);
