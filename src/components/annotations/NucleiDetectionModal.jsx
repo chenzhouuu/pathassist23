@@ -47,8 +47,10 @@ function parseCliXml(xmlText) {
 // Build the params object for POST /slicer_cli_web/.../run
 function buildJobParams(cliParams, item, bbox) {
   const params = {};
-  const itemRef  = JSON.stringify({ _id: item._id, _modelType: 'item' });
-  const folderRef = JSON.stringify({ _id: item.folderId, _modelType: 'folder' });
+  // Slicer CLI Web expects plain hex IDs, NOT JSON-encoded resource refs.
+  // Sending {"_id":"...","_modelType":"item"} causes "Invalid ObjectId" errors.
+  const itemId   = item._id;
+  const folderId = item.folderId;
 
   // Validate all 4 ROI values are finite numbers before building the string.
   // If any value is undefined/NaN, Python silently drops non-numeric tokens,
@@ -59,8 +61,8 @@ function buildJobParams(cliParams, item, bbox) {
     ? `${Math.round(bx)},${Math.round(by)},${Math.round(bw)},${Math.round(bh)}`
     : '-1,-1,-1,-1';
 
-  if (cliParams.inputImage)  params[cliParams.inputImage]  = itemRef;
-  if (cliParams.outputFile)  params[cliParams.outputFile]  = folderRef;
+  if (cliParams.inputImage)  params[cliParams.inputImage]  = itemId;
+  if (cliParams.outputFile)  params[cliParams.outputFile]  = folderId;
   if (cliParams.roiParam)    params[cliParams.roiParam]    = roiStr;
 
   // Always include these common Slicer CLI girder params
