@@ -2,7 +2,7 @@
 // Submit a Slicer CLI nuclei detection job for a selected ROI annotation.
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { getDockerImages, getCliXml, getCliXmlByPath, runCliJob, runCliByPath, getJob } from '../../api/index.js';
+import { getDockerImages, getCliXml, getCliXmlByPath, runCliJob, runCliByPath, getJob, getItemFiles } from '../../api/index.js';
 import { getAnnotationBBox } from './annotationUtils.js';
 import { GIRDER_BASE } from '../../config/girder.js';
 
@@ -45,11 +45,11 @@ function parseCliXml(xmlText) {
 }
 
 // Build the params object for POST /slicer_cli_web/.../run
-function buildJobParams(cliParams, item, bbox) {
+// fileId: the Girder file _id inside the item (Slicer CLI Web validates as file, not item)
+function buildJobParams(cliParams, item, bbox, fileId) {
   const params = {};
-  // Slicer CLI Web expects plain hex IDs, NOT JSON-encoded resource refs.
-  // Sending {"_id":"...","_modelType":"item"} causes "Invalid ObjectId" errors.
-  const itemId   = item._id;
+  // Slicer CLI Web <image> params require a file ID, not an item ID.
+  const inputId  = fileId || item._id;
   const folderId = item.folderId;
 
   // Validate all 4 ROI values are finite numbers before building the string.
@@ -61,7 +61,7 @@ function buildJobParams(cliParams, item, bbox) {
     ? `${Math.round(bx)},${Math.round(by)},${Math.round(bw)},${Math.round(bh)}`
     : '-1,-1,-1,-1';
 
-  if (cliParams.inputImage)  params[cliParams.inputImage]  = itemId;
+  if (cliParams.inputImage)  params[cliParams.inputImage]  = inputId;
   if (cliParams.outputFile)  params[cliParams.outputFile]  = folderId;
   if (cliParams.roiParam)    params[cliParams.roiParam]    = roiStr;
 
@@ -235,7 +235,15 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
         cliParams = { inputImage: 'inputImageFile', outputFile: 'outputNucleiAnnotationFile', roiParam: 'analysis_roi' };
       }
 
-      const params = buildJobParams(cliParams, item, bbox);
+      // Slicer CLI Web validates the input image param as a file ID, not item ID.
+      // Fetch the item's files and use the first file's _id.
+      let fileId = null;
+      try {
+        const files = await getItemFiles(item._id);
+        fileId = files?.[0]?._id || null;
+      } catch (_) {}
+
+      const params = buildJobParams(cliParams, item, bbox, fileId);
       console.log('[NucleiModal] submitting job params:', params);
 
       // Prefer the run URL Girder gave us; fall back to constructing it.
