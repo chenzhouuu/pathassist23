@@ -54,6 +54,7 @@ export default function ViewerPanel() {
   const osdRef = useRef(null);
   const osdReady = useRef(false);
   const pendingLoad = useRef(null);
+  const loadSlideRef = useRef(null); // ref to break circular dep with createTilesForItem
 
   const { activeItem, setViewer, setTilesInfo, tilesInfo } = useStore();
   const [status, setStatus] = useState({ state:'idle', msg:'', type:null, files:null });
@@ -163,6 +164,42 @@ export default function ViewerPanel() {
     return false;
   }, [setTilesInfo]);
 
+  // ── Create large_image tiles and wait for the job ───────────────────────────
+  // Uses loadSlideRef to call back into loadSlide without a circular dep.
+  const createTilesForItem = useCallback(async (item) => {
+    setStatus({ state:'processing', msg:`Initializing tiles for ${item.name}…`, type:'wsi', files:null, progress:null });
+    try {
+      const job = await createItemTiles(item._id);
+      const jobId = job?._id;
+      if (!jobId) {
+        // Some Girder setups return tiles info directly (already processed)
+        loadSlideRef.current?.(item);
+        return;
+      }
+      await pollJob(jobId, {
+        onProgress: (j) => {
+          const pct = j.progress?.current && j.progress?.total
+            ? Math.round((j.progress.current / j.progress.total) * 100)
+            : null;
+          setStatus(s => ({
+            ...s,
+            msg: pct != null
+              ? `Processing tiles… ${pct}%`
+              : `Processing tiles… (${['inactive','queued','running'][j.status] ?? 'working'})`,
+            progress: pct,
+          }));
+        },
+        intervalMs: 2500,
+        maxWaitMs: 300_000,
+      });
+      setStatus(s => ({ ...s, msg:'Tiles ready, loading…' }));
+      loadSlideRef.current?.(item);
+    } catch(err) {
+      console.error('[Viewer] Tile creation failed:', err);
+      setStatus({ state:'error', msg:`Tile creation failed: ${err.message}`, type:'error', files:null });
+    }
+  }, []); // no dep on loadSlide — uses ref
+
   // ── Main load function ──────────────────────────────────────────────────────
   const loadSlide = useCallback(async (item) => {
     if (!item) return;
@@ -187,14 +224,15 @@ export default function ViewerPanel() {
         if (ok) return;
         // Tiles info existed but all open methods failed — fall through
       } else if (isWSIExt(item.name)) {
-        // WSI format but no tiles registered yet → show "create tiles" UI
-        setStatus({ state:'notiles', msg:item.name, type:'wsi', files:null });
+        // WSI format but no tiles registered yet — auto-initialize
+        console.log('[Viewer] No tiles for WSI, auto-creating…');
+        createTilesForItem(item);
         return;
       }
     } catch(e) {
       console.log('[Viewer] Tiles info error:', e.message);
       if (isWSIExt(item.name)) {
-        setStatus({ state:'notiles', msg:item.name, type:'wsi', files:null });
+        createTilesForItem(item);
         return;
       }
     }
@@ -230,51 +268,14 @@ export default function ViewerPanel() {
     } catch(e) { console.warn('[Viewer] Files endpoint failed:', e.message); }
 
     setStatus({ state:'error', msg:'No viewable content found. The item may be empty or unsupported.', type:'error', files:null });
-  }, [setTilesInfo, openWithTiles]);
+  }, [setTilesInfo, openWithTiles, createTilesForItem]);
 
-  // ── Create large_image tiles and wait for the job ───────────────────────────
-  const handleCreateTiles = useCallback(async () => {
-    if (!activeItem) return;
-    setStatus({ state:'processing', msg:'Requesting tile creation…', type:'wsi', files:null, progress:null });
-    try {
-      const job = await createItemTiles(activeItem._id);
-      const jobId = job?._id;
-      if (!jobId) {
-        // Some Girder setups return the tiles info directly (already processed)
-        loadSlide(activeItem);
-        return;
-      }
+  // Keep ref current so createTilesForItem can call back into loadSlide
+  loadSlideRef.current = loadSlide;
 
-      await pollJob(jobId, {
-        onProgress: (j) => {
-          const pct = j.progress?.current && j.progress?.total
-            ? Math.round((j.progress.current / j.progress.total) * 100)
-            : null;
-          setStatus(s => ({
-            ...s,
-            msg: pct != null
-              ? `Processing tiles… ${pct}%`
-              : `Processing tiles… (${['inactive','queued','running'][j.status] ?? 'working'})`,
-            progress: pct,
-          }));
-        },
-        intervalMs: 2500,
-        maxWaitMs: 300_000,
-      });
-
-      // Job succeeded — reload
-      setStatus(s => ({ ...s, msg:'Tiles ready, loading…' }));
-      await loadSlide(activeItem);
-    } catch(err) {
-      console.error('[Viewer] Tile creation failed:', err);
-      setStatus({
-        state:'error',
-        msg: `Tile creation failed: ${err.message}`,
-        type:'error',
-        files:null,
-      });
-    }
-  }, [activeItem, loadSlide]);
+  const handleCreateTiles = useCallback(() => {
+    if (activeItem) createTilesForItem(activeItem);
+  }, [activeItem, createTilesForItem]);
 
   useEffect(() => {
     if (!activeItem) {
