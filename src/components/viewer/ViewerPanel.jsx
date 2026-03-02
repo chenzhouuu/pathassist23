@@ -55,8 +55,11 @@ export default function ViewerPanel() {
   const osdReady = useRef(false);
   const pendingLoad = useRef(null);
   const loadSlideRef = useRef(null); // ref to break circular dep with createTilesForItem
+  const tilesInfoRef = useRef(null);  // kept in sync so zoom handler can read it
 
   const { activeItem, setViewer, setTilesInfo, tilesInfo } = useStore();
+  useEffect(() => { tilesInfoRef.current = tilesInfo; }, [tilesInfo]);
+
   const [status, setStatus] = useState({ state:'idle', msg:'', type:null, files:null });
   const [zoom, setZoom] = useState('—');
 
@@ -90,7 +93,20 @@ export default function ViewerPanel() {
     });
     setViewer(osdRef.current);
     osdReady.current = true;
-    osdRef.current.addHandler('zoom', (e) => setZoom(e.zoom ? e.zoom.toFixed(3) : '—'));
+    osdRef.current.addHandler('zoom', (e) => {
+      if (!e.zoom) { setZoom('—'); return; }
+      // Convert OSD viewport zoom → effective optical magnification
+      // imageToViewportZoom(1) gives the VP zoom at 1:1 image pixels
+      const imgZoom1x = osdRef.current?.viewport?.imageToViewportZoom?.(1);
+      if (imgZoom1x && imgZoom1x > 0) {
+        const imageZoom = e.zoom / imgZoom1x;
+        const maxMag = tilesInfoRef.current?.magnification || 40;
+        const mag = imageZoom * maxMag;
+        setZoom(mag < 1 ? mag.toFixed(2) + '×' : mag.toFixed(1) + '×');
+      } else {
+        setZoom(e.zoom.toFixed(3) + '×');
+      }
+    });
     if (pendingLoad.current) {
       const item = pendingLoad.current;
       pendingLoad.current = null;
@@ -290,14 +306,14 @@ export default function ViewerPanel() {
   const isProcessing = status.state === 'processing';
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden" style={{ background:'#060709' }}>
+    <div className="flex flex-col flex-1 overflow-hidden" style={{ background:'var(--bg-viewer)' }}>
       <ViewerToolbar viewer={osdRef} />
 
       <div className="flex-1 relative overflow-hidden">
 
         {/* Idle */}
         {status.state === 'idle' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 select-none" style={{ background:'#060709' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 select-none" style={{ background:'var(--bg-viewer)' }}>
             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1a1e2e" strokeWidth="1" className="mb-5">
               <rect x="2" y="3" width="20" height="14" rx="2"/>
               <circle cx="8" cy="10" r="2"/><polyline points="21 15 16 10 5 21"/>
@@ -322,7 +338,7 @@ export default function ViewerPanel() {
 
         {/* No large_image tiles yet — WSI format detected */}
         {status.state === 'notiles' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 gap-4 px-6" style={{ background:'#060709' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 gap-4 px-6" style={{ background:'var(--bg-viewer)' }}>
             <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#f5a623" strokeWidth="1.5">
               <rect x="2" y="3" width="20" height="14" rx="2"/>
               <circle cx="8" cy="10" r="2"/><polyline points="21 15 16 10 5 21"/>
@@ -374,7 +390,7 @@ export default function ViewerPanel() {
 
         {/* No preview */}
         {status.state === 'nopreview' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 gap-3" style={{ background:'#060709' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 gap-3" style={{ background:'var(--bg-viewer)' }}>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3a4060" strokeWidth="1.5">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
               <polyline points="13 2 13 9 20 9"/>
@@ -393,7 +409,7 @@ export default function ViewerPanel() {
 
         {/* Error */}
         {status.state === 'error' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 gap-3" style={{ background:'#060709' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 gap-3" style={{ background:'var(--bg-viewer)' }}>
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="1.5">
               <circle cx="12" cy="12" r="10"/>
               <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -427,18 +443,17 @@ export default function ViewerPanel() {
         {/* Measure tool overlay */}
         {activeItem && status.state === 'ok' && <MeasureTool viewer={osdRef}/>}
 
-        {/* Status bar */}
+        {/* Status bar — file name only; zoom shown in MagnificationBar below */}
         {status.state === 'ok' && (
           <div className="absolute bottom-0 left-0 right-0 z-10 flex items-center gap-3 px-3 py-1.5"
-            style={{ background:'rgba(6,7,9,0.8)', backdropFilter:'blur(4px)', borderTop:'1px solid rgba(30,33,48,0.6)' }}>
+            style={{ background:'rgba(6,7,9,0.75)', backdropFilter:'blur(4px)', borderTop:'1px solid rgba(30,33,48,0.6)' }}>
             <StatusBadge type={status.type} label={status.type === 'wsi' ? 'WSI' : status.type === 'image' ? 'Image' : 'File'}/>
             <span className="text-xs text-gray-500 truncate flex-1">{status.msg}</span>
-            <span className="text-xs font-mono text-gray-600 shrink-0">z:{zoom}</span>
           </div>
         )}
       </div>
 
-      {tilesInfo && <MagnificationBar viewer={osdRef} tilesInfo={tilesInfo}/>}
+      {tilesInfo && <MagnificationBar tilesInfo={tilesInfo} zoom={zoom}/>}
     </div>
   );
 }

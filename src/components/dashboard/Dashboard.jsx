@@ -110,7 +110,7 @@ function CollectionCard({ collection, stats, onClick }) {
       <div className="flex items-center gap-3 mt-auto pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
         <div className="text-center">
           <div className="text-xs font-mono font-bold" style={{ color }}>{stats?.folders ?? '…'}</div>
-          <div className="text-xs text-gray-600">Folders</div>
+          <div className="text-xs text-gray-600">Cases</div>
         </div>
         <div className="w-px h-6" style={{ background:'rgba(255,255,255,0.06)' }}/>
         <div className="text-center">
@@ -250,12 +250,53 @@ export default function Dashboard() {
               {greeting}, <span style={{ color:'#4da6ff' }}>{user?.firstName || user?.login}</span>
             </h1>
             <p className="text-sm text-gray-500 mt-1">
-              {isLoading ? 'Loading your workspace…' : `${collections.length} collection${collections.length !== 1 ? 's' : ''} · ${totalImages.toLocaleString()} images across ${totalFolders} folders`}
+              {isLoading ? 'Loading your workspace…' : `${collections.length} collection${collections.length !== 1 ? 's' : ''} · ${totalImages.toLocaleString()} images across ${totalFolders} cases`}
             </p>
           </div>
 
+          {/* ── Collections grid — first section ── */}
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white tracking-tight">
+              Your Collections
+              <span className="ml-2 text-xs font-normal text-gray-600">({collections.length})</span>
+            </h2>
+            <button onClick={() => setPage('worklist')}
+              className="text-xs flex items-center gap-1 transition-colors"
+              style={{ color:'#4da6ff' }}>
+              View all images
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </button>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16 mb-8">
+              <div className="flex flex-col items-center gap-3">
+                <div className="spinner" style={{ width:28, height:28, borderWidth:3 }}/>
+                <span className="text-xs text-gray-600">Loading collections…</span>
+              </div>
+            </div>
+          ) : collections.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center mb-8">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#2a2f45" strokeWidth="1.5" className="mb-3">
+                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/>
+              </svg>
+              <p className="text-sm text-gray-600">No collections found</p>
+              <p className="text-xs text-gray-700 mt-1">Collections will appear here once created in Girder</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+              {collections.map((col) => (
+                <CollectionCard key={col._id} collection={col}
+                  stats={collectionStats[col._id]}
+                  onClick={() => goToWorklist(col)}/>
+              ))}
+            </div>
+          )}
+
           {/* ── Stat cards row ── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-3 gap-4 mb-8">
             <StatCard
               icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>}
               label="Collections" value={isLoading ? '…' : collections.length} color="#4da6ff"
@@ -268,15 +309,11 @@ export default function Dashboard() {
             />
             <StatCard
               icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f5a623" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>}
-              label="Case Folders" value={totalFolders > 0 ? totalFolders.toLocaleString() : '…'} color="#f5a623"
-            />
-            <StatCard
-              icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c27aff" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>}
-              label="Server" value="Live" sub="lymphoma.dev" color="#4caf82"
+              label="Cases" value={totalFolders > 0 ? totalFolders.toLocaleString() : '…'} color="#f5a623"
             />
           </div>
 
-          {/* ── Overview: donut + breakdown ── */}
+          {/* ── Overview: donut + quick action ── */}
           {collections.length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
 
@@ -301,12 +338,10 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Quick actions + server info */}
-              <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                {/* Quick action: view all images */}
+              {/* Quick action: browse all images */}
+              <div className="lg:col-span-2">
                 <div onClick={() => setPage('worklist')}
-                  className="rounded-2xl p-5 cursor-pointer flex flex-col justify-between group transition-all"
+                  className="rounded-2xl p-5 cursor-pointer flex flex-col justify-between group transition-all h-full"
                   style={{ background:'linear-gradient(135deg, rgba(77,166,255,0.1), rgba(77,166,255,0.03))', border:'1px solid rgba(77,166,255,0.15)' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor='rgba(77,166,255,0.3)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor='rgba(77,166,255,0.15)'}>
@@ -319,7 +354,9 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <div className="text-sm font-semibold text-white">Browse All Images</div>
-                    <div className="text-xs text-gray-500 mt-1">Search, filter &amp; open slides from all collections</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {totalImages > 0 ? `${totalImages.toLocaleString()} images across ${collections.length} collections` : 'Search, filter & open slides from all collections'}
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 text-xs mt-3" style={{ color:'#4da6ff' }}>
                     Open worklist
@@ -328,74 +365,7 @@ export default function Dashboard() {
                     </svg>
                   </div>
                 </div>
-
-                {/* Metadata info card */}
-                <div className="rounded-2xl p-5 flex flex-col gap-3"
-                  style={{ background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.07)' }}>
-                  <div className="text-xs font-semibold uppercase tracking-widest text-gray-500">Image Metadata</div>
-                  <div className="space-y-2 text-xs">
-                    {[
-                      { icon:'🏷', label:'Status field', desc:'Review / Pending / QC / Complete' },
-                      { icon:'👤', label:'Assigned to', desc:'Pathologist name' },
-                      { icon:'🔬', label:'Diagnosis', desc:'Free-text or coded' },
-                      { icon:'⭐', label:'Priority', desc:'Stat / Routine / Consult' },
-                      { icon:'📝', label:'Notes', desc:'Any custom key-value' },
-                    ].map(row => (
-                      <div key={row.label} className="flex items-start gap-2">
-                        <span className="text-sm shrink-0">{row.icon}</span>
-                        <div>
-                          <span className="text-gray-300 font-medium">{row.label}: </span>
-                          <span className="text-gray-600">{row.desc}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-xs text-gray-700 mt-auto pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
-                    Stored via Girder <code className="font-mono text-gray-600">PUT /item/&#123;id&#125;/metadata</code>
-                  </div>
-                </div>
               </div>
-            </div>
-          )}
-
-          {/* ── Collections grid ── */}
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white tracking-tight">
-              Your Collections
-              <span className="ml-2 text-xs font-normal text-gray-600">({collections.length})</span>
-            </h2>
-            <button onClick={() => setPage('worklist')}
-              className="text-xs flex items-center gap-1 transition-colors"
-              style={{ color:'#4da6ff' }}>
-              View all images
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </button>
-          </div>
-
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="flex flex-col items-center gap-3">
-                <div className="spinner" style={{ width:28, height:28, borderWidth:3 }}/>
-                <span className="text-xs text-gray-600">Loading collections…</span>
-              </div>
-            </div>
-          ) : collections.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#2a2f45" strokeWidth="1.5" className="mb-3">
-                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/>
-              </svg>
-              <p className="text-sm text-gray-600">No collections found</p>
-              <p className="text-xs text-gray-700 mt-1">Collections will appear here once created in Girder</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {collections.map((col) => (
-                <CollectionCard key={col._id} collection={col}
-                  stats={collectionStats[col._id]}
-                  onClick={() => goToWorklist(col)}/>
-              ))}
             </div>
           )}
 

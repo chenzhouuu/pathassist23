@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { login } from '../../api/index.js';
+import ThemeSwitcher from '../ThemeSwitcher.jsx';
 
 export default function LoginModal() {
   const { setAuth } = useStore();
@@ -113,8 +114,9 @@ export default function LoginModal() {
           </div>
         )}
 
-        <div className="mt-5 pt-4 border-t text-center text-xs text-gray-600" style={{ borderColor: 'var(--border)' }}>
-          <span className="font-mono">lymphoma.dev.pathassist.health</span>
+        <div className="mt-5 pt-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+          <span className="text-xs text-gray-600 font-mono">lymphoma.dev.pathassist.health</span>
+          <ThemeSwitcher />
         </div>
       </div>
     </div>

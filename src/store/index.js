@@ -108,10 +108,18 @@ export const useStore = create((set, get) => ({
   drawGroup: 'default',
   setDrawGroup: (g) => set({ drawGroup: g }),
 
+  // ── Theme ────────────────────────────────────────────────────────────────
+  theme: localStorage.getItem('theme') || 'he',
+  setTheme: (theme) => {
+    localStorage.setItem('theme', theme);
+    document.documentElement.dataset.theme = theme;
+    set({ theme });
+  },
+
   // ── Viewer UI ────────────────────────────────────────────────────────────
   leftPanelOpen: true,
   rightPanelOpen: true,
-  rightPanelTab: 'annotations',
+  rightPanelTab: 'metadata',
   setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),

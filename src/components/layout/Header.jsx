@@ -2,6 +2,7 @@
 import React from 'react';
 import { useStore } from '../../store/index.js';
 import { logout } from '../../api/index.js';
+import ThemeSwitcher from '../ThemeSwitcher.jsx';
 
 export default function Header({ showBack = false }) {
   const { user, clearAuth, breadcrumb, tilesInfo, toggleLeftPanel, toggleRightPanel, setPage } = useStore();
@@ -74,6 +75,7 @@ export default function Header({ showBack = false }) {
             </svg>
           </button>
         )}
+        <ThemeSwitcher />
         <div className="w-px h-5 mx-1" style={{ background:'var(--border)' }}/>
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold"

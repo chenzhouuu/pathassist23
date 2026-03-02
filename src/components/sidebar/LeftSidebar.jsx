@@ -1,5 +1,5 @@
 // src/components/sidebar/LeftSidebar.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems } from '../../api/index.js';
@@ -54,8 +54,18 @@ function SlideRow({ item }) {
 
 // ─── Folder node ─────────────────────────────────────────────────────────────
 function FolderNode({ folder, depth = 0 }) {
-  const [open, setOpen] = useState(false);
   const { setActiveFolder, activeFolder } = useStore();
+  const isActiveFolder = activeFolder?._id === folder._id;
+  // Auto-open if this folder IS the active folder OR is an ancestor of it
+  // (e.g. activeFolder.parentId points to this folder for 2-level nesting)
+  const isAncestorOfActive =
+    activeFolder?.parentId === folder._id &&
+    activeFolder?.parentCollection === 'folder';
+  const [open, setOpen] = useState(isActiveFolder || isAncestorOfActive);
+
+  useEffect(() => {
+    if (isActiveFolder || isAncestorOfActive) setOpen(true);
+  }, [isActiveFolder, isAncestorOfActive]);
 
   const { data: subfolders, isLoading: loadingFolders } = useQuery({
     queryKey: ['folders', folder._id],
@@ -111,8 +121,13 @@ function FolderNode({ folder, depth = 0 }) {
 
 // ─── Collection node ──────────────────────────────────────────────────────────
 function CollectionNode({ collection }) {
-  const [open, setOpen] = useState(false);
-  const { setActiveCollection } = useStore();
+  const { setActiveCollection, activeCollection } = useStore();
+  const isActive = activeCollection?._id === collection._id;
+  const [open, setOpen] = useState(isActive);
+
+  useEffect(() => {
+    if (isActive) setOpen(true);
+  }, [isActive]);
 
   const { data: folders, isLoading } = useQuery({
     queryKey: ['folders-collection', collection._id],

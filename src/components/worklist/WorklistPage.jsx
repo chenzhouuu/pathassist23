@@ -1,10 +1,11 @@
 // src/components/worklist/WorklistPage.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
-import { getFolders, getItems, updateItemMetadata } from '../../api/index.js';
+import { getCollections, getFolders, getItems, updateItemMetadata, getTilesInfoSafe } from '../../api/index.js';
 import { GIRDER_BASE } from '../../config/girder.js';
 import LeftSidebar from '../sidebar/LeftSidebar.jsx';
+import ThemeSwitcher from '../ThemeSwitcher.jsx';
 
 const PAGE_SIZE = 48;
 
@@ -33,9 +34,9 @@ function FolderCard({ folder, onClick }) {
     <button
       onClick={onClick}
       className="flex items-center gap-3 p-4 rounded-xl text-left w-full transition-all"
-      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(77,166,255,0.3)'}
-      onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'}>
+      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(77,166,255,0.4)'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
       <svg width="22" height="22" viewBox="0 0 24 24" fill="rgba(77,166,255,0.25)"
         stroke="#4da6ff" strokeWidth="1.5" style={{ flexShrink: 0 }}>
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -77,12 +78,12 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
 
   return (
     <div className="group relative flex flex-col rounded-xl overflow-hidden transition-all duration-200"
-      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(77,166,255,0.25)'}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; setShowMenu(false); }}>
+      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(77,166,255,0.4)'}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; setShowMenu(false); }}>
 
       {/* Thumbnail */}
-      <div className="relative overflow-hidden cursor-pointer" style={{ paddingBottom: '60%', background: '#060709' }}
+      <div className="relative overflow-hidden cursor-pointer" style={{ paddingBottom: '60%', background: 'var(--bg-viewer)' }}
         onClick={() => onOpen(item)}>
         {!imgError ? (
           <img src={thumbUrl} alt={item.name} onError={() => setImgError(true)}
@@ -125,7 +126,7 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
           <StatusBadge status={status || 'No Status'}/>
           <div className="relative">
             <button onClick={() => setShowMenu(!showMenu)}
-              className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-xs text-gray-500 hover:text-white transition-all px-1.5 py-0.5 rounded hover:bg-white/5">
+              className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-xs transition-all px-1.5 py-0.5 rounded hover:bg-black/5" style={{ color: 'var(--muted)' }}>
               {saving ? <div className="spinner" style={{ width: 10, height: 10 }}/> : (
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -136,17 +137,17 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
             </button>
             {showMenu && (
               <div className="absolute bottom-full right-0 mb-1 rounded-lg overflow-hidden z-50"
-                style={{ background: '#13151f', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', minWidth: 130 }}>
+                style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', minWidth: 130 }}>
                 {Object.keys(STATUS_CONFIG).map(s => (
                   <button key={s} onClick={() => handleStatus(s)}
-                    className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-white/5 flex items-center gap-2">
+                    className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-black/5 flex items-center gap-2" style={{ color: 'var(--text)' }}>
                     <span className="w-2 h-2 rounded-full" style={{ background: STATUS_CONFIG[s].color }}/>{s}
                   </button>
                 ))}
                 {status && (
                   <button onClick={() => handleStatus(null)}
-                    className="w-full text-left px-3 py-2 text-xs text-gray-600 hover:text-white transition-colors hover:bg-white/5 border-t"
-                    style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                    className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-black/5 border-t"
+                    style={{ color: 'var(--muted)', borderColor: 'var(--border)' }}>
                     Clear status
                   </button>
                 )}
@@ -178,8 +179,8 @@ function TableRow({ item, collectionName, folderPath, onOpen, onStatusChange, in
   };
 
   return (
-    <tr className="group border-b transition-colors" style={{ borderColor: 'rgba(255,255,255,0.04)' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+    <tr className="group border-b transition-colors" style={{ borderColor: 'var(--border)' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--highlight)'}
       onMouseLeave={e => { e.currentTarget.style.background = ''; setShowMenu(false); }}>
       <td className="px-3 py-2.5 text-xs font-mono text-gray-700 w-8">{index + 1}</td>
       <td className="px-2 py-2 w-16">
@@ -203,14 +204,14 @@ function TableRow({ item, collectionName, folderPath, onOpen, onStatusChange, in
           </button>
           {showMenu && (
             <div className="absolute top-full left-0 mt-1 z-50 rounded-lg overflow-hidden"
-              style={{ background: '#13151f', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', minWidth: 130 }}>
+              style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', minWidth: 130 }}>
               {Object.keys(STATUS_CONFIG).map(s => (
                 <button key={s} onClick={() => handleStatus(s)}
-                  className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-white/5 flex items-center gap-2">
+                  className="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-black/5 flex items-center gap-2" style={{ color: 'var(--text)' }}>
                   <span className="w-2 h-2 rounded-full" style={{ background: STATUS_CONFIG[s].color }}/>{s}
                 </button>
               ))}
-              {status && <button onClick={() => handleStatus(null)} className="w-full text-left px-3 py-2 text-xs text-gray-600 hover:text-white transition-colors border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>Clear</button>}
+              {status && <button onClick={() => handleStatus(null)} className="w-full text-left px-3 py-2 text-xs transition-colors border-t" style={{ color: 'var(--muted)', borderColor: 'var(--border)' }}>Clear</button>}
             </div>
           )}
         </div>
@@ -253,7 +254,7 @@ export default function WorklistPage() {
   const [debouncedSearch, setDbSearch]= useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [pageNum, setPageNum]         = useState(0);
-  const [localItems, setLocalItems]   = useState([]);
+  const [localOverrides, setLocalOverrides] = useState({}); // itemId → updated meta
   const searchTimer = useRef(null);
 
   useEffect(() => { setLeftPanelOpen(true); }, [setLeftPanelOpen]);
@@ -265,22 +266,42 @@ export default function WorklistPage() {
     return () => clearTimeout(searchTimer.current);
   }, [search]);
 
-  // Reset filters when folder changes
+  // Reset filters and overrides when collection/folder changes
   useEffect(() => {
     setPageNum(0);
     setSearch('');
     setStatusFilter('All');
-  }, [activeFolder?._id]);
+    setLocalOverrides({});
+  }, [activeFolder?._id, activeCollection?._id]);
 
-  // ── Fetch folders in selected collection (lazy — only when no folder chosen) ─
-  const { data: folders = [], isLoading: loadingFolders } = useQuery({
-    queryKey: ['folders-collection', activeCollection?._id],
-    queryFn: () => getFolders('collection', activeCollection._id),
-    enabled: !!activeCollection && !activeFolder,
+  // ── "View All" mode: load all collections when none selected ─────────────
+  const { data: allCollections = [], isLoading: loadingAllCollections } = useQuery({
+    queryKey: ['collections'],
+    queryFn: getCollections,
+    enabled: !activeCollection,
     staleTime: 60_000,
   });
 
-  // ── Fetch items in selected folder only ───────────────────────────────────
+  // ── Fetch folders for each collection in "View All" mode ─────────────────
+  const allCollFolderResults = useQueries({
+    queries: (!activeCollection && allCollections.length > 0)
+      ? allCollections.map(col => ({
+          queryKey: ['folders-collection', col._id],
+          queryFn: () => getFolders('collection', col._id),
+          staleTime: 60_000,
+        }))
+      : [],
+  });
+
+  // ── Fetch folders for selected collection ─────────────────────────────────
+  const { data: folders = [], isLoading: loadingFolders } = useQuery({
+    queryKey: ['folders-collection', activeCollection?._id],
+    queryFn: () => getFolders('collection', activeCollection._id),
+    enabled: !!activeCollection,
+    staleTime: 60_000,
+  });
+
+  // ── Fetch items when a specific folder is selected ────────────────────────
   const { data: rawItems = [], isLoading: loadingItems } = useQuery({
     queryKey: ['items-folder', activeFolder?._id],
     queryFn: () => getItems(activeFolder._id, 0, 500),
@@ -288,25 +309,91 @@ export default function WorklistPage() {
     staleTime: 30_000,
   });
 
-  // Keep a local copy so status edits reflect immediately without refetch
-  useEffect(() => {
-    setLocalItems(
-      rawItems.map(item => ({
+  // ── Fetch level-2 subfolders (Mode B: handles nested collection folders) ──
+  // e.g. Collection → LatestImagesFrom RFH → Feb2ndImages → [items]
+  const levelTwoFolderResults = useQueries({
+    queries: (!!activeCollection && !activeFolder && folders.length > 0)
+      ? folders.map(folder => ({
+          queryKey: ['folders-folder', folder._id],
+          queryFn: () => getFolders('folder', folder._id),
+          staleTime: 60_000,
+        }))
+      : [],
+  });
+
+  // ── Build unified folder list to load items from ──────────────────────────
+  // Mode A: !activeCollection → all folders from all collections
+  // Mode B: activeCollection && !activeFolder → level-1 + level-2 folders
+  // Mode C: activeFolder → handled by rawItems above
+  const foldersToLoad = !activeCollection
+    ? allCollFolderResults.flatMap((r, ci) =>
+        (r.data || []).map(f => ({ folder: f, collection: allCollections[ci] }))
+      )
+    : [
+        ...folders.map(f => ({ folder: f, collection: activeCollection })),
+        ...levelTwoFolderResults.flatMap(r =>
+          (r.data || []).map(f => ({ folder: f, collection: activeCollection }))
+        ),
+      ];
+
+  // ── Fetch items from all resolved folders (modes A & B) ───────────────────
+  const allFolderResults = useQueries({
+    queries: (!activeFolder && foldersToLoad.length > 0)
+      ? foldersToLoad.map(({ folder }) => ({
+          queryKey: ['items-folder', folder._id],
+          queryFn: () => getItems(folder._id, 0, 500),
+          staleTime: 30_000,
+        }))
+      : [],
+  });
+
+  const isLoadingFolders = activeCollection
+    ? loadingFolders || levelTwoFolderResults.some(r => r.isLoading)
+    : loadingAllCollections || allCollFolderResults.some(r => r.isLoading);
+  const isLoadingItems = activeFolder
+    ? loadingItems
+    : allFolderResults.some(r => r.isLoading);
+
+  // ── Build display items SYNCHRONOUSLY — no useEffect race ────────────────
+  const baseItems = useMemo(() => {
+    if (activeFolder) {
+      return rawItems.map(item => ({
         item,
+        folder: activeFolder,
         collectionName: activeCollection?.name || '',
         folderPath: activeFolder?.name || '',
-      }))
-    );
-  }, [rawItems, activeCollection, activeFolder]);
+      }));
+    }
+    return allFolderResults.flatMap((r, i) => {
+      const { folder, collection } = foldersToLoad[i] || {};
+      return (r.data || []).map(item => ({
+        item,
+        folder: folder || null,
+        collectionName: collection?.name || '',
+        folderPath: folder?.name || '',
+      }));
+    });
+  }, [activeFolder, rawItems, allFolderResults, foldersToLoad]); // eslint-disable-line
+
+  // Apply local status overrides on top of base items
+  const displayItems = useMemo(() =>
+    baseItems.map(row => {
+      const override = localOverrides[row.item._id];
+      return override ? { ...row, item: { ...row.item, meta: override } } : row;
+    }),
+  [baseItems, localOverrides]);
+
+  // Background pre-warm: silently touch tile sources for first 20 items
+  useEffect(() => {
+    displayItems.slice(0, 20).forEach(r => { getTilesInfoSafe(r.item._id).catch(() => {}); });
+  }, [displayItems]);
 
   const handleStatusChange = (itemId, newMeta) => {
-    setLocalItems(prev =>
-      prev.map(row => row.item._id === itemId ? { ...row, item: { ...row.item, meta: newMeta } } : row)
-    );
+    setLocalOverrides(prev => ({ ...prev, [itemId]: newMeta }));
   };
 
   // Filter items
-  const filtered = localItems.filter(({ item }) => {
+  const filtered = displayItems.filter(({ item }) => {
     const q = debouncedSearch.toLowerCase();
     const matchSearch = !q
       || item.name.toLowerCase().includes(q)
@@ -320,61 +407,26 @@ export default function WorklistPage() {
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   const statusCounts = {};
-  localItems.forEach(({ item }) => {
+  displayItems.forEach(({ item }) => {
     const s = item.meta?.status || 'No Status';
     statusCounts[s] = (statusCounts[s] || 0) + 1;
   });
 
-  const openInViewer = (item) => { setActiveItem(item); setPage('viewer'); };
+  const openInViewer = (item) => {
+    // When in all-collection view, find and set the folder so the sidebar can auto-expand
+    if (!activeFolder) {
+      const row = displayItems.find(r => r.item._id === item._id);
+      if (row?.folder) setActiveFolder(row.folder);
+    }
+    setActiveItem(item);
+    setPage('viewer');
+  };
 
-  // ── Content area (3 states) ───────────────────────────────────────────────
+  // ── Content area ─────────────────────────────────────────────────────────
   const renderContent = () => {
 
-    // ① No collection selected
-    if (!activeCollection) {
-      return (
-        <div className="flex flex-col items-center justify-center py-32 gap-4">
-          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#1e2540" strokeWidth="1.2">
-            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/>
-          </svg>
-          <p className="text-sm text-gray-500 font-medium">Select a collection from the sidebar</p>
-          <p className="text-xs text-gray-700">Then choose a folder to load its images</p>
-        </div>
-      );
-    }
-
-    // ② Collection chosen, no folder — show folder grid
-    if (!activeFolder) {
-      if (loadingFolders) {
-        return (
-          <div className="flex items-center justify-center py-24">
-            <div className="spinner" style={{ width: 28, height: 28, borderWidth: 2 }}/>
-          </div>
-        );
-      }
-      if (folders.length === 0) {
-        return (
-          <div className="flex flex-col items-center justify-center py-24 gap-3">
-            <p className="text-sm text-gray-600">No folders in this collection</p>
-          </div>
-        );
-      }
-      return (
-        <div>
-          <p className="text-xs text-gray-600 mb-4">
-            {folders.length} folder{folders.length !== 1 ? 's' : ''} — select one to load images
-          </p>
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-            {folders.map(folder => (
-              <FolderCard key={folder._id} folder={folder} onClick={() => setActiveFolder(folder)}/>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    // ③ Folder selected — show items
-    if (loadingItems) {
+    // ① Still loading folders or items
+    if (isLoadingFolders || isLoadingItems) {
       return (
         <div className="flex flex-col items-center justify-center py-24 gap-3">
           <div className="spinner" style={{ width: 28, height: 28, borderWidth: 2 }}/>
@@ -412,10 +464,10 @@ export default function WorklistPage() {
             ))}
           </div>
         ) : (
-          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
             <table className="w-full">
               <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                <tr style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border)' }}>
                   {['#', '', 'Image Name', 'Status', 'Collection', 'Folder', 'Size', 'Created', 'Diagnosis', ''].map((h, i) => (
                     <th key={i} className="text-left px-3 py-2.5 text-xs text-gray-600 font-medium whitespace-nowrap">{h}</th>
                   ))}
@@ -441,10 +493,10 @@ export default function WorklistPage() {
             <div className="flex items-center gap-1">
               <button onClick={() => setPageNum(0)} disabled={pageNum === 0}
                 className="px-2 py-1.5 rounded text-xs disabled:opacity-30"
-                style={{ color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}>«</button>
+                style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>«</button>
               <button onClick={() => setPageNum(p => p - 1)} disabled={pageNum === 0}
                 className="px-3 py-1.5 rounded text-xs disabled:opacity-30"
-                style={{ color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}>Prev</button>
+                style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>Prev</button>
               {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
                 const pg = pageNum < 4 ? i : pageNum > totalPages - 4 ? totalPages - 7 + i : pageNum - 3 + i;
                 if (pg < 0 || pg >= totalPages) return null;
@@ -454,7 +506,7 @@ export default function WorklistPage() {
                     style={{
                       background: pg === pageNum ? 'rgba(77,166,255,0.15)' : 'transparent',
                       color: pg === pageNum ? '#4da6ff' : '#6b7280',
-                      border: `1px solid ${pg === pageNum ? 'rgba(77,166,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+                      border: `1px solid ${pg === pageNum ? 'rgba(77,166,255,0.25)' : 'var(--border)'}`,
                     }}>
                     {pg + 1}
                   </button>
@@ -462,10 +514,10 @@ export default function WorklistPage() {
               })}
               <button onClick={() => setPageNum(p => p + 1)} disabled={pageNum >= totalPages - 1}
                 className="px-3 py-1.5 rounded text-xs disabled:opacity-30"
-                style={{ color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}>Next</button>
+                style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>Next</button>
               <button onClick={() => setPageNum(totalPages - 1)} disabled={pageNum >= totalPages - 1}
                 className="px-2 py-1.5 rounded text-xs disabled:opacity-30"
-                style={{ color: '#9ca3af', border: '1px solid rgba(255,255,255,0.08)' }}>»</button>
+                style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>»</button>
             </div>
           </div>
         )}
@@ -474,11 +526,11 @@ export default function WorklistPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#07080d', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
 
       {/* ── Nav ── */}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20"
-        style={{ background: 'rgba(7,8,13,0.95)', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(12px)' }}>
+        style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setPage('dashboard')}>
           <div className="w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ background: 'rgba(77,166,255,0.15)', border: '1px solid rgba(77,166,255,0.25)' }}>
@@ -493,14 +545,18 @@ export default function WorklistPage() {
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-sm">
-          <button className="text-gray-500 hover:text-white transition-colors"
+          <button className="transition-colors" style={{ color: 'var(--muted)' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
             onClick={() => clearActiveNavigation()}>
             All Collections
           </button>
           {activeCollection && (
             <>
-              <span className="text-gray-700">/</span>
-              <button className="text-gray-400 hover:text-white transition-colors"
+              <span style={{ color: 'var(--border)' }}>/</span>
+              <button className="transition-colors" style={{ color: 'var(--muted)' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
                 onClick={() => setActiveFolder(null)}>
                 {activeCollection.name}
               </button>
@@ -508,8 +564,8 @@ export default function WorklistPage() {
           )}
           {activeFolder && (
             <>
-              <span className="text-gray-700">/</span>
-              <span className="text-white font-semibold">{activeFolder.name}</span>
+              <span style={{ color: 'var(--border)' }}>/</span>
+              <span className="font-semibold" style={{ color: 'var(--text)' }}>{activeFolder.name}</span>
             </>
           )}
         </div>
@@ -517,14 +573,16 @@ export default function WorklistPage() {
         <div className="flex-1"/>
 
         <button onClick={() => setPage('dashboard')}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-white transition-colors px-2 py-1.5 rounded hover:bg-white/5">
+          className="flex items-center gap-1.5 text-xs transition-colors px-2 py-1.5 rounded hover:bg-black/5" style={{ color: 'var(--muted)' }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           Dashboard
         </button>
 
-        <div className="flex items-center gap-1.5 pl-3" style={{ borderLeft: '1px solid rgba(255,255,255,0.07)' }}>
+        <ThemeSwitcher />
+
+        <div className="flex items-center gap-1.5 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
           <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
             style={{ background: 'rgba(77,166,255,0.15)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.2)' }}>
             {user?.firstName?.[0] || user?.login?.[0]?.toUpperCase()}
@@ -537,10 +595,10 @@ export default function WorklistPage() {
         <LeftSidebar/>
         <div className="flex-1 overflow-hidden flex flex-col">
 
-          {/* ── Toolbar (search + filters — only when folder is selected) ── */}
-          {activeFolder && (
+          {/* ── Toolbar (search + filters) ── */}
+          {(activeFolder || activeCollection || displayItems.length > 0) && (
             <div className="px-6 py-3 flex flex-col gap-2 shrink-0"
-              style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+              style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-toolbar)' }}>
               <div className="flex items-center gap-3 flex-wrap">
                 {/* Search */}
                 <div className="relative flex-1 min-w-[200px] max-w-lg">
@@ -551,12 +609,12 @@ export default function WorklistPage() {
                   <input value={search} onChange={e => { setSearch(e.target.value); setPageNum(0); }}
                     placeholder="Search by name, diagnosis…"
                     className="w-full text-xs rounded-lg pl-9 pr-4 py-2 outline-none"
-                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#e0e0e0' }}
-                    onFocus={e => e.target.style.borderColor = 'rgba(77,166,255,0.4)'}
-                    onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}/>
+                    style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                    onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                    onBlur={e => e.target.style.borderColor = 'var(--border)'}/>
                   {search && (
                     <button onClick={() => { setSearch(''); setPageNum(0); }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white">
+                      className="absolute right-2 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                       </svg>
@@ -565,7 +623,7 @@ export default function WorklistPage() {
                 </div>
 
                 {/* View toggle */}
-                <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
                   {[
                     ['grid', 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z'],
                     ['table', 'M3 12h18M3 6h18M3 18h18M3 3v18'],
@@ -580,23 +638,23 @@ export default function WorklistPage() {
 
                 {/* Count */}
                 <div className="text-xs text-gray-600 font-mono shrink-0">
-                  {filtered.length.toLocaleString()} / {localItems.length.toLocaleString()} images
+                  {filtered.length.toLocaleString()} / {displayItems.length.toLocaleString()} images
                 </div>
               </div>
 
               {/* Status pills */}
               <div className="flex items-center gap-2 flex-wrap">
                 {['All', 'For Review', 'Pending', 'QC', 'Completed', 'STAT', 'No Status'].map(s => {
-                  const count = s === 'All' ? localItems.length : (statusCounts[s] || 0);
+                  const count = s === 'All' ? displayItems.length : (statusCounts[s] || 0);
                   const cfg = STATUS_CONFIG[s] || {};
                   const isActive = statusFilter === s;
                   return (
                     <button key={s} onClick={() => { setStatusFilter(s); setPageNum(0); }}
                       className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-all"
                       style={{
-                        background: isActive ? (cfg.bg || 'rgba(77,166,255,0.12)') : 'rgba(255,255,255,0.03)',
-                        color: isActive ? (cfg.color || '#4da6ff') : '#6b7280',
-                        border: isActive ? `1px solid ${cfg.border || 'rgba(77,166,255,0.3)'}` : '1px solid rgba(255,255,255,0.06)',
+                        background: isActive ? (cfg.bg || 'rgba(77,166,255,0.12)') : 'var(--highlight)',
+                        color: isActive ? (cfg.color || 'var(--accent)') : 'var(--muted)',
+                        border: isActive ? `1px solid ${cfg.border || 'rgba(77,166,255,0.3)'}` : '1px solid var(--border)',
                       }}>
                       {s}<span className="font-mono opacity-70">{count}</span>
                     </button>
