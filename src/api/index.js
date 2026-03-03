@@ -75,12 +75,42 @@ export const deleteAnnotation = (id) =>
 export const updateItemMetadata = (itemId, meta) =>
   client.put(`/item/${itemId}/metadata`, meta).then((r) => r.data);
 
+// Recursively count ALL items in a folder tree.
+// Stops recursing into a folder only when it has no sub-folders (nFolders === 0).
+async function countItemsRecursive(folderId) {
+  const subFolders = await client.get(
+    `/folder?parentType=folder&parentId=${folderId}&limit=500`
+  ).then(r => r.data);
+  let count = subFolders.reduce((s, f) => s + (f.nItems || 0), 0);
+  const withChildren = subFolders.filter(f => (f.nFolders || 0) > 0);
+  if (withChildren.length > 0) {
+    const subCounts = await Promise.all(withChildren.map(f => countItemsRecursive(f._id)));
+    count += subCounts.reduce((s, c) => s + c, 0);
+  }
+  return count;
+}
+
 export const getCollectionStats = async (collectionId) => {
   try {
-    const folders = await client.get(`/folder?parentType=collection&parentId=${collectionId}&limit=200`).then(r => r.data);
-    let totalItems = 0;
-    folders.forEach(f => { totalItems += (f.nItems || 0); });
-    return { folders: folders.length, items: totalItems };
+    // Get top-level folders (case folders) in the collection
+    const folders = await client.get(
+      `/folder?parentType=collection&parentId=${collectionId}&limit=500&sort=name`
+    ).then(r => r.data);
+
+    // For each top-level folder: count its direct items, then recursively
+    // traverse any sub-folder tree to count all nested items too.
+    const counts = await Promise.all(folders.map(async (f) => {
+      let count = f.nItems || 0;
+      if ((f.nFolders || 0) > 0) {
+        count += await countItemsRecursive(f._id);
+      }
+      return count;
+    }));
+
+    return {
+      folders: folders.length,
+      items: counts.reduce((s, c) => s + c, 0),
+    };
   } catch(e) { return { folders: 0, items: 0 }; }
 };
 

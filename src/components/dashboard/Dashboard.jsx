@@ -47,9 +47,9 @@ function StatCard({ icon, label, value, sub, color = '#4da6ff', onClick }) {
   return (
     <div onClick={onClick}
       className="flex flex-col gap-2 p-5 rounded-xl transition-all duration-200"
-      style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)', cursor: onClick ? 'pointer' : 'default' }}
+      style={{ background:'var(--bg-panel)', border:'1px solid var(--border)', cursor: onClick ? 'pointer' : 'default' }}
       onMouseEnter={e => { if(onClick) e.currentTarget.style.borderColor = color + '55'; }}
-      onMouseLeave={e => { if(onClick) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}>
+      onMouseLeave={e => { if(onClick) e.currentTarget.style.borderColor = 'var(--border)'; }}>
       <div className="flex items-center justify-between">
         <div className="w-8 h-8 rounded-lg flex items-center justify-center"
           style={{ background: color + '22' }}>
@@ -79,9 +79,9 @@ function CollectionCard({ collection, stats, onClick }) {
   return (
     <div onClick={onClick}
       className="group relative flex flex-col gap-3 p-4 rounded-xl cursor-pointer transition-all duration-200"
-      style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = color + '44'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}>
+      style={{ background:'var(--bg-panel)', border:'1px solid var(--border)' }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = color + '44'; e.currentTarget.style.background = 'var(--highlight)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-panel)'; }}>
 
       {/* Color bar */}
       <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl opacity-60"
@@ -101,24 +101,21 @@ function CollectionCard({ collection, stats, onClick }) {
       </div>
 
       <div>
-        <div className="text-sm font-semibold text-white leading-tight truncate">{collection.name}</div>
+        <div className="text-sm font-semibold leading-tight truncate" style={{ color: 'var(--text)' }}>{collection.name}</div>
         {collection.description && (
-          <div className="text-xs text-gray-600 mt-0.5 line-clamp-2">{collection.description}</div>
+          <div className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--muted)' }}>{collection.description}</div>
         )}
       </div>
 
-      <div className="flex items-center gap-3 mt-auto pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+      <div className="flex items-center gap-3 mt-auto pt-2" style={{ borderTop:'1px solid var(--border)' }}>
         <div className="text-center">
           <div className="text-xs font-mono font-bold" style={{ color }}>{stats?.folders ?? '…'}</div>
-          <div className="text-xs text-gray-600">Cases</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>Cases</div>
         </div>
-        <div className="w-px h-6" style={{ background:'rgba(255,255,255,0.06)' }}/>
+        <div className="w-px h-6" style={{ background:'var(--border)' }}/>
         <div className="text-center">
           <div className="text-xs font-mono font-bold" style={{ color }}>{stats?.items ?? '…'}</div>
-          <div className="text-xs text-gray-600">Images</div>
-        </div>
-        <div className="ml-auto text-xs text-gray-700 font-mono">
-          {new Date(collection.created).toLocaleDateString()}
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>Images</div>
         </div>
       </div>
     </div>
@@ -188,11 +185,11 @@ export default function Dashboard() {
     : user?.login || 'Pathologist';
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background:'#07080d', fontFamily:"'IBM Plex Sans', system-ui, sans-serif" }}>
+    <div className="min-h-screen flex flex-col" style={{ background:'var(--bg)', fontFamily:"'IBM Plex Sans', system-ui, sans-serif" }}>
 
       {/* ── Top nav ── */}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20"
-        style={{ background:'rgba(7,8,13,0.95)', borderBottom:'1px solid rgba(255,255,255,0.06)', backdropFilter:'blur(12px)' }}>
+        style={{ background:'var(--bg-toolbar)', borderBottom:'1px solid var(--border)', backdropFilter:'blur(12px)' }}>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"
             style={{ background:'rgba(77,166,255,0.15)', border:'1px solid rgba(77,166,255,0.25)' }}>
@@ -201,8 +198,8 @@ export default function Dashboard() {
             </svg>
           </div>
           <div>
-            <span className="text-white font-bold text-sm tracking-tight">PathAssist</span>
-            <span className="text-gray-600 text-xs ml-2">Lymphoma DSA</span>
+            <span className="font-bold text-sm tracking-tight" style={{ color: 'var(--text)' }}>PathAssist</span>
+            <span className="text-xs ml-2" style={{ color: 'var(--muted)' }}>IMPART</span>
           </div>
         </div>
 
@@ -215,20 +212,20 @@ export default function Dashboard() {
           ].map(item => (
             <button key={item.id} onClick={() => setPage(item.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{ background: item.id==='dashboard' ? 'rgba(77,166,255,0.12)' : 'transparent',
-                color: item.id==='dashboard' ? '#4da6ff' : '#6b7280',
-                border: item.id==='dashboard' ? '1px solid rgba(77,166,255,0.2)' : '1px solid transparent' }}>
+              style={{ background: item.id==='dashboard' ? 'var(--highlight)' : 'transparent',
+                color: item.id==='dashboard' ? 'var(--accent)' : 'var(--muted)',
+                border: item.id==='dashboard' ? '1px solid var(--border)' : '1px solid transparent' }}>
               {item.icon}{item.label}
             </button>
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 pl-3" style={{ borderLeft:'1px solid rgba(255,255,255,0.07)' }}>
+        <div className="flex items-center gap-2 pl-3" style={{ borderLeft:'1px solid var(--border)' }}>
           <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
             style={{ background:'linear-gradient(135deg, #4da6ff22, #7c3aed22)', border:'1px solid rgba(77,166,255,0.3)', color:'#4da6ff' }}>
             {displayName[0]?.toUpperCase()}
           </div>
-          <span className="text-xs text-gray-400 hidden md:block">{displayName}</span>
+          <span className="text-xs hidden md:block" style={{ color: 'var(--muted)' }}>{displayName}</span>
           <button onClick={handleLogout} className="btn-icon ml-1" title="Sign out">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -243,26 +240,23 @@ export default function Dashboard() {
 
           {/* ── Welcome header ── */}
           <div className="mb-8">
-            <div className="text-xs text-gray-600 font-mono mb-1 tracking-widest uppercase">
-              {new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}
-            </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">
-              {greeting}, <span style={{ color:'#4da6ff' }}>{user?.firstName || user?.login}</span>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
+              {greeting}, <span style={{ color:'var(--accent)' }}>{user?.firstName || user?.login}</span>
             </h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
               {isLoading ? 'Loading your workspace…' : `${collections.length} collection${collections.length !== 1 ? 's' : ''} · ${totalImages.toLocaleString()} images across ${totalFolders} cases`}
             </p>
           </div>
 
           {/* ── Collections grid — first section ── */}
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white tracking-tight">
+            <h2 className="text-sm font-semibold tracking-tight" style={{ color: 'var(--text)' }}>
               Your Collections
-              <span className="ml-2 text-xs font-normal text-gray-600">({collections.length})</span>
+              <span className="ml-2 text-xs font-normal" style={{ color: 'var(--muted)' }}>({collections.length})</span>
             </h2>
             <button onClick={() => setPage('worklist')}
               className="text-xs flex items-center gap-1 transition-colors"
-              style={{ color:'#4da6ff' }}>
+              style={{ color:'var(--accent)' }}>
               View all images
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -274,16 +268,16 @@ export default function Dashboard() {
             <div className="flex items-center justify-center py-16 mb-8">
               <div className="flex flex-col items-center gap-3">
                 <div className="spinner" style={{ width:28, height:28, borderWidth:3 }}/>
-                <span className="text-xs text-gray-600">Loading collections…</span>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>Loading collections…</span>
               </div>
             </div>
           ) : collections.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center mb-8">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#2a2f45" strokeWidth="1.5" className="mb-3">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" className="mb-3" style={{ stroke: 'var(--border)' }}>
                 <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/>
               </svg>
-              <p className="text-sm text-gray-600">No collections found</p>
-              <p className="text-xs text-gray-700 mt-1">Collections will appear here once created in Girder</p>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>No collections found</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Collections will appear here once created in Girder</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
@@ -319,16 +313,16 @@ export default function Dashboard() {
 
               {/* Donut chart card */}
               <div className="rounded-2xl p-6 flex flex-col gap-4"
-                style={{ background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.07)' }}>
-                <div className="text-xs font-semibold uppercase tracking-widest text-gray-500">Image Distribution</div>
+                style={{ background:'var(--bg-panel)', border:'1px solid var(--border)' }}>
+                <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>Image Distribution</div>
                 <div className="flex items-center gap-6">
                   <DonutChart segments={donutSegs} label={totalImages > 0 ? totalImages : '…'} sublabel="Total" size={130} thickness={20}/>
                   <div className="flex flex-col gap-2 flex-1 min-w-0">
                     {collections.slice(0, 7).map((col, i) => (
                       <div key={col._id} className="flex items-center gap-2 cursor-pointer group" onClick={() => goToWorklist(col)}>
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colColors[i % colColors.length] }}/>
-                        <span className="text-xs text-gray-400 truncate group-hover:text-white transition-colors flex-1">{col.name}</span>
-                        <span className="text-xs font-mono text-gray-600">{collectionStats[col._id]?.items ?? '…'}</span>
+                        <span className="text-xs truncate flex-1" style={{ color: 'var(--muted)' }}>{col.name}</span>
+                        <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{collectionStats[col._id]?.items ?? '…'}</span>
                       </div>
                     ))}
                     {collections.length > 7 && (
@@ -342,23 +336,23 @@ export default function Dashboard() {
               <div className="lg:col-span-2">
                 <div onClick={() => setPage('worklist')}
                   className="rounded-2xl p-5 cursor-pointer flex flex-col justify-between group transition-all h-full"
-                  style={{ background:'linear-gradient(135deg, rgba(77,166,255,0.1), rgba(77,166,255,0.03))', border:'1px solid rgba(77,166,255,0.15)' }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor='rgba(77,166,255,0.3)'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor='rgba(77,166,255,0.15)'}>
+                  style={{ background:'var(--bg-panel)', border:'1px solid var(--border)' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor='var(--accent)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor='var(--border)'}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
-                    style={{ background:'rgba(77,166,255,0.15)' }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2">
+                    style={{ background:'var(--highlight)' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
                       <rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/>
                       <rect x="3" y="12" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="5" rx="1"/>
                     </svg>
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-white">Browse All Images</div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Browse All Images</div>
+                    <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
                       {totalImages > 0 ? `${totalImages.toLocaleString()} images across ${collections.length} collections` : 'Search, filter & open slides from all collections'}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 text-xs mt-3" style={{ color:'#4da6ff' }}>
+                  <div className="flex items-center gap-1 text-xs mt-3" style={{ color:'var(--accent)' }}>
                     Open worklist
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -369,9 +363,9 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="mt-12 pt-6 text-center text-xs text-gray-800 font-mono"
-            style={{ borderTop:'1px solid rgba(255,255,255,0.04)' }}>
-            PathAssist · DSA v5 / Girder 5 · lymphoma.dev.pathassist.health
+          <div className="mt-12 pt-6 text-center text-xs font-mono"
+            style={{ borderTop:'1px solid var(--border)', color: 'var(--muted)' }}>
+            PathAssist · IMPART · lymphoma.dev.pathassist.health
           </div>
         </div>
       </div>

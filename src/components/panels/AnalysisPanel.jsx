@@ -62,11 +62,11 @@ export default function AnalysisPanel() {
             <div className="text-xs text-gray-500 font-mono mb-1 truncate px-1">{imgName}</div>
             {Array.isArray(clis) && clis.map((cli) => (
               <div key={cli.name}
-                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer transition-colors group">
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-black/5 cursor-pointer transition-colors group">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2">
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
-                <span className="text-xs text-gray-300 flex-1">{cli.title || cli.name}</span>
+                <span className="text-xs flex-1" style={{ color: 'var(--text)' }}>{cli.title || cli.name}</span>
                 <button
                   className="opacity-0 group-hover:opacity-100 px-2 py-0.5 rounded text-xs transition-all"
                   style={{ background: 'rgba(77,166,255,0.15)', color: '#4da6ff' }}
@@ -99,13 +99,13 @@ export default function AnalysisPanel() {
           const status = job.status === 3 ? 'success' : job.status === 4 ? 'error' : job.status === 2 ? 'running' : job.status === 1 ? 'queued' : 'inactive';
           const color = STATUS_COLORS[status];
           return (
-            <div key={job._id} className="flex items-start gap-2 py-1.5 px-1 rounded hover:bg-white/3 transition-colors">
+            <div key={job._id} className="flex items-start gap-2 py-1.5 px-1 rounded hover:bg-black/5 transition-colors">
               <span className="text-xs font-mono mt-0.5" style={{ color, flexShrink: 0 }}>
                 {STATUS_ICONS[status]}
               </span>
               <div className="flex-1 min-w-0">
-                <div className="text-xs text-gray-300 truncate">{job.title || job.type}</div>
-                <div className="text-xs text-gray-600">{new Date(job.created).toLocaleString()}</div>
+                <div className="text-xs truncate" style={{ color: 'var(--text)' }}>{job.title || job.type}</div>
+                <div className="text-xs" style={{ color: 'var(--muted)' }}>{new Date(job.created).toLocaleString()}</div>
                 {status === 'running' && (
                   <div className="mt-1 h-1 rounded overflow-hidden" style={{ background: 'var(--border)' }}>
                     <div className="h-full rounded animate-pulse" style={{ background: color, width: `${job.progress?.current || 50}%` }} />

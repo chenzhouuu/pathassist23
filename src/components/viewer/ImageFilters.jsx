@@ -41,14 +41,14 @@ function getCanvas(viewer) {
 function SliderRow({ label, value, min, max, step, onChange }) {
   return (
     <div className="flex items-center gap-2" style={{ minHeight: 26 }}>
-      <span className="text-xs text-gray-400 shrink-0" style={{ width: 76 }}>{label}</span>
+      <span className="text-xs shrink-0" style={{ width: 76, color: 'var(--muted)' }}>{label}</span>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
         className="flex-1 h-1 rounded-full appearance-none cursor-pointer"
         style={{ accentColor: '#4da6ff' }}
       />
-      <span className="text-xs font-mono text-gray-500 text-right shrink-0" style={{ width: 32 }}>
+      <span className="text-xs font-mono text-right shrink-0" style={{ width: 32, color: 'var(--muted)' }}>
         {value}
       </span>
     </div>
@@ -113,14 +113,14 @@ export default function ImageFilters({ viewer }) {
           className="absolute top-full left-0 mt-1 z-50 rounded-xl p-4"
           style={{
             width: 290,
-            background: '#13151f',
-            border: '1px solid rgba(255,255,255,0.1)',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            background: 'var(--bg-panel)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
           }}>
 
           {/* Header */}
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-300">Slide Filters</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>Slide Filters</span>
             {!noChange && (
               <button onClick={reset}
                 className="text-xs text-blue-400 hover:text-blue-300 transition-colors">

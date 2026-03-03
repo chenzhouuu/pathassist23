@@ -314,20 +314,20 @@ export default function ViewerPanel() {
         {/* Idle */}
         {status.state === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 select-none" style={{ background:'var(--bg-viewer)' }}>
-            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1a1e2e" strokeWidth="1" className="mb-5">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" strokeWidth="1" className="mb-5" style={{ stroke: 'var(--border)' }}>
               <rect x="2" y="3" width="20" height="14" rx="2"/>
               <circle cx="8" cy="10" r="2"/><polyline points="21 15 16 10 5 21"/>
               <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
-            <p className="text-sm font-medium" style={{ color:'#252a3e' }}>Select a slide to view</p>
-            <p className="text-xs mt-1" style={{ color:'#181c2a' }}>Collections → Folders → Items</p>
+            <p className="text-sm font-medium" style={{ color:'var(--muted)' }}>Select a slide to view</p>
+            <p className="text-xs mt-1" style={{ color:'var(--muted)' }}>Collections → Folders → Items</p>
           </div>
         )}
 
         {/* Loading */}
         {status.state === 'loading' && (
           <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none"
-            style={{ background:'rgba(6,7,9,0.9)' }}>
+            style={{ background:'rgba(0,0,0,0.85)' }}>
             <div className="flex flex-col items-center gap-3">
               <div className="spinner" style={{ width:32, height:32, borderWidth:3 }}/>
               <span className="text-xs text-gray-400 font-mono max-w-xs text-center">{status.msg}</span>
@@ -344,8 +344,8 @@ export default function ViewerPanel() {
               <circle cx="8" cy="10" r="2"/><polyline points="21 15 16 10 5 21"/>
             </svg>
             <div className="text-center space-y-1">
-              <p className="text-sm font-semibold text-gray-300">Slide not yet processed</p>
-              <p className="text-xs text-gray-500 max-w-xs">
+              <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Slide not yet processed</p>
+              <p className="text-xs max-w-xs" style={{ color: 'var(--muted)' }}>
                 <span className="font-mono text-gray-400">{status.msg}</span> is a whole-slide image but
                 has not been registered as a large image source in Girder.
               </p>
@@ -359,7 +359,7 @@ export default function ViewerPanel() {
               </svg>
               Initialize large image tiles
             </button>
-            <button onClick={retry} className="text-xs text-gray-600 underline">
+            <button onClick={retry} className="text-xs underline" style={{ color: 'var(--muted)' }}>
               Try loading again (if already processed)
             </button>
           </div>
@@ -368,13 +368,13 @@ export default function ViewerPanel() {
         {/* Processing / tile creation in progress */}
         {isProcessing && (
           <div className="absolute inset-0 flex items-center justify-center z-20"
-            style={{ background:'rgba(6,7,9,0.95)' }}>
+            style={{ background:'rgba(0,0,0,0.9)' }}>
             <div className="flex flex-col items-center gap-4 max-w-xs w-full px-6">
               <div className="spinner" style={{ width:36, height:36, borderWidth:3, borderTopColor:'#f5a623' }}/>
               <p className="text-xs text-gray-400 font-mono text-center">{status.msg}</p>
               {status.progress != null && (
                 <div className="w-full">
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background:'rgba(255,255,255,0.08)' }}>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background:'rgba(255,255,255,0.15)' }}>
                     <div className="h-full rounded-full transition-all"
                       style={{ width:`${status.progress}%`, background:'#f5a623' }}/>
                   </div>
@@ -395,8 +395,8 @@ export default function ViewerPanel() {
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
               <polyline points="13 2 13 9 20 9"/>
             </svg>
-            <p className="text-sm text-gray-500">No image preview available</p>
-            <p className="text-xs text-gray-600 max-w-xs text-center">{status.msg}</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>No image preview available</p>
+            <p className="text-xs max-w-xs text-center" style={{ color: 'var(--muted)' }}>{status.msg}</p>
             {status.files?.map(f => (
               <a key={f._id} href={getFileDownloadUrl(f._id)} download
                 className="text-xs px-3 py-1.5 rounded transition-colors"
@@ -415,7 +415,7 @@ export default function ViewerPanel() {
               <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <p className="text-sm text-red-400">Failed to load item</p>
-            <p className="text-xs text-gray-600 max-w-sm text-center px-4">{status.msg}</p>
+            <p className="text-xs max-w-sm text-center px-4" style={{ color: 'var(--muted)' }}>{status.msg}</p>
             <div className="flex gap-2 mt-1">
               <button onClick={retry}
                 className="text-xs px-3 py-1.5 rounded transition-colors"
@@ -446,7 +446,7 @@ export default function ViewerPanel() {
         {/* Status bar — file name only; zoom shown in MagnificationBar below */}
         {status.state === 'ok' && (
           <div className="absolute bottom-0 left-0 right-0 z-10 flex items-center gap-3 px-3 py-1.5"
-            style={{ background:'rgba(6,7,9,0.75)', backdropFilter:'blur(4px)', borderTop:'1px solid rgba(30,33,48,0.6)' }}>
+            style={{ background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)', borderTop:'1px solid var(--border)' }}>
             <StatusBadge type={status.type} label={status.type === 'wsi' ? 'WSI' : status.type === 'image' ? 'Image' : 'File'}/>
             <span className="text-xs text-gray-500 truncate flex-1">{status.msg}</span>
           </div>

@@ -108,6 +108,11 @@ export const useStore = create((set, get) => ({
   drawGroup: 'default',
   setDrawGroup: (g) => set({ drawGroup: g }),
 
+  // ── Compare ───────────────────────────────────────────────────────────────
+  compareItems: [],
+  setCompareItems: (items) => set({ compareItems: items, currentPage: 'compare' }),
+  clearCompare: () => set({ compareItems: [], currentPage: 'worklist' }),
+
   // ── Theme ────────────────────────────────────────────────────────────────
   theme: localStorage.getItem('theme') || 'he',
   setTheme: (theme) => {

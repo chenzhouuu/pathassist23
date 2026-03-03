@@ -57,12 +57,13 @@ function FolderCard({ folder, onClick }) {
 }
 
 // ── Thumbnail card ────────────────────────────────────────────────────────────
-function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChange }) {
+function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChange, selected, onToggleSelect }) {
   const token = localStorage.getItem('girderToken') || '';
   const thumbUrl = `${GIRDER_BASE}/item/${item._id}/tiles/thumbnail?width=320&height=240&token=${token}`;
   const [imgError, setImgError] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const status = item.meta?.status || null;
   const priority = item.meta?.priority || null;
 
@@ -78,13 +79,37 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
 
   return (
     <div className="group relative flex flex-col rounded-xl overflow-hidden transition-all duration-200"
-      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(77,166,255,0.4)'}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; setShowMenu(false); }}>
+      style={{
+        background: 'var(--bg-panel)',
+        border: `1px solid ${selected ? 'rgba(77,166,255,0.7)' : hovered ? 'rgba(77,166,255,0.4)' : 'var(--border)'}`,
+        boxShadow: selected ? '0 0 0 2px rgba(77,166,255,0.15)' : 'none',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setShowMenu(false); }}>
 
       {/* Thumbnail */}
       <div className="relative overflow-hidden cursor-pointer" style={{ paddingBottom: '60%', background: 'var(--bg-viewer)' }}
         onClick={() => onOpen(item)}>
+
+        {/* Compare select button — top-left */}
+        <button
+          className={`absolute top-2 left-2 z-10 w-6 h-6 rounded flex items-center justify-center transition-all ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          style={{
+            background: selected ? '#4da6ff' : 'rgba(0,0,0,0.55)',
+            border: `1px solid ${selected ? '#4da6ff' : 'rgba(255,255,255,0.35)'}`,
+          }}
+          onClick={e => { e.stopPropagation(); onToggleSelect(item); }}
+          title={selected ? 'Remove from comparison' : 'Select for comparison'}>
+          {selected ? (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          ) : (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          )}
+        </button>
         {!imgError ? (
           <img src={thumbUrl} alt={item.name} onError={() => setImgError(true)}
             className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"/>
@@ -247,7 +272,19 @@ export default function WorklistPage() {
     setPage, setActiveItem,
     activeCollection, activeFolder, setActiveFolder,
     clearActiveNavigation, setLeftPanelOpen, user,
+    setCompareItems,
   } = useStore();
+
+  const [compareSelection, setCompareSelection] = useState([]); // max 2 items
+
+  const toggleCompareSelect = (item) => {
+    setCompareSelection(prev => {
+      const exists = prev.find(i => i._id === item._id);
+      if (exists) return prev.filter(i => i._id !== item._id);
+      if (prev.length >= 2) return prev; // already at max
+      return [...prev, item];
+    });
+  };
 
   const [view, setView]               = useState('grid');
   const [search, setSearch]           = useState('');
@@ -460,7 +497,9 @@ export default function WorklistPage() {
             {pageItems.map(({ item, collectionName, folderPath }) => (
               <ThumbnailCard key={item._id} item={item}
                 collectionName={collectionName} folderPath={folderPath}
-                onOpen={openInViewer} onStatusChange={handleStatusChange}/>
+                onOpen={openInViewer} onStatusChange={handleStatusChange}
+                selected={!!compareSelection.find(i => i._id === item._id)}
+                onToggleSelect={toggleCompareSelect}/>
             ))}
           </div>
         ) : (
@@ -640,6 +679,32 @@ export default function WorklistPage() {
                 <div className="text-xs text-gray-600 font-mono shrink-0">
                   {filtered.length.toLocaleString()} / {displayItems.length.toLocaleString()} images
                 </div>
+
+                {/* Compare selection UI */}
+                {compareSelection.length > 0 && (
+                  <div className="flex items-center gap-2 shrink-0 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
+                    <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {compareSelection.length}/2 selected
+                    </span>
+                    {compareSelection.length === 2 && (
+                      <button
+                        onClick={() => setCompareItems(compareSelection)}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded font-medium transition-all"
+                        style={{ background: 'rgba(77,166,255,0.15)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.35)' }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="2" y="3" width="9" height="18" rx="1"/><rect x="13" y="3" width="9" height="18" rx="1"/>
+                        </svg>
+                        Compare
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setCompareSelection([])}
+                      className="text-xs px-2 py-1 rounded transition-all"
+                      style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Status pills */}

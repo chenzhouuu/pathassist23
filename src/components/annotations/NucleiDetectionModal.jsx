@@ -273,10 +273,10 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center"
       style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }}>
-      <div className="rounded-xl w-[420px] mx-4" style={{ background: '#13151f', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <div className="rounded-xl w-[420px] mx-4" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2">
               <circle cx="12" cy="12" r="4"/><circle cx="12" cy="5" r="1" fill="#4caf82"/>
@@ -284,10 +284,10 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
               <circle cx="5" cy="8" r="1" fill="#4caf82"/><circle cx="19" cy="8" r="1" fill="#4caf82"/>
               <circle cx="5" cy="16" r="1" fill="#4caf82"/><circle cx="19" cy="16" r="1" fill="#4caf82"/>
             </svg>
-            <span className="text-sm font-semibold text-white">Annotate Nuclei</span>
+            <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Annotate Nuclei</span>
           </div>
           {step !== 'running' && (
-            <button onClick={onClose} className="text-gray-600 hover:text-white">
+            <button onClick={onClose} style={{ color: 'var(--muted)' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
@@ -299,10 +299,10 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
 
           {/* ROI info */}
           <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(76,175,130,0.08)', border: '1px solid rgba(76,175,130,0.2)' }}>
-            <div className="text-gray-400 mb-1">Region of Interest</div>
-            <div className="font-semibold text-gray-200 truncate">{ann.annotation?.name || 'Selected annotation'}</div>
+            <div className="mb-1" style={{ color: 'var(--muted)' }}>Region of Interest</div>
+            <div className="font-semibold truncate" style={{ color: 'var(--text)' }}>{ann.annotation?.name || 'Selected annotation'}</div>
             {bbox ? (
-              <div className="text-gray-500 font-mono mt-0.5">
+              <div className="font-mono mt-0.5" style={{ color: 'var(--muted)' }}>
                 {bbox.width} × {bbox.height} px &nbsp;at ({bbox.x}, {bbox.y})
               </div>
             ) : (
@@ -314,11 +314,11 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
           {step === 'select' && (
             <>
               <div>
-                <label className="text-xs text-gray-500 block mb-1.5">Detection Algorithm (Slicer CLI)</label>
+                <label className="text-xs block mb-1.5" style={{ color: 'var(--muted)' }}>Detection Algorithm (Slicer CLI)</label>
                 {loadingClis ? (
                   <div className="flex items-center gap-2 py-2">
                     <div className="spinner" style={{ width: 12, height: 12 }}/>
-                    <span className="text-xs text-gray-600">Loading available CLIs…</span>
+                    <span className="text-xs" style={{ color: 'var(--muted)' }}>Loading available CLIs…</span>
                   </div>
                 ) : clis.length === 0 ? (
                   <div className="text-xs rounded-lg p-3" style={{ background: 'rgba(233,69,96,0.08)', border: '1px solid rgba(233,69,96,0.2)', color: '#e94560' }}>
@@ -336,13 +336,13 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
                         className="w-full text-left px-3 py-2 rounded-lg text-xs transition-colors"
                         style={{
                           background: selected?.cliName === c.cliName && selected?.imageName === c.imageName
-                            ? 'rgba(76,175,130,0.15)' : 'rgba(255,255,255,0.04)',
+                            ? 'rgba(76,175,130,0.15)' : 'var(--highlight)',
                           border: selected?.cliName === c.cliName && selected?.imageName === c.imageName
-                            ? '1px solid rgba(76,175,130,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                          color: '#d1d5db',
+                            ? '1px solid rgba(76,175,130,0.3)' : '1px solid var(--border)',
+                          color: 'var(--text)',
                         }}>
                         <div className="font-semibold">{c.cliName}</div>
-                        <div className="text-gray-600 text-xs truncate">{c.imageName}</div>
+                        <div className="text-xs truncate" style={{ color: 'var(--muted)' }}>{c.imageName}</div>
                       </button>
                     ))}
                   </div>
@@ -350,10 +350,10 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
               </div>
 
               {clis.length === 0 && (
-                <div className="text-xs text-gray-600 px-1">
-                  Tip: For lymphoma nuclei detection, consider installing{' '}
-                  <span className="font-mono text-gray-400">dsarchive/histomicstk</span> or{' '}
-                  <span className="font-mono text-gray-400">nadeemlab/deepliif</span>.
+                <div className="text-xs px-1" style={{ color: 'var(--muted)' }}>
+                  Tip: For nuclei detection, consider installing{' '}
+                  <span className="font-mono" style={{ color: 'var(--text)' }}>dsarchive/histomicstk</span> or{' '}
+                  <span className="font-mono" style={{ color: 'var(--text)' }}>nadeemlab/deepliif</span>.
                 </div>
               )}
             </>
@@ -364,19 +364,19 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
             <div className="space-y-3 py-2">
               <div className="flex items-center gap-3">
                 <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2, borderTopColor: '#4caf82', flexShrink: 0 }}/>
-                <div className="text-xs text-gray-400">
+                <div className="text-xs" style={{ color: 'var(--muted)' }}>
                   {jobStatus
                     ? (pct != null ? `Processing… ${pct}%` : `${STATUS_LABELS[jobStatus.status] || 'Working'}…`)
                     : 'Submitting job…'}
                 </div>
               </div>
               {pct != null && (
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--highlight)' }}>
                   <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: '#4caf82' }}/>
                 </div>
               )}
               {jobStatus?._id && (
-                <div className="text-xs text-gray-700 font-mono">Job ID: {jobStatus._id.slice(-8)}</div>
+                <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>Job ID: {jobStatus._id.slice(-8)}</div>
               )}
             </div>
           )}
@@ -389,7 +389,7 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
               </svg>
               <div>
                 <div className="font-semibold text-green-400">Detection complete</div>
-                <div className="text-gray-500 mt-0.5">Nuclei annotations have been added to the slide. The annotations panel will refresh automatically.</div>
+                <div className="mt-0.5" style={{ color: 'var(--muted)' }}>Nuclei annotations have been added to the slide. The annotations panel will refresh automatically.</div>
               </div>
             </div>
           )}
@@ -398,13 +398,13 @@ export default function NucleiDetectionModal({ ann, item, onClose }) {
           {step === 'error' && (
             <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(233,69,96,0.08)', border: '1px solid rgba(233,69,96,0.2)' }}>
               <div className="font-semibold text-red-400 mb-1">Job failed</div>
-              <div className="text-gray-500 font-mono break-all">{errorMsg}</div>
+              <div className="font-mono break-all" style={{ color: 'var(--muted)' }}>{errorMsg}</div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 flex gap-2 justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div className="px-4 py-3 flex gap-2 justify-end" style={{ borderTop: '1px solid var(--border)' }}>
           {(step === 'select' || step === 'error') && (
             <>
               <button onClick={onClose} className="btn-ghost text-xs px-3">Cancel</button>
