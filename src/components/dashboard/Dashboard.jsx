@@ -117,6 +117,8 @@ export default function Dashboard() {
     () => Object.values(collectionStats).reduce((s, x) => s + (x?.folders || 0), 0),
     [collectionStats]
   );
+  const statsLoadedCount = Object.keys(collectionStats).length;
+  const statsReady = collections.length > 0 && statsLoadedCount >= collections.length;
 
   const handleLogout = async () => {
     try {
@@ -187,7 +189,7 @@ export default function Dashboard() {
               {greeting}, <span style={{ color: 'var(--accent)' }}>{user?.firstName || user?.login}</span>
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-              {isLoading ? 'Loading your workspace...' : `${collections.length} collection${collections.length !== 1 ? 's' : ''} · ${totalImages.toLocaleString()} images across ${totalFolders} cases`}
+              {(isLoading || !statsReady) ? 'Loading your workspace...' : `${collections.length} collection${collections.length !== 1 ? 's' : ''} - ${totalImages.toLocaleString()} images across ${totalFolders} cases`}
             </p>
           </div>
 
@@ -242,14 +244,14 @@ export default function Dashboard() {
                 <StatCard
                   icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><circle cx="12" cy="10" r="3" /></svg>}
                   label="Total Images"
-                  value={totalImages > 0 ? totalImages.toLocaleString() : '0'}
+                  value={statsReady ? totalImages.toLocaleString() : '...'}
                   color="#4caf82"
                   onClick={() => setPage('worklist')}
                 />
                 <StatCard
                   icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f5a623" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>}
                   label="Cases"
-                  value={totalFolders > 0 ? totalFolders.toLocaleString() : '0'}
+                  value={statsReady ? totalFolders.toLocaleString() : '...'}
                   color="#f5a623"
                 />
               </div>
@@ -257,7 +259,7 @@ export default function Dashboard() {
           )}
 
           <div className="mt-12 pt-6 text-center text-xs font-mono" style={{ borderTop: '1px solid var(--border)', color: 'var(--muted)' }}>
-            PathAssist · IMPART · lymphoma.dev.pathassist.health
+            PathAssist - IMPART - lymphoma.dev.pathassist.health
           </div>
         </div>
       </div>

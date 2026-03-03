@@ -17,15 +17,16 @@ export default function Header({ showBack = false }) {
       style={{ height:'var(--header-h)', background:'var(--bg-toolbar)', borderBottom:'1px solid var(--border)' }}>
 
       {/* Logo */}
-      <div className="flex items-center gap-2 shrink-0 cursor-pointer" onClick={() => setPage('dashboard')}>
-        <div className="w-7 h-7 rounded flex items-center justify-center"
-          style={{ background:'rgba(77,166,255,0.15)' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2.5">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-        </div>
-        <span className="font-semibold text-sm tracking-tight" style={{ color: 'var(--text)' }}>PathAssist</span>
-        <span className="text-xs hidden sm:block" style={{ color: 'var(--muted)' }}>/ IMPART</span>
+      <div className="flex items-center shrink-0 cursor-pointer" onClick={() => setPage('dashboard')}>
+        <img
+          src="/impart-dx-logo.png"
+          alt="Impart DX"
+          className="h-7 md:h-8 w-auto object-contain"
+          onError={(e) => {
+            e.currentTarget.onerror = null;
+            e.currentTarget.src = '/impart-dx-logo.svg';
+          }}
+        />
       </div>
 
       {showBack && (
