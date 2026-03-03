@@ -570,14 +570,12 @@ export default function WorklistPage() {
       {/* ── Nav ── */}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20"
         style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
-        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setPage('dashboard')}>
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgba(77,166,255,0.15)', border: '1px solid rgba(77,166,255,0.25)' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2.5">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-            </svg>
-          </div>
-          <span className="text-white font-bold text-sm">PathAssist</span>
+        <div className="flex items-center cursor-pointer" onClick={() => setPage('dashboard')}>
+          <img
+            src="/impart-dx-logo.svg"
+            alt="Impart DX"
+            className="h-8 md:h-9 w-auto object-contain"
+          />
         </div>
 
         <span className="text-gray-700">/</span>
