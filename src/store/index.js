@@ -108,6 +108,16 @@ export const useStore = create((set, get) => ({
   drawGroup: 'default',
   setDrawGroup: (g) => set({ drawGroup: g }),
 
+  // ROI selection: triggered by Analysis panel "Draw ROI" button;
+  // AnnotationCanvas captures the rectangle and calls setRoiSelectResult.
+  roiSelectResult: null,                             // { x, y, width, height } in image pixels
+  setRoiSelectResult: (r) => set({ roiSelectResult: r }),
+  clearRoiSelectResult: () => set({ roiSelectResult: null }),
+
+  // ── Projects ──────────────────────────────────────────────────────────────
+  activeProject: null,
+  setActiveProject: (project) => set({ activeProject: project }),
+
   // ── Compare ───────────────────────────────────────────────────────────────
   compareItems: [],
   setCompareItems: (items) => set({ compareItems: items, currentPage: 'compare' }),

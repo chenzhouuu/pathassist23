@@ -4,6 +4,7 @@ import { useStore } from '../../store/index.js';
 import { useQuery } from '@tanstack/react-query';
 import { getCollectionStats } from '../../api/index.js';
 import { GIRDER_BASE } from '../../config/girder.js';
+import AppLogo from '../layout/AppLogo.jsx';
 
 function StatCard({ icon, label, value, sub, color = '#4da6ff', onClick }) {
   return (
@@ -143,7 +144,7 @@ export default function Dashboard() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20" style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center">
-          <img src="/impart-dx-logo.svg" alt="Impart DX" className="h-8 md:h-9 w-auto object-contain" />
+          <AppLogo />
         </div>
 
         <div className="flex-1" />
@@ -151,7 +152,8 @@ export default function Dashboard() {
         <nav className="flex items-center gap-1">
           {[
             { id: 'dashboard', label: 'Dashboard', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg> },
-            { id: 'worklist', label: 'All Images', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg> },
+            { id: 'projects',  label: 'Projects',  icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg> },
+            { id: 'worklist',  label: 'All Images',icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg> },
           ].map(item => (
             <button
               key={item.id}

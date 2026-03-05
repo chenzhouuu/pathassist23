@@ -17,10 +17,20 @@ export const getCollections = () =>
   client.get('/collection?limit=200&sort=name').then((r) => r.data);
 export const getCollection = (id) =>
   client.get(`/collection/${id}`).then((r) => r.data);
+export const createCollection = (name, description = '') =>
+  client.post('/collection', { name, description, public: false }).then((r) => r.data);
+export const updateCollection = (id, data) =>
+  client.put(`/collection/${id}`, data).then((r) => r.data);
+export const updateCollectionMetadata = (id, meta) =>
+  client.put(`/collection/${id}/metadata`, meta).then((r) => r.data);
 
 // ─── Folders ─────────────────────────────────────────────────────────────────
 export const getFolders = (parentType, parentId) =>
   client.get(`/folder?parentType=${parentType}&parentId=${parentId}&limit=200&sort=name`).then((r) => r.data);
+export const createFolder = (parentType, parentId, name, description = '') =>
+  client.post('/folder', { parentType, parentId, name, description, reuseExisting: false }).then((r) => r.data);
+export const updateFolderMetadata = (folderId, meta) =>
+  client.put(`/folder/${folderId}/metadata`, meta).then((r) => r.data);
 
 // ─── Items ────────────────────────────────────────────────────────────────────
 export const getItems = (folderId, offset = 0, limit = 200) =>

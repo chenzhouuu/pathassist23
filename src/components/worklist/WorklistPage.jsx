@@ -1,11 +1,14 @@
 // src/components/worklist/WorklistPage.jsx
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useQuery, useQueries } from '@tanstack/react-query';
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems, updateItemMetadata, getTilesInfoSafe } from '../../api/index.js';
 import { GIRDER_BASE } from '../../config/girder.js';
 import LeftSidebar from '../sidebar/LeftSidebar.jsx';
 import ThemeSwitcher from '../ThemeSwitcher.jsx';
+import SharePatientModal from '../share/SharePatientModal.jsx';
+import AppLogo from '../layout/AppLogo.jsx';
+import CaseCreateModal from '../cases/CaseCreateModal.jsx';
 
 const PAGE_SIZE = 48;
 
@@ -29,11 +32,10 @@ function StatusBadge({ status }) {
 }
 
 // ── Folder card (shown when collection is selected but no folder) ─────────────
-function FolderCard({ folder, onClick }) {
+function FolderCard({ folder, onClick, onShare }) {
   return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-3 p-4 rounded-xl text-left w-full transition-all"
+    <div
+      className="group flex items-center gap-3 p-4 rounded-xl w-full transition-all"
       style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
       onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(77,166,255,0.4)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
@@ -41,18 +43,31 @@ function FolderCard({ folder, onClick }) {
         stroke="#4da6ff" strokeWidth="1.5" style={{ flexShrink: 0 }}>
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
       </svg>
-      <div className="flex-1 min-w-0">
+      <button className="flex-1 min-w-0 text-left" onClick={onClick}>
         <div className="text-sm font-medium text-white truncate">{folder.name}</div>
         {folder.nItems > 0 && (
           <div className="text-xs text-gray-600 font-mono mt-0.5">
             {folder.nItems} image{folder.nItems !== 1 ? 's' : ''}
           </div>
         )}
-      </div>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" style={{ flexShrink: 0 }}>
-        <polyline points="9 18 15 12 9 6"/>
-      </svg>
-    </button>
+      </button>
+      <button
+        onClick={e => { e.stopPropagation(); onShare(folder); }}
+        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-xs px-2 py-1 rounded transition-all shrink-0"
+        style={{ background: 'rgba(76,175,130,0.12)', color: '#4caf82', border: '1px solid rgba(76,175,130,0.25)' }}
+        title="Share with patient">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+        Share
+      </button>
+      <button className="text-gray-700 shrink-0" onClick={onClick}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -268,6 +283,7 @@ function TableRow({ item, collectionName, folderPath, onOpen, onStatusChange, in
 
 // ── Main Worklist ──────────────────────────────────────────────────────────────
 export default function WorklistPage() {
+  const qc = useQueryClient();
   const {
     setPage, setActiveItem,
     activeCollection, activeFolder, setActiveFolder,
@@ -276,6 +292,8 @@ export default function WorklistPage() {
   } = useStore();
 
   const [compareSelection, setCompareSelection] = useState([]); // max 2 items
+  const [shareFolder, setShareFolder] = useState(null); // folder to share with patient
+  const [showCreateCase, setShowCreateCase] = useState(false);
 
   const toggleCompareSelect = (item) => {
     setCompareSelection(prev => {
@@ -492,6 +510,26 @@ export default function WorklistPage() {
 
     return (
       <>
+        {/* Folder cards — shown at collection level so staff can share a patient case */}
+        {activeCollection && !activeFolder && folders.length > 0 && (
+          <div className="mb-5">
+            <div className="text-xs font-semibold mb-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              Patient Cases — hover to share
+            </div>
+            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+              {folders.map(folder => (
+                <FolderCard key={folder._id} folder={folder}
+                  onClick={() => setActiveFolder(folder)}
+                  onShare={setShareFolder}/>
+              ))}
+            </div>
+            <div className="my-4" style={{ borderTop: '1px solid var(--border)' }}/>
+          </div>
+        )}
+
         {view === 'grid' ? (
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
             {pageItems.map(({ item, collectionName, folderPath }) => (
@@ -571,11 +609,7 @@ export default function WorklistPage() {
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20"
         style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center cursor-pointer" onClick={() => setPage('dashboard')}>
-          <img
-            src="/impart-dx-logo.svg"
-            alt="Impart DX"
-            className="h-8 md:h-9 w-auto object-contain"
-          />
+          <AppLogo />
         </div>
 
         <span className="text-gray-700">/</span>
@@ -678,6 +712,32 @@ export default function WorklistPage() {
                   {filtered.length.toLocaleString()} / {displayItems.length.toLocaleString()} images
                 </div>
 
+                {/* Share folder with patient */}
+                {activeFolder && (
+                  <button
+                    onClick={() => setShareFolder(activeFolder)}
+                    className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
+                    style={{ background: 'rgba(76,175,130,0.12)', color: '#4caf82', border: '1px solid rgba(76,175,130,0.25)' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                    </svg>
+                    Share with Patient
+                  </button>
+                )}
+
+                {/* Create second opinion case from existing uploaded images */}
+                <button
+                  onClick={() => setShowCreateCase(true)}
+                  className="shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
+                  style={{ background: 'rgba(77,166,255,0.12)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.25)' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    <line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+                  </svg>
+                  Create Case
+                </button>
+
                 {/* Compare selection UI */}
                 {compareSelection.length > 0 && (
                   <div className="flex items-center gap-2 shrink-0 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
@@ -733,6 +793,30 @@ export default function WorklistPage() {
           </div>
         </div>
       </div>
+
+      {/* Share with patient modal */}
+      {shareFolder && (
+        <SharePatientModal
+          folder={shareFolder}
+          onClose={() => setShareFolder(null)}
+        />
+      )}
+
+      {showCreateCase && (
+        <CaseCreateModal
+          initialCollectionId={activeCollection?._id || ''}
+          onClose={() => setShowCreateCase(false)}
+          onSaved={({ collectionId, folderId }) => {
+            qc.invalidateQueries({ queryKey: ['collections'] });
+            if (collectionId) qc.invalidateQueries({ queryKey: ['folders-collection', collectionId] });
+            if (folderId) qc.invalidateQueries({ queryKey: ['items-folder', folderId] });
+            if (collectionId === activeCollection?._id) {
+              const selected = folders.find((f) => f._id === folderId);
+              if (selected) setActiveFolder(selected);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

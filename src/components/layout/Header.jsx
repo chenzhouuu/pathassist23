@@ -3,6 +3,7 @@ import React from 'react';
 import { useStore } from '../../store/index.js';
 import { logout } from '../../api/index.js';
 import ThemeSwitcher from '../ThemeSwitcher.jsx';
+import AppLogo from './AppLogo.jsx';
 
 export default function Header({ showBack = false }) {
   const { user, clearAuth, breadcrumb, tilesInfo, toggleLeftPanel, toggleRightPanel, setPage } = useStore();
@@ -18,15 +19,7 @@ export default function Header({ showBack = false }) {
 
       {/* Logo */}
       <div className="flex items-center shrink-0 cursor-pointer" onClick={() => setPage('dashboard')}>
-        <img
-          src="/impart-dx-logo.png"
-          alt="Impart DX"
-          className="h-7 md:h-8 w-auto object-contain"
-          onError={(e) => {
-            e.currentTarget.onerror = null;
-            e.currentTarget.src = '/impart-dx-logo.svg';
-          }}
-        />
+        <AppLogo className="h-7 md:h-8 w-auto object-contain" />
       </div>
 
       {showBack && (

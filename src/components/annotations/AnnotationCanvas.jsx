@@ -23,6 +23,7 @@ export default function AnnotationCanvas({ viewer }) {
     annotations, setAnnotations,
     visibleAnnotations,
     selectedAnnotation,
+    setRoiSelectResult,
   } = useStore();
 
   // mutable draw state (not React state — avoids re-renders on mouse move)
@@ -78,8 +79,11 @@ export default function AnnotationCanvas({ viewer }) {
     }
 
     // Render live drawing preview
+    // roi-select renders as a blue dashed rectangle (same shape as rectangle mode)
     if (drawingMode && ds.current.active) {
-      renderDrawingPreview(ctx, drawingMode, ds.current, osd, drawColor || ANN_COLORS[0]);
+      const previewMode  = drawingMode === 'roi-select' ? 'rectangle' : drawingMode;
+      const previewColor = drawingMode === 'roi-select' ? '#4da6ff'   : (drawColor || ANN_COLORS[0]);
+      renderDrawingPreview(ctx, previewMode, ds.current, osd, previewColor);
     }
   }, [annotations, visibleAnnotations, selectedAnnotation, drawingMode, drawColor, viewer, syncCanvasSize]);
 
@@ -173,7 +177,7 @@ export default function AnnotationCanvas({ viewer }) {
     if (!xy) return;
     const d = ds.current;
 
-    if (drawingMode === 'rectangle' || drawingMode === 'ellipse') {
+    if (drawingMode === 'rectangle' || drawingMode === 'ellipse' || drawingMode === 'roi-select') {
       d.active = true;
       d.start  = xy;
       d.cursor = xy;
@@ -232,6 +236,19 @@ export default function AnnotationCanvas({ viewer }) {
       d.active = false; d.start = null; d.cursor = null;
       if (Math.abs(ex - sx) < 5 && Math.abs(ey - sy) < 5) { render(); return; }
       await save(makeEllipse(sx, sy, ex, ey, opts));
+
+    } else if (drawingMode === 'roi-select' && d.active && d.start) {
+      // ROI selection — store coordinates, don't create an annotation
+      const [sx, sy] = d.start;
+      const [ex, ey] = xy;
+      d.active = false; d.start = null; d.cursor = null;
+      if (Math.abs(ex - sx) < 5 && Math.abs(ey - sy) < 5) { render(); return; }
+      const x = Math.round(Math.min(sx, ex));
+      const y = Math.round(Math.min(sy, ey));
+      const w = Math.round(Math.abs(ex - sx));
+      const h = Math.round(Math.abs(ey - sy));
+      setRoiSelectResult({ x, y, width: w, height: h });
+      setDrawingMode(null);
     }
     render();
   }, [drawingMode, getImgCoords, drawColor, drawLineWidth, drawLabel, drawGroup, save, render]);
@@ -282,8 +299,8 @@ export default function AnnotationCanvas({ viewer }) {
           pointerEvents: drawingMode ? 'all' : 'none',
           cursor: !drawingMode ? 'default'
             : drawingMode === 'point' ? 'crosshair'
-            : (drawingMode === 'rectangle' || drawingMode === 'ellipse')
-              ? (ds.current.active ? 'crosshair' : 'cell')
+            : (drawingMode === 'rectangle' || drawingMode === 'ellipse') ? (ds.current.active ? 'crosshair' : 'cell')
+            : drawingMode === 'roi-select' ? (ds.current.active ? 'crosshair' : 'crosshair')
             : 'crosshair',
         }}
         onMouseDown={onMouseDown}
