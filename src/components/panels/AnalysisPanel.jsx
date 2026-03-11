@@ -227,6 +227,8 @@ export default function AnalysisPanel() {
   const [runningJob, setRunningJob] = useState(null);
   const [jobStatus, setJobStatus]  = useState(null);
   const [error, setError]          = useState('');
+  const [cliSearch, setCliSearch]  = useState('');
+  const [imageFilter, setImageFilter] = useState('all');
   const pollTimer = useRef(null);
 
   // ── Watch for completed ROI selection on the viewer canvas ────────────────
@@ -427,6 +429,30 @@ export default function AnalysisPanel() {
     return map;
   }, [cliList]);
 
+  const imageKeys = React.useMemo(
+    () => Object.keys(grouped).sort((a, b) => a.localeCompare(b)),
+    [grouped],
+  );
+
+  const filteredGroupedEntries = React.useMemo(() => {
+    const q = cliSearch.trim().toLowerCase();
+    return Object.entries(grouped)
+      .filter(([imgKey]) => imageFilter === 'all' || imgKey === imageFilter)
+      .map(([imgKey, clis]) => {
+        const filteredClis = clis.filter(cli => {
+          if (!q) return true;
+          return (cli.title || '').toLowerCase().includes(q) || (cli.name || '').toLowerCase().includes(q);
+        });
+        return [imgKey, filteredClis];
+      })
+      .filter(([, clis]) => clis.length > 0);
+  }, [grouped, cliSearch, imageFilter]);
+
+  const filteredCliCount = React.useMemo(
+    () => filteredGroupedEntries.reduce((sum, [, clis]) => sum + clis.length, 0),
+    [filteredGroupedEntries],
+  );
+
   // ──────────────────────────────────────────────────────────────────────────
   // RENDER: LIST view
   // ──────────────────────────────────────────────────────────────────────────
@@ -442,6 +468,34 @@ export default function AnalysisPanel() {
           {!activeItem && (
             <span className="text-xs" style={{ color:'#f5a623' }}>No slide open</span>
           )}
+        </div>
+
+        <div className="mb-2 flex items-center gap-1.5">
+          <input
+            value={cliSearch}
+            onChange={e => setCliSearch(e.target.value)}
+            placeholder="Filter algorithms..."
+            className="flex-1 rounded px-2 py-1 text-xs outline-none"
+            style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)' }}
+            onFocus={e => e.target.style.borderColor = 'rgba(77,166,255,0.45)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'}
+          />
+          <select
+            value={imageFilter}
+            onChange={e => setImageFilter(e.target.value)}
+            className="rounded px-2 py-1 text-xs outline-none"
+            style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)', minWidth:100 }}
+            onFocus={e => e.target.style.borderColor = 'rgba(77,166,255,0.45)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border)'}>
+            <option value="all">All Images</option>
+            {imageKeys.map(key => (
+              <option key={key} value={key}>{key}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mb-2 text-xs" style={{ color:'var(--muted)', fontSize:10 }}>
+          {filteredCliCount} / {cliList.length} algorithm{cliList.length !== 1 ? 's' : ''}
         </div>
 
         {loadingImages && (
@@ -474,7 +528,13 @@ export default function AnalysisPanel() {
           </div>
         )}
 
-        {Object.entries(grouped).map(([imgKey, clis]) => (
+        {!loadingImages && cliList.length > 0 && filteredCliCount === 0 && (
+          <div className="text-center py-4" style={{ color:'var(--muted)', fontSize:11 }}>
+            No algorithms match the current filter.
+          </div>
+        )}
+
+        {filteredGroupedEntries.map(([imgKey, clis]) => (
           <div key={imgKey} className="mb-3">
             <div className="font-mono truncate mb-1 px-1" style={{ color:'var(--muted)', fontSize:9 }}
               title={imgKey}>{imgKey}</div>

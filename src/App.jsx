@@ -8,6 +8,7 @@ import ViewerApp from './components/ViewerApp.jsx';
 import CompareViewer from './components/viewer/CompareViewer.jsx';
 import ProjectsPage from './components/projects/ProjectsPage.jsx';
 import PatientViewer from './components/share/PatientViewer.jsx';
+import SecondOpinionPage from './components/cases/SecondOpinionPage.jsx';
 
 export default function App() {
   const { token, currentPage, theme } = useStore();
@@ -29,6 +30,7 @@ export default function App() {
   if (currentPage === 'dashboard') return <Dashboard />;
   if (currentPage === 'projects')  return <ProjectsPage />;
   if (currentPage === 'worklist') return <WorklistPage />;
-  if (currentPage === 'compare')  return <CompareViewer />;
+  if (currentPage === 'compare')        return <CompareViewer />;
+  if (currentPage === 'second-opinion') return <SecondOpinionPage />;
   return <ViewerApp />;
 }

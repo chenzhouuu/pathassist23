@@ -147,7 +147,6 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
             Open Viewer
           </div>
         </div>
-        {status && <div className="absolute top-2 right-2"><StatusBadge status={status}/></div>}
         {priority === 'STAT' && (
           <div className="absolute top-2 left-2">
             <span className="text-xs px-1.5 py-0.5 rounded font-bold" style={{ background: '#e94560', color: 'white' }}>STAT</span>
@@ -649,6 +648,14 @@ export default function WorklistPage() {
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           Dashboard
+        </button>
+        <button onClick={() => setPage('second-opinion')}
+          className="flex items-center gap-1.5 text-xs transition-colors px-2 py-1.5 rounded hover:bg-black/5" style={{ color: 'var(--muted)' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Second Opinion
         </button>
 
         <ThemeSwitcher />

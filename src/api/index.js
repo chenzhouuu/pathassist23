@@ -58,6 +58,30 @@ export const getFileDownloadUrl = (fileId) => {
   return `${GIRDER_BASE}/file/${fileId}/download${token ? `?token=${token}` : ''}`;
 };
 
+// Upload a capture image to a folder as a regular Girder file.
+export const uploadCaptureToFolder = async (folderId, blob, filename, metadata = {}) => {
+  const form = new FormData();
+  form.append('parentType', 'folder');
+  form.append('parentId', folderId);
+  form.append('name', filename);
+  form.append('size', String(blob.size || 0));
+  form.append('mimeType', blob.type || 'image/png');
+  form.append('file', blob, filename);
+
+  const file = await client.post('/file', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
+
+  if (file?._id && metadata && Object.keys(metadata).length > 0) {
+    try {
+      await client.put(`/file/${file._id}/metadata`, metadata);
+    } catch (_) {
+      // Metadata write failure should not block file upload success.
+    }
+  }
+  return file;
+};
+
 // ─── Annotations ─────────────────────────────────────────────────────────────
 // GET /annotation?itemId=X returns an array of annotation headers (no elements by default)
 // Each item: { _id, annotation: { name, description, elements?: [...] }, ... }
@@ -129,6 +153,28 @@ export const getAllItemsInFolder = (folderId, limit = 50, offset = 0) =>
 
 export const getFolderDetails = (folderId) =>
   client.get(`/folder/${folderId}`).then((r) => r.data);
+
+// ─── Second Opinion Cases ─────────────────────────────────────────────────────
+// Scans all collections → top-level folders → filters folders with secondOpinion metadata.
+export const getSOCases = async () => {
+  const collections = await getCollections();
+  const perCollection = await Promise.all(
+    collections.map((col) =>
+      getFolders('collection', col._id).then((folders) =>
+        folders
+          .filter((f) => f.meta?.pathassist?.secondOpinion)
+          .map((f) => ({ ...f, _collection: col }))
+      )
+    )
+  );
+  const results = perCollection.flat();
+  results.sort((a, b) => {
+    const ta = new Date(a.meta.pathassist.secondOpinion.createdAt).getTime();
+    const tb = new Date(b.meta.pathassist.secondOpinion.createdAt).getTime();
+    return tb - ta;
+  });
+  return results;
+};
 
 // ─── Large Image tile creation ────────────────────────────────────────────────
 // POST creates a large_image tile source for the item (async job).

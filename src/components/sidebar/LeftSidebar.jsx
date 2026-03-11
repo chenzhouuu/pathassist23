@@ -1,5 +1,5 @@
 // src/components/sidebar/LeftSidebar.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems } from '../../api/index.js';
@@ -159,9 +159,75 @@ function CollectionNode({ collection }) {
   );
 }
 
+// ─── Case images panel (shown when a Second Opinion case is open) ─────────────
+function CaseItemsPanel({ caseContext }) {
+  const { activeItem, openCaseItem, setPage, clearCaseContext } = useStore();
+
+  return (
+    <div className="flex flex-col shrink-0 overflow-hidden h-full"
+      style={{ width: 'var(--left-w)', background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border)' }}>
+      {/* Header */}
+      <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+        <div className="flex items-center gap-1.5 w-full">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#c27aff" strokeWidth="2" style={{ flexShrink: 0 }}>
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <span className="flex-1 truncate text-xs font-semibold" style={{ color: '#c27aff' }}>
+            {caseContext.caseId}
+          </span>
+          <button
+            onClick={() => { clearCaseContext(); setPage('second-opinion'); }}
+            className="text-xs px-1.5 py-0.5 rounded transition-colors"
+            style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}
+            title="Back to cases list"
+          >
+            ✕
+          </button>
+        </div>
+        <span className="text-xs" style={{ color: 'var(--muted)', fontSize: 10 }}>
+          {caseContext.items.length} image{caseContext.items.length !== 1 ? 's' : ''} selected for this case
+        </span>
+      </div>
+
+      {/* Items list */}
+      <div className="flex-1 overflow-y-auto py-1">
+        {caseContext.items.map((item, idx) => {
+          const isActive = activeItem?._id === item._id;
+          return (
+            <div
+              key={item._id}
+              className={`tree-item pl-3 pr-2 py-1.5 ${isActive ? 'selected' : ''}`}
+              onClick={() => openCaseItem(item, caseContext)}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="w-9 h-7 rounded overflow-hidden shrink-0" style={{ background: 'var(--bg)' }}>
+                <img
+                  src={`${GIRDER_BASE}/item/${item._id}/tiles/thumbnail?width=128&height=96&token=${localStorage.getItem('girderToken') || ''}`}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-xs leading-tight" style={{ color: isActive ? 'var(--accent)' : 'var(--text)' }}>
+                  {item.name}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--muted)', fontSize: 10 }}>
+                  Slide {idx + 1}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main sidebar ─────────────────────────────────────────────────────────────
 export default function LeftSidebar() {
-  const { leftPanelOpen } = useStore();
+  const { leftPanelOpen, caseContext } = useStore();
   const [search, setSearch] = useState('');
 
   const { data: collections, isLoading, error } = useQuery({
@@ -169,11 +235,21 @@ export default function LeftSidebar() {
     queryFn: getCollections,
   });
 
+  const filtered = useMemo(() => {
+    const list = Array.isArray(collections) ? collections : [];
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((c) => {
+      const name = String(c?.name || '').toLowerCase();
+      const id = String(c?._id || '').toLowerCase();
+      return name.includes(q) || id.includes(q);
+    });
+  }, [collections, search]);
+
   if (!leftPanelOpen) return null;
 
-  const filtered = collections?.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  // When a Second Opinion case is open, show only its selected images
+  if (caseContext) return <CaseItemsPanel caseContext={caseContext} />;
 
   return (
     <div

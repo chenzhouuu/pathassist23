@@ -1,8 +1,9 @@
 // src/components/viewer/ViewerToolbar.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { hexToRgba } from '../annotations/annotationUtils.js';
 import ImageFilters from './ImageFilters.jsx';
+import { getFolders, createFolder, uploadCaptureToFolder } from '../../api/index.js';
 
 const ToolBtn = ({ title, active, onClick, children, color }) => (
   <button
@@ -19,7 +20,8 @@ const ToolBtn = ({ title, active, onClick, children, color }) => (
 );
 
 export default function ViewerToolbar({ viewer }) {
-  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen } = useStore();
+  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen, activeItem, user } = useStore();
+  const [savingCapture, setSavingCapture] = useState(false);
 
   const zoom = (factor) => viewer.current?.viewport?.zoomBy(factor);
   const home = () => viewer.current?.viewport?.goHome();
@@ -43,6 +45,41 @@ export default function ViewerToolbar({ viewer }) {
     a.download = `slide-${Date.now()}.png`;
     a.href = canvas.toDataURL();
     a.click();
+  };
+
+  const ensureCapturesFolder = async () => {
+    if (!activeItem?.folderId) throw new Error('No source folder available');
+    const folders = await getFolders('folder', activeItem.folderId);
+    const existing = (folders || []).find((f) => (f.name || '').toLowerCase() === 'captures');
+    if (existing) return existing;
+    return createFolder('folder', activeItem.folderId, 'Captures');
+  };
+
+  const snapshotToServer = async () => {
+    if (savingCapture) return;
+    const canvas = document.querySelector('#osd-viewer canvas');
+    if (!canvas || !activeItem) return;
+    setSavingCapture(true);
+    try {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Failed to capture screenshot');
+      const capturesFolder = await ensureCapturesFolder();
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const safeItem = (activeItem.name || 'slide').replace(/[^\w.-]+/g, '_');
+      const filename = `${safeItem}__capture__${ts}.png`;
+      await uploadCaptureToFolder(capturesFolder._id, blob, filename, {
+        sourceItemId: activeItem._id,
+        sourceItemName: activeItem.name || '',
+        sourceFolderId: activeItem.folderId || '',
+        capturedAt: new Date().toISOString(),
+        capturedBy: user?.login || user?.firstName || 'unknown',
+      });
+      window.alert('Capture saved to server folder: Captures');
+    } catch (e) {
+      window.alert(`Failed to save capture: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setSavingCapture(false);
+    }
   };
 
   const activeColor = drawColor || '#4da6ff';
@@ -141,11 +178,23 @@ export default function ViewerToolbar({ viewer }) {
       <div className="divider"/>
 
       {/* Snapshot */}
-      <ToolBtn title="Screenshot" onClick={snapshot}>
+      <ToolBtn title="Screenshot (Local)" onClick={snapshot}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
           <circle cx="12" cy="13" r="4"/>
         </svg>
+      </ToolBtn>
+      <ToolBtn title={savingCapture ? 'Saving capture to server...' : 'Camera Save to Server'} onClick={snapshotToServer}>
+        {savingCapture ? (
+          <div className="spinner" style={{ width: 12, height: 12 }}/>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+            <path d="M6 20.5h12"/>
+            <rect x="8" y="21" width="8" height="2" rx="0.6"/>
+          </svg>
+        )}
       </ToolBtn>
 
       <div className="flex-1"/>

@@ -60,6 +60,29 @@ export const useStore = create((set, get) => ({
       drawingMode: null,
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
+      caseContext: null,        // clear case context when opening a slide outside a case
+    });
+  },
+
+  // ── Case Context ──────────────────────────────────────────────────────────
+  // Set when opening a Second Opinion case — restricts sidebar to case images only.
+  caseContext: null, // { caseId, folderId, items: [{ _id, name }] } | null
+  setCaseContext: (ctx) => set({ caseContext: ctx }),
+  clearCaseContext: () => set({ caseContext: null }),
+
+  // Open a case: sets both caseContext and activeItem without clearing caseContext.
+  openCaseItem: (item, ctx) => {
+    const { breadcrumb } = get();
+    const filtered = breadcrumb.filter((b) => b._type !== 'item');
+    set({
+      activeItem: item,
+      annotations: [],
+      visibleAnnotations: {},
+      selectedAnnotation: null,
+      drawingMode: null,
+      breadcrumb: [...filtered, { ...item, _type: 'item' }],
+      currentPage: 'viewer',
+      caseContext: ctx,
     });
   },
 

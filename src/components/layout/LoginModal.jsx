@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { login } from '../../api/index.js';
 import ThemeSwitcher from '../ThemeSwitcher.jsx';
+import AppLogo from './AppLogo.jsx';
+import { APP_NAME } from '../../config/branding.js';
 
 export default function LoginModal() {
   const { setAuth } = useStore();
@@ -38,16 +40,13 @@ export default function LoginModal() {
       <div className="login-card">
         {/* Logo / title */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgba(77,166,255,0.15)', border: '1px solid rgba(77,166,255,0.3)' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-              <path d="M11 8v6M8 11h6" />
-            </svg>
+          <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden"
+            style={{ background: 'rgba(77,166,255,0.1)', border: '1px solid rgba(77,166,255,0.25)' }}>
+            <AppLogo className="h-9 w-auto object-contain" />
           </div>
           <div>
-            <div className="font-semibold text-white text-sm">PathAssist</div>
-            <div className="text-xs text-gray-500">Lymphoma Digital Slide Archive</div>
+            <div className="font-semibold text-white text-sm">{APP_NAME}</div>
+             
           </div>
         </div>
 
@@ -69,7 +68,7 @@ export default function LoginModal() {
               <input
                 className="login-input"
                 type="password"
-                placeholder="••••••••"
+                placeholder="********"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
@@ -82,12 +81,12 @@ export default function LoginModal() {
             )}
             <button type="submit" className="btn-primary w-full justify-center flex items-center gap-2 py-2" disabled={loading}>
               {loading && <div className="spinner w-3.5 h-3.5" />}
-              {loading ? 'Signing in…' : 'Sign In'}
+              {loading ? 'Signing in...' : 'Sign In'}
             </button>
             <div className="mt-3 text-center">
               <button type="button" onClick={() => setTokenMode(true)}
                 className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                Use API token instead →
+                Use API token instead
               </button>
             </div>
           </form>
@@ -108,14 +107,13 @@ export default function LoginModal() {
             <div className="mt-3 text-center">
               <button onClick={() => setTokenMode(false)}
                 className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                ← Back to username login
+                Back to username login
               </button>
             </div>
           </div>
         )}
 
-        <div className="mt-5 pt-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
-          <span className="text-xs text-gray-600 font-mono">lymphoma.dev.pathassist.health</span>
+        <div className="mt-5 pt-4 border-t flex items-center justify-end" style={{ borderColor: 'var(--border)' }}>
           <ThemeSwitcher />
         </div>
       </div>
