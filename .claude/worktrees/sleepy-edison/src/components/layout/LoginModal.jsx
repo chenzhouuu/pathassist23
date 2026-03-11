@@ -47,7 +47,7 @@ export default function LoginModal() {
           </div>
           <div>
             <div className="font-semibold text-white text-sm">PathAssist</div>
-            <div className="text-xs text-gray-500">Lymphoma Digital Slide Archive</div>
+            <div className="text-xs text-gray-500">Digital Pathoogy Platform</div>
           </div>
         </div>
 
