@@ -11,6 +11,8 @@ export const login = async (username, password) => {
 };
 export const logout = () => client.delete('/user/authentication');
 export const getMe = () => client.get('/user/me').then((r) => r.data);
+export const getMyGroups = (userId) =>
+  client.get(`/group?userId=${userId}&limit=100`).then((r) => r.data);
 
 // ─── Collections ─────────────────────────────────────────────────────────────
 export const getCollections = () =>

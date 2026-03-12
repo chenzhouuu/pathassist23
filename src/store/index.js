@@ -5,15 +5,39 @@ export const useStore = create((set, get) => ({
   // ── Auth ────────────────────────────────────────────────────────────────
   token: localStorage.getItem('girderToken') || null,
   user: JSON.parse(localStorage.getItem('girderUser') || 'null'),
+  userGroups: JSON.parse(localStorage.getItem('girderGroups') || '[]'),
   setAuth: (token, user) => {
     localStorage.setItem('girderToken', token);
     localStorage.setItem('girderUser', JSON.stringify(user));
     set({ token, user });
   },
+  setUserGroups: (groups) => {
+    localStorage.setItem('girderGroups', JSON.stringify(groups));
+    set({ userGroups: groups });
+  },
+  // Feature → which groups can access it.
+  // Girder site admins (user.admin) bypass all checks automatically.
+  ROLE_MAP: {
+    'projects-users':       ['lab-manager', 'pathologist'],
+    'second-opinion-users': ['lab-manager', 'pathologist', 'fellow', 'second-opinion-reviewer', 'referring-physician'],
+    'annotation-users':     ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer'],
+    'import-users':         ['lab-manager', 'lab-technician'],
+    'worklist-users':       ['lab-manager', 'pathologist', 'fellow', 'researcher', 'lab-technician'],
+  },
+  // hasRole('projects-users') → true if user is admin OR belongs to any group
+  // that is mapped to that feature in ROLE_MAP.
+  hasRole: (feature) => {
+    const { user, userGroups, ROLE_MAP } = get();
+    if (!user) return false;
+    if (user.admin) return true;
+    const allowed = ROLE_MAP[feature] ?? [feature]; // fallback: treat as literal group name
+    return userGroups.some((g) => allowed.includes(g.name));
+  },
   clearAuth: () => {
     localStorage.removeItem('girderToken');
     localStorage.removeItem('girderUser');
-    set({ token: null, user: null });
+    localStorage.removeItem('girderGroups');
+    set({ token: null, user: null, userGroups: [] });
   },
 
   // ── Page routing ─────────────────────────────────────────────────────────

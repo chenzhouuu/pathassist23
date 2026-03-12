@@ -1,13 +1,14 @@
 // src/components/layout/LoginModal.jsx
 import React, { useState } from 'react';
 import { useStore } from '../../store/index.js';
-import { login } from '../../api/index.js';
+import { login, getMyGroups } from '../../api/index.js';
 import ThemeSwitcher from '../ThemeSwitcher.jsx';
 import AppLogo from './AppLogo.jsx';
 import { APP_NAME } from '../../config/branding.js';
+import { KEYCLOAK_OAUTH_URL } from '../../config/girder.js';
 
 export default function LoginModal() {
-  const { setAuth } = useStore();
+  const { setAuth, setUserGroups } = useStore();
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,6 +20,13 @@ export default function LoginModal() {
     try {
       const data = await login(form.username, form.password);
       setAuth(data.authToken.token, data.user);
+      // Fetch user's Girder groups to power role-based nav visibility.
+      try {
+        const groups = await getMyGroups(data.user._id);
+        setUserGroups(groups);
+      } catch (_) {
+        setUserGroups([]);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Authentication failed. Check credentials.');
     } finally {
@@ -49,6 +57,28 @@ export default function LoginModal() {
              
           </div>
         </div>
+
+        {/* Keycloak SSO button — shown when the Girder OAuth plugin is configured */}
+        {KEYCLOAK_OAUTH_URL && (
+          <>
+            <a
+              href={`${KEYCLOAK_OAUTH_URL}?redirect=${encodeURIComponent(window.location.href)}`}
+              className="btn-primary w-full justify-center flex items-center gap-2 py-2 mb-3 no-underline"
+              style={{ background: 'linear-gradient(135deg, #4da6ff22, #7c3aed33)', border: '1px solid rgba(77,166,255,0.35)', color: 'var(--accent)' }}
+            >
+              {/* Keycloak icon */}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+              </svg>
+              Sign in with Keycloak (SSO)
+            </a>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>or</span>
+              <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+            </div>
+          </>
+        )}
 
         {!tokenMode ? (
           <form onSubmit={handleSubmit}>
