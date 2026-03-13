@@ -61,17 +61,23 @@ export const getFileDownloadUrl = (fileId) => {
 };
 
 // Upload a capture image to a folder as a regular Girder file.
+// Girder uses a 2-step upload: POST /file (session) → POST /file/chunk (bytes).
 export const uploadCaptureToFolder = async (folderId, blob, filename, metadata = {}) => {
-  const form = new FormData();
-  form.append('parentType', 'folder');
-  form.append('parentId', folderId);
-  form.append('name', filename);
-  form.append('size', String(blob.size || 0));
-  form.append('mimeType', blob.type || 'image/png');
-  form.append('file', blob, filename);
+  // Step 1: create upload session
+  const upload = await client.post('/file', null, {
+    params: {
+      parentType: 'folder',
+      parentId: folderId,
+      name: filename,
+      size: blob.size,
+      mimeType: blob.type || 'image/png',
+    },
+  }).then((r) => r.data);
 
-  const file = await client.post('/file', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+  // Step 2: send the full blob as a single chunk
+  const file = await client.post('/file/chunk', blob, {
+    params: { uploadId: upload._id, offset: 0 },
+    headers: { 'Content-Type': 'application/octet-stream' },
   }).then((r) => r.data);
 
   if (file?._id && metadata && Object.keys(metadata).length > 0) {
