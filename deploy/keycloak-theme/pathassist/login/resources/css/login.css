@@ -1,50 +1,73 @@
 /* PathAssist / Impart DX — Keycloak Login Theme */
 
-/* ── Page background ───────────────────────────────────────── */
-body, html {
+/* ── Reset & background ────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  height: 100%;
   background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #fce4ec 100%) !important;
-  min-height: 100vh;
-  font-family: 'Inter', 'Segoe UI', sans-serif !important;
 }
 
-#kc-header, .login-pf-header {
+body {
+  min-height: 100% !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #fce4ec 100%) !important;
+  font-family: 'Inter', 'Segoe UI', sans-serif !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* ── Hide default header/nav ───────────────────────────────── */
+#kc-header,
+.login-pf-header,
+nav,
+.pf-c-nav {
   display: none !important;
 }
 
-/* ── Card / form wrapper ───────────────────────────────────── */
+/* ── Flatten all wrapper containers ───────────────────────── */
+.login-pf-page,
+.login-pf-container,
 #kc-container-wrapper,
-.login-pf-page .login-pf-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 24px;
+.container-fluid,
+.row,
+.col-xs-12,
+.col-sm-12,
+.col-md-12 {
+  display: contents !important;
 }
 
-#kc-container,
+/* ── The card ──────────────────────────────────────────────── */
 .card-pf,
-.login-pf-page .card-pf {
+#kc-container {
   background: #ffffff !important;
   border-radius: 16px !important;
-  box-shadow: 0 8px 40px rgba(233, 30, 99, 0.12), 0 2px 8px rgba(0,0,0,0.06) !important;
+  box-shadow: 0 8px 40px rgba(233, 30, 99, 0.15), 0 2px 8px rgba(0,0,0,0.07) !important;
   border: 1px solid rgba(233, 30, 99, 0.15) !important;
-  padding: 36px 32px !important;
-  max-width: 400px !important;
+  padding: 40px 36px !important;
   width: 100% !important;
+  max-width: 420px !important;
+  position: relative !important;
+  float: none !important;
+  margin: 0 !important;
 }
 
-/* ── Logo header ───────────────────────────────────────────── */
+/* ── Logo above form ───────────────────────────────────────── */
 #kc-header-wrapper {
-  text-align: center;
-  margin-bottom: 24px;
+  text-align: center !important;
+  margin-bottom: 20px !important;
+  display: block !important;
 }
 
 #kc-header-wrapper::before {
   content: '';
   display: block;
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 12px;
+  width: 140px;
+  height: 52px;
+  margin: 0 auto 8px;
   background-image: url('../img/logo.png');
   background-size: contain;
   background-repeat: no-repeat;
@@ -53,9 +76,9 @@ body, html {
 
 /* ── Form title ────────────────────────────────────────────── */
 #kc-page-title,
-.kc-page-title {
+h1#kc-page-title {
   color: #1a1a2e !important;
-  font-size: 1.25rem !important;
+  font-size: 1.1rem !important;
   font-weight: 600 !important;
   text-align: center !important;
   margin-bottom: 20px !important;
@@ -73,7 +96,6 @@ input[type="email"] {
   background: #fff9fb !important;
   color: #1a1a2e !important;
   width: 100% !important;
-  box-sizing: border-box !important;
   outline: none !important;
   transition: border-color 0.2s !important;
 }
@@ -94,7 +116,7 @@ label, .pf-c-form__label-text {
   display: block !important;
 }
 
-/* ── Primary button (Sign In) ──────────────────────────────── */
+/* ── Primary button ────────────────────────────────────────── */
 #kc-login,
 input[type="submit"],
 .pf-c-button.pf-m-primary,
@@ -118,8 +140,7 @@ input[type="submit"]:hover,
   background: #c2185b !important;
 }
 
-/* ── Social login buttons (Google etc) ─────────────────────── */
-.kc-social-provider-logo,
+/* ── Google / social buttons ───────────────────────────────── */
 .pf-c-button.pf-m-secondary,
 .zocial, .zocial.google {
   border: 1.5px solid #f8bbd0 !important;
@@ -139,32 +160,20 @@ input[type="submit"]:hover,
   background: #fff9fb !important;
 }
 
-/* ── Register / forgot links ───────────────────────────────── */
-#kc-registration, #kc-form-options, .kc-login-locale-dropdown {
+/* ── Links ─────────────────────────────────────────────────── */
+#kc-registration, #kc-form-options {
   text-align: center !important;
   margin-top: 16px !important;
 }
 
-#kc-registration a, #kc-form-options a, a {
-  color: #e91e63 !important;
-  text-decoration: none !important;
-  font-size: 0.85rem !important;
-}
+a { color: #e91e63 !important; text-decoration: none !important; font-size: 0.85rem !important; }
+a:hover { text-decoration: underline !important; }
 
-a:hover {
-  text-decoration: underline !important;
-}
+/* ── Divider ───────────────────────────────────────────────── */
+#kc-social-providers { margin-top: 16px !important; }
+.kc-social-section-title, hr { border-color: #f8bbd0 !important; }
 
-/* ── Divider "or" ──────────────────────────────────────────── */
-#kc-social-providers {
-  margin-top: 16px !important;
-}
-
-.kc-social-section-title, hr {
-  border-color: #f8bbd0 !important;
-}
-
-/* ── Error messages ────────────────────────────────────────── */
+/* ── Errors ────────────────────────────────────────────────── */
 .pf-c-alert, .alert-error, #kc-feedback-wrapper {
   background: #fff0f3 !important;
   border: 1px solid #f48fb1 !important;
@@ -176,6 +185,4 @@ a:hover {
 }
 
 /* ── Checkbox ──────────────────────────────────────────────── */
-input[type="checkbox"] {
-  accent-color: #e91e63 !important;
-}
+input[type="checkbox"] { accent-color: #e91e63 !important; }
