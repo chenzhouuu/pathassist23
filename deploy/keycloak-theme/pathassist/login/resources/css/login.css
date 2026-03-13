@@ -388,12 +388,10 @@ button[type="submit"]:focus {
   color: inherit !important;
 }
 
-#kc-info {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid rgba(205, 118, 152, 0.18);
-  text-align: center;
-  color: var(--pa-muted);
+#kc-info,
+.login-pf-page footer,
+#kc-footer {
+  display: none !important;
 }
 
 @media (max-width: 640px) {
