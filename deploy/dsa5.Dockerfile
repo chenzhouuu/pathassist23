@@ -149,6 +149,13 @@ RUN true && \
 
 RUN pip install --no-cache-dir pymemcache
 
+# Add Keycloak OIDC provider to girder_oauth plugin (not included in v4-integration branch)
+COPY deploy/keycloak_oauth_provider.py /opt/girder/plugins/oauth/girder_oauth/providers/keycloak.py
+RUN python3 -c "\
+content = open('/opt/girder/plugins/oauth/girder_oauth/providers/__init__.py').read(); \
+content += '\nfrom .keycloak import Keycloak\naddProvider(Keycloak)\n'; \
+open('/opt/girder/plugins/oauth/girder_oauth/providers/__init__.py','w').write(content)"
+
 RUN cd /opt && \
     git clone -b girder-5 https://github.com/girder/large_image && \
     cd /opt/large_image && \

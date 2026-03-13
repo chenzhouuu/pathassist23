@@ -5,11 +5,10 @@
 // In production (CloudFront): browser calls Girder directly — VITE_GIRDER_BASE must be set.
 export const GIRDER_BASE = import.meta.env.VITE_GIRDER_BASE || '/api/v1';
 
-// Keycloak OAuth — Girder's OAuth plugin exposes this endpoint.
-// Redirects the browser to Keycloak login; on success Keycloak → Girder → app
-// with ?girderToken=TOKEN in the URL.
-// Set to null to hide the SSO button (username/password only mode).
-export const KEYCLOAK_OAUTH_URL = `${GIRDER_BASE}/oauth/keycloak`;
+// Girder v5 OAuth: GET /oauth/provider?redirect=<url> returns { "Keycloak": "<auth_url>" }
+// The UI fetches this to get the state-embedded Keycloak URL, then redirects the browser.
+// Set to null to hide the SSO button entirely (username/password only mode).
+export const KEYCLOAK_OAUTH_PROVIDERS_URL = `${GIRDER_BASE}/oauth/provider`;
 
 export const endpoints = {
   // Auth
