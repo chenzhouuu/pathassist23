@@ -26,8 +26,7 @@ export default function RightPanel() {
   ];
 
   return (
-    <div className="flex flex-col shrink-0 overflow-hidden"
-      style={{ width:'var(--right-w)', background:'var(--bg-panel)', borderLeft:'1px solid var(--border)' }}>
+    <div className="app-sidepanel app-sidepanel-right" style={{ width:'var(--right-w)' }}>
       <div className="tab-bar shrink-0">
         {tabs.map(t => (
           <button key={t.id} className={`tab flex items-center gap-1 ${rightPanelTab === t.id ? 'active' : ''}`}

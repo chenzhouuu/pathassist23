@@ -13,8 +13,16 @@ export default function LoginModal() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
+  const [tokenMode, setTokenMode] = useState(false);
+  const [directToken, setDirectToken] = useState('');
+
+  const updateField = (field, value) => {
+    setError('');
+    setForm((current) => ({ ...current, [field]: value }));
+  };
 
   const handleKeycloakSSO = async () => {
+    setError('');
     setSsoLoading(true);
     try {
       const redirect = window.location.href;
@@ -53,39 +61,56 @@ export default function LoginModal() {
     }
   };
 
-  // Allow direct token entry for dev/testing
-  const [tokenMode, setTokenMode] = useState(false);
-  const [directToken, setDirectToken] = useState('');
   const handleTokenLogin = () => {
-    if (directToken.trim()) {
-      setAuth(directToken.trim(), { login: 'token-user', firstName: 'Token', lastName: 'User' });
+    const token = directToken.trim();
+    if (!token) {
+      setError('Enter a Girder API token before continuing.');
+      return;
     }
+    setError('');
+    setAuth(token, { login: 'token-user', firstName: 'Token', lastName: 'User' });
   };
 
   return (
     <div className="login-overlay">
       <div className="login-card">
-        {/* Logo / title */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden"
-            style={{ background: 'rgba(77,166,255,0.1)', border: '1px solid rgba(77,166,255,0.25)' }}>
-            <AppLogo className="h-9 w-auto object-contain" />
+        <div className="login-brand">
+          <div className="login-brand-mark">
+            <AppLogo className="h-10 w-auto object-contain" />
           </div>
-          <div>
-            <div className="font-semibold text-white text-sm">{APP_NAME}</div>
-             
+          <div className="login-brand-copy">
+            <p className="login-eyebrow">Digital pathology workspace</p>
+            <h1 className="login-title">{APP_NAME}</h1>
+            <p className="login-subtitle">
+              Sign in to review slides, annotations, and analysis from one interface.
+            </p>
           </div>
         </div>
 
-        {/* Keycloak SSO button — calls Girder v5 /oauth/provider to get state-embedded URL */}
+        <div className="login-mode-switch" role="tablist" aria-label="Authentication method">
+          <button
+            type="button"
+            className={`login-mode-pill ${!tokenMode ? 'active' : ''}`}
+            onClick={() => { setTokenMode(false); setError(''); }}
+          >
+            Username
+          </button>
+          <button
+            type="button"
+            className={`login-mode-pill ${tokenMode ? 'active' : ''}`}
+            onClick={() => { setTokenMode(true); setError(''); }}
+          >
+            API Token
+          </button>
+        </div>
+
         {KEYCLOAK_OAUTH_PROVIDERS_URL && (
           <>
             <button
               type="button"
               onClick={handleKeycloakSSO}
               disabled={ssoLoading}
-              className="w-full justify-center flex items-center gap-2 py-2 mb-3 rounded-lg font-medium text-sm transition-opacity hover:opacity-90"
-              style={{ background: 'var(--accent)', border: 'none', color: '#fff' }}
+              className="login-sso-button"
             >
               {ssoLoading
                 ? <div className="spinner w-3.5 h-3.5" />
@@ -95,78 +120,81 @@ export default function LoginModal() {
               }
               {ssoLoading ? 'Redirecting...' : 'Sign in with SSO'}
             </button>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-              <span className="text-xs" style={{ color: 'var(--muted)' }}>or</span>
-              <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+            <div className="login-divider">
+              <div className="login-divider-line" />
+              <span>or continue with credentials</span>
+              <div className="login-divider-line" />
             </div>
           </>
         )}
 
+        {error && (
+          <div className="login-alert" role="alert">
+            {error}
+          </div>
+        )}
+
         {!tokenMode ? (
-          <form onSubmit={handleSubmit}>
-            <div className="mb-3">
-              <label className="block text-xs text-gray-500 mb-1.5">Username</label>
+          <form onSubmit={handleSubmit} className="login-form">
+            <div className="login-field">
+              <label className="login-label">Username</label>
               <input
                 className="login-input"
                 type="text"
                 placeholder="username"
                 value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                onChange={(e) => updateField('username', e.target.value)}
                 autoFocus
+                autoComplete="username"
               />
             </div>
-            <div className="mb-4">
-              <label className="block text-xs text-gray-500 mb-1.5">Password</label>
+            <div className="login-field">
+              <label className="login-label">Password</label>
               <input
                 className="login-input"
                 type="password"
                 placeholder="********"
                 value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                onChange={(e) => updateField('password', e.target.value)}
+                autoComplete="current-password"
               />
             </div>
-            {error && (
-              <div className="text-xs text-red-400 mb-3 px-2 py-2 rounded"
-                style={{ background: 'rgba(233,69,96,0.1)', border: '1px solid rgba(233,69,96,0.2)' }}>
-                {error}
-              </div>
-            )}
-            <button type="submit" className="btn-primary w-full justify-center flex items-center gap-2 py-2" disabled={loading}>
+            <button
+              type="submit"
+              className="btn-primary w-full justify-center flex items-center gap-2 py-2.5"
+              disabled={loading || !form.username.trim() || !form.password}
+            >
               {loading && <div className="spinner w-3.5 h-3.5" />}
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
-            <div className="mt-3 text-center">
-              <button type="button" onClick={() => setTokenMode(true)}
-                className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                Use API token instead
-              </button>
-            </div>
           </form>
         ) : (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Girder API Token</label>
+          <div className="login-form">
+            <div className="login-field">
+              <label className="login-label">Girder API Token</label>
+              <p className="login-help">Useful for local development, automation, or scoped service access.</p>
+            </div>
             <input
-              className="login-input mb-3"
+              className="login-input"
               type="text"
               placeholder="Paste your Girder token here"
               value={directToken}
-              onChange={(e) => setDirectToken(e.target.value)}
+              onChange={(e) => { setError(''); setDirectToken(e.target.value); }}
               autoFocus
             />
-            <button onClick={handleTokenLogin} className="btn-primary w-full justify-center flex py-2">
+            <button
+              type="button"
+              onClick={handleTokenLogin}
+              className="btn-primary w-full justify-center flex py-2.5"
+              disabled={!directToken.trim()}
+            >
               Connect with Token
             </button>
-            <div className="mt-3 text-center">
-              <button onClick={() => setTokenMode(false)}
-                className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                Back to username login
-              </button>
-            </div>
           </div>
         )}
 
-        <div className="mt-5 pt-4 border-t flex items-center justify-end" style={{ borderColor: 'var(--border)' }}>
+        <div className="login-footer">
+          <span className="login-footer-text">Theme</span>
           <ThemeSwitcher />
         </div>
       </div>

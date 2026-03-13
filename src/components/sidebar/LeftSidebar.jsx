@@ -253,14 +253,9 @@ export default function LeftSidebar() {
 
   return (
     <div
-      className="flex flex-col shrink-0 overflow-hidden"
-      style={{
-        width: 'var(--left-w)',
-        background: 'var(--bg-sidebar)',
-        borderRight: '1px solid var(--border)',
-      }}
+      className="app-sidepanel app-sidepanel-left"
+      style={{ width: 'var(--left-w)' }}
     >
-      {/* Header */}
       <div className="panel-header">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
@@ -268,16 +263,14 @@ export default function LeftSidebar() {
         Collections
       </div>
 
-      {/* Search */}
-      <div className="px-2 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+      <div className="panel-search-wrap">
         <div className="relative">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2"
             className="absolute left-2 top-1/2 -translate-y-1/2">
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
           </svg>
           <input
-            className="w-full bg-transparent border text-xs rounded pl-6 pr-2 py-1 outline-none text-gray-300 placeholder-gray-600 focus:border-blue-500/50"
-            style={{ borderColor: 'var(--border)' }}
+            className="app-search-input"
             placeholder="Search collections…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -285,7 +278,6 @@ export default function LeftSidebar() {
         </div>
       </div>
 
-      {/* Tree */}
       <div className="flex-1 overflow-y-auto py-1">
         {isLoading && (
           <div className="flex justify-center items-center py-8">
