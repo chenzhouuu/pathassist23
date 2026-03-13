@@ -89,10 +89,9 @@ body.login-pf::before {
 }
 
 #kc-header-wrapper::after {
-  content: "PathAssist";
+  content: "Digital Pathology Platform";
   font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--pa-muted);
 }
 
@@ -388,11 +387,13 @@ button[type="submit"]:focus {
   color: inherit !important;
 }
 
+/* Hide the default Keycloak footer (shows redirect URI / realm hostname) */
 #kc-info,
 .login-pf-page footer,
 #kc-footer {
   display: none !important;
 }
+
 
 @media (max-width: 640px) {
   .login-pf-page {
