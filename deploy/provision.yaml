@@ -1,0 +1,83 @@
+---
+# /opt/digital_slide_archive/devops/ver5/provision.yaml
+# Girder provisioning — runs on every Girder startup via start_girder.sh
+# force: True means all settings are applied on every restart
+
+force: True
+samples: False
+clean-delete-locks: True
+sample-collection: Samples
+sample-folder: Images
+use-defaults: True
+mongo-compat: True
+
+# Default admin user (only created if no admin exists)
+admin:
+  login: admin
+  password: password
+  firstName: Admin
+  lastName: Admin
+  email: admin@nowhere.nil
+  public: True
+
+# Default assetstore
+assetstore:
+  method: createFilesystemAssetstore
+  name: Assetstore
+  root: /assetstore
+
+resources:
+  - model: collection
+    name: Tasks
+    creator: resource:admin
+    public: True
+  - model: folder
+    parent: resource:collection/Tasks
+    parentType: collection
+    name: "Slicer CLI Web Tasks"
+    creator: resource:admin
+    public: True
+
+settings:
+  worker.broker: "amqp://guest:guest@rabbitmq"
+  worker.backend: "rpc://guest:guest@rabbitmq"
+  worker.api_url: "http://girder:8080/api/v1"
+  worker.direct_path: True
+  core.brand_name: "Digital Slide Archive"
+
+  histomicsui.webroot_path: "histomics"
+  histomicsui.alternate_webroot_path: "histomicstk"
+  histomicsui.delete_annotations_after_ingest: True
+
+  homepage.markdown: |-
+    # Digital Slide Archive
+    ---
+    ## Bioinformatics Platform
+
+    Welcome to the **Digital Slide Archive**.
+
+    Developers who want to use the Girder REST API should check out the
+    [interactive web API docs](api/v1).
+
+    The [HistomicsUI](histomics) application is enabled.
+
+  slicer_cli_web.task_folder: "resourceid:collection/Tasks/Slicer CLI Web Tasks"
+
+  # ── Keycloak OAuth ────────────────────────────────────────────────────────
+  # Enables the Keycloak SSO button on all PathAssist UI login pages.
+  # The client_secret is NOT stored here — run deploy/keycloak-setup.sh after
+  # first boot to configure Keycloak and write the secret via the Girder API.
+  oauth.providers_enabled: '["keycloak"]'
+  oauth.keycloak_client_id: "pathassist-girder"
+  oauth.keycloak_base_url: "https://auth.pathassist.health"
+  oauth.keycloak_realm: "pathassist"
+  # oauth.keycloak_client_secret — set by keycloak-setup.sh, stored in MongoDB
+
+slicer-cli-image-pull:
+  - dsarchive/histomicstk:latest
+
+worker-rabbitmq-user: guest
+worker-rabbitmq-pass: guest
+worker-config: /opt/girder_worker/girder_worker/worker.local.cfg
+worker:
+  {}

@@ -257,12 +257,72 @@ services:
       sh -c "npx serve dist -p 3000 -s --no-clipboard"
     
 
+  # ── Keycloak PostgreSQL ────────────────────────────────────────────────────
+  postgres-keycloak:
+    image: postgres:15-alpine
+    container_name: keycloak-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:-changeme_keycloak_db}
+    volumes:
+      - ./keycloak-db:/var/lib/postgresql/data
+    logging:
+      options:
+        max-size: "10M"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── Keycloak (SSO / Identity Provider) ────────────────────────────────────
+  # Official hardened image: quay.io/keycloak/keycloak
+  # Admin console: http://auth.pathassist.health/
+  # First boot: run ./deploy/keycloak-setup.sh to configure realm + client
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-keycloak:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-changeme_keycloak_db}
+      # nginx is the edge proxy — Keycloak runs HTTP internally
+      KC_HOSTNAME: auth.pathassist.health
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KEYCLOAK_ADMIN: ${KC_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-changeme_kc_admin}
+    command: start
+    depends_on:
+      postgres-keycloak:
+        condition: service_healthy
+    mem_limit: 1g
+    logging:
+      options:
+        max-size: "10M"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 90s
+
   nginx-proxy:
     image: nginx:alpine
     container_name: nginx-multi-proxy
     restart: unless-stopped
     depends_on:
       - girder
+      - keycloak
       - pathassist-mda
       - pathassist-algopath
       - pathassist-lymphoma
