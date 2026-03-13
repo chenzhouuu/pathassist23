@@ -6,7 +6,7 @@ import {
   getCollections, getCollectionStats,
   createCollection, updateCollection, updateCollectionMetadata,
 } from '../../api/index.js';
-import { GIRDER_BASE } from '../../config/girder.js';
+import { GIRDER_BASE, KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 import AppLogo from '../layout/AppLogo.jsx';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -347,6 +347,7 @@ export default function ProjectsPage() {
       });
     } catch (_) {}
     clearAuth();
+    window.location.href = KEYCLOAK_LOGOUT_URL;
   };
 
   const handleOpen = (col) => {
