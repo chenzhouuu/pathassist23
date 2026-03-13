@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls /c/Users/tkantheti/Downloads/gunicorn*)"
+      "Bash(ls /c/Users/tkantheti/Downloads/gunicorn*)",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 \"cat /opt/digital_slide_archive/devops/ver5/provision.yaml\")",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 \"cat /opt/girder/plugins/oauth/girder_oauth/providers/cilogon.py\")",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 \"cat /opt/girder/plugins/oauth/girder_oauth/providers/google.py && echo ''==='' && cat /opt/girder/plugins/oauth/girder_oauth/providers/base.py | head -80\")",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 'docker exec ver5-girder-1 cat /opt/girder/plugins/oauth/girder_oauth/providers/google.py')",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 'docker exec ver5-girder-1 cat /opt/girder/plugins/oauth/girder_oauth/settings.py')",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 'docker exec ver5-girder-1 cat /opt/girder/plugins/oauth/girder_oauth/providers/__init__.py')",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 'docker exec ver5-girder-1 cat /opt/girder/plugins/oauth/girder_oauth/providers/cilogon.py')",
+      "Bash(ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23 'cd /opt/digital_slide_archive/devops/ver5 && docker compose restart girder && sleep 12 && curl -s \"\"http://localhost:8080/api/v1/oauth/keycloak?redirect=http://impart.pathassist.health/\"\"')"
     ]
   }
 }
