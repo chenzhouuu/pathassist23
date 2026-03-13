@@ -130,4 +130,25 @@ class Keycloak(ProviderBase):
         firstName = info.get('given_name', '')
         lastName = info.get('family_name', '')
 
-        return self._createOrReuseUser(oauthId, email, firstName, lastName)
+        user = self._createOrReuseUser(oauthId, email, firstName, lastName)
+
+        # Auto-assign Girder groups based on Keycloak group membership.
+        # Keycloak sends groups claim via the group-membership mapper on the client.
+        kc_groups = info.get('groups', [])
+        if kc_groups:
+            self._syncGirderGroups(user, kc_groups)
+
+        return user
+
+    @staticmethod
+    def _syncGirderGroups(user, kc_groups):
+        """Add user to Girder groups matching their Keycloak groups (idempotent)."""
+        from girder.models.group import Group
+        group_model = Group()
+        for group_name in kc_groups:
+            girder_group = group_model.findOne({'name': group_name})
+            if girder_group is None:
+                continue
+            # Check if already a member
+            if not group_model.hasUser(girder_group, user):
+                group_model.addUser(girder_group, user, level=0)  # READ member
