@@ -1,0 +1,181 @@
+/* PathAssist / Impart DX — Keycloak Login Theme */
+
+/* ── Page background ───────────────────────────────────────── */
+body, html {
+  background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 50%, #fce4ec 100%) !important;
+  min-height: 100vh;
+  font-family: 'Inter', 'Segoe UI', sans-serif !important;
+}
+
+#kc-header, .login-pf-header {
+  display: none !important;
+}
+
+/* ── Card / form wrapper ───────────────────────────────────── */
+#kc-container-wrapper,
+.login-pf-page .login-pf-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+#kc-container,
+.card-pf,
+.login-pf-page .card-pf {
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 40px rgba(233, 30, 99, 0.12), 0 2px 8px rgba(0,0,0,0.06) !important;
+  border: 1px solid rgba(233, 30, 99, 0.15) !important;
+  padding: 36px 32px !important;
+  max-width: 400px !important;
+  width: 100% !important;
+}
+
+/* ── Logo header ───────────────────────────────────────────── */
+#kc-header-wrapper {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+#kc-header-wrapper::before {
+  content: '';
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  background-image: url('../img/logo.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* ── Form title ────────────────────────────────────────────── */
+#kc-page-title,
+.kc-page-title {
+  color: #1a1a2e !important;
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  margin-bottom: 20px !important;
+}
+
+/* ── Input fields ──────────────────────────────────────────── */
+.pf-c-form-control,
+input[type="text"],
+input[type="password"],
+input[type="email"] {
+  border: 1.5px solid #f8bbd0 !important;
+  border-radius: 8px !important;
+  padding: 10px 14px !important;
+  font-size: 0.9rem !important;
+  background: #fff9fb !important;
+  color: #1a1a2e !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  outline: none !important;
+  transition: border-color 0.2s !important;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus {
+  border-color: #e91e63 !important;
+  box-shadow: 0 0 0 3px rgba(233, 30, 99, 0.12) !important;
+}
+
+/* ── Labels ────────────────────────────────────────────────── */
+label, .pf-c-form__label-text {
+  color: #555 !important;
+  font-size: 0.85rem !important;
+  font-weight: 500 !important;
+  margin-bottom: 4px !important;
+  display: block !important;
+}
+
+/* ── Primary button (Sign In) ──────────────────────────────── */
+#kc-login,
+input[type="submit"],
+.pf-c-button.pf-m-primary,
+button[type="submit"] {
+  background: #e91e63 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  color: #fff !important;
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  padding: 11px 0 !important;
+  width: 100% !important;
+  cursor: pointer !important;
+  margin-top: 8px !important;
+  transition: background 0.2s !important;
+}
+
+#kc-login:hover,
+input[type="submit"]:hover,
+.pf-c-button.pf-m-primary:hover {
+  background: #c2185b !important;
+}
+
+/* ── Social login buttons (Google etc) ─────────────────────── */
+.kc-social-provider-logo,
+.pf-c-button.pf-m-secondary,
+.zocial, .zocial.google {
+  border: 1.5px solid #f8bbd0 !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: #1a1a2e !important;
+  width: 100% !important;
+  text-align: center !important;
+  margin-bottom: 8px !important;
+  padding: 9px !important;
+  transition: border-color 0.2s !important;
+}
+
+.zocial.google:hover,
+.pf-c-button.pf-m-secondary:hover {
+  border-color: #e91e63 !important;
+  background: #fff9fb !important;
+}
+
+/* ── Register / forgot links ───────────────────────────────── */
+#kc-registration, #kc-form-options, .kc-login-locale-dropdown {
+  text-align: center !important;
+  margin-top: 16px !important;
+}
+
+#kc-registration a, #kc-form-options a, a {
+  color: #e91e63 !important;
+  text-decoration: none !important;
+  font-size: 0.85rem !important;
+}
+
+a:hover {
+  text-decoration: underline !important;
+}
+
+/* ── Divider "or" ──────────────────────────────────────────── */
+#kc-social-providers {
+  margin-top: 16px !important;
+}
+
+.kc-social-section-title, hr {
+  border-color: #f8bbd0 !important;
+}
+
+/* ── Error messages ────────────────────────────────────────── */
+.pf-c-alert, .alert-error, #kc-feedback-wrapper {
+  background: #fff0f3 !important;
+  border: 1px solid #f48fb1 !important;
+  border-radius: 8px !important;
+  color: #c62828 !important;
+  padding: 10px 14px !important;
+  margin-bottom: 12px !important;
+  font-size: 0.85rem !important;
+}
+
+/* ── Checkbox ──────────────────────────────────────────────── */
+input[type="checkbox"] {
+  accent-color: #e91e63 !important;
+}
