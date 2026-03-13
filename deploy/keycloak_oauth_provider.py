@@ -149,6 +149,10 @@ class Keycloak(ProviderBase):
             girder_group = group_model.findOne({'name': group_name})
             if girder_group is None:
                 continue
-            # Check if already a member
-            if not group_model.hasUser(girder_group, user):
+            # Check membership via group's member list (Girder v5 has no hasUser)
+            already_member = group_model.find({
+                '_id': girder_group['_id'],
+                'memberIds': user['_id'],
+            }).count() > 0
+            if not already_member:
                 group_model.addUser(girder_group, user, level=0)  # READ member

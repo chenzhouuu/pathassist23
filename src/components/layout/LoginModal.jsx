@@ -84,16 +84,16 @@ export default function LoginModal() {
               type="button"
               onClick={handleKeycloakSSO}
               disabled={ssoLoading}
-              className="btn-primary w-full justify-center flex items-center gap-2 py-2 mb-3"
-              style={{ background: 'linear-gradient(135deg, #4da6ff22, #7c3aed33)', border: '1px solid rgba(77,166,255,0.35)', color: 'var(--accent)' }}
+              className="w-full justify-center flex items-center gap-2 py-2 mb-3 rounded-lg font-medium text-sm transition-opacity hover:opacity-90"
+              style={{ background: 'var(--accent)', border: 'none', color: '#fff' }}
             >
               {ssoLoading
                 ? <div className="spinner w-3.5 h-3.5" />
                 : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                    <path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/><path d="M8 12h8M12 8v8"/>
                   </svg>
               }
-              {ssoLoading ? 'Redirecting...' : 'Sign in with Keycloak (SSO)'}
+              {ssoLoading ? 'Redirecting...' : 'Sign in with SSO'}
             </button>
             <div className="flex items-center gap-2 mb-3">
               <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
