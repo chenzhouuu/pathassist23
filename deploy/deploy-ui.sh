@@ -19,6 +19,10 @@ SSH_KEY="${HOME}/.ssh/histamics20.pem"
 EC2_SOURCE="/opt/pathassist23"
 EC2_COMPOSE="/opt/digital_slide_archive/devops/ver5"
 
+# Deployment policy:
+#   lymphoma (impart) = LATEST always  — dev/test environment
+#   mda + algopath    = ONE VERSION BEHIND — stable/production
+#
 # Brand definitions: "container_name|target_dir|VITE_APP_NAME|VITE_LOGO_SRC|VITE_APP_TAGLINE"
 declare -A BRANDS
 BRANDS[lymphoma]="pathassist-lymphoma|/opt/pathassist-lymphoma|Impart DX|/impart-dx-logo.png|Digital Pathology Platform"
