@@ -311,7 +311,7 @@ services:
         max-size: "10M"
         max-file: "5"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 'UP' <&3 || exit 1"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /realms/master HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3 || exit 1"]
       interval: 30s
       timeout: 15s
       retries: 10
