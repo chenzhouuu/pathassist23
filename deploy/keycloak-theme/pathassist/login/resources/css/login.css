@@ -15,6 +15,20 @@ body.login-pf,
   border-radius: 16px !important;
   border: 1px solid rgba(233, 30, 99, 0.15) !important;
   box-shadow: 0 8px 40px rgba(233, 30, 99, 0.12), 0 2px 8px rgba(0,0,0,0.06) !important;
+  max-width: 440px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+}
+
+/* constrain the column that wraps the card */
+#kc-container-wrapper,
+.login-pf-page .col-sm-8,
+.login-pf-page .col-md-6,
+.login-pf-page .col-lg-5 {
+  max-width: 440px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  float: none !important;
 }
 
 /* ── Logo above form ───────────────────────────────────────── */
