@@ -7,10 +7,30 @@ import urllib.parse
 import requests
 
 from girder.api.rest import getApiUrl
-from girder.exceptions import RestException
+from girder.exceptions import RestException, ValidationException
 from girder.models.setting import Setting
+from girder.utility import setting_utilities
 
 from .base import ProviderBase
+
+
+# Register Keycloak settings so Girder accepts them via PUT /system/setting
+_KEYCLOAK_SETTINGS = {
+    'oauth.keycloak_client_id',
+    'oauth.keycloak_client_secret',
+    'oauth.keycloak_base_url',
+    'oauth.keycloak_realm',
+}
+
+
+@setting_utilities.default(_KEYCLOAK_SETTINGS)
+def _defaultKeycloakSettings():
+    return ''
+
+
+@setting_utilities.validator(_KEYCLOAK_SETTINGS)
+def _validateKeycloakSettings(doc):
+    pass
 
 
 class Keycloak(ProviderBase):
@@ -28,11 +48,11 @@ class Keycloak(ProviderBase):
 
     @staticmethod
     def _baseUrl():
-        return Setting().get('oauth.keycloak_base_url', '').rstrip('/')
+        return (Setting().get('oauth.keycloak_base_url') or '').rstrip('/')
 
     @staticmethod
     def _realm():
-        return Setting().get('oauth.keycloak_realm', 'master')
+        return Setting().get('oauth.keycloak_realm') or 'master'
 
     @staticmethod
     def _realmUrl():
