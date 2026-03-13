@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../../store/index.js';
 import { useQuery } from '@tanstack/react-query';
 import { getCollectionStats, getSOCases } from '../../api/index.js';
-import { GIRDER_BASE } from '../../config/girder.js';
+import { GIRDER_BASE, KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 import AppLogo from '../layout/AppLogo.jsx';
 
 function StatCard({ icon, label, value, sub, color = '#4da6ff', onClick }) {
@@ -135,6 +135,7 @@ export default function Dashboard() {
       });
     } catch (_) {}
     clearAuth();
+    window.location.href = KEYCLOAK_LOGOUT_URL;
   };
 
   const goToWorklist = (col) => {

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
 import { getSOCases, getItems, updateFolderMetadata } from '../../api/index.js';
+import { KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 import AppLogo from '../layout/AppLogo.jsx';
 import CaseCreateModal from './CaseCreateModal.jsx';
 
@@ -149,6 +150,7 @@ export default function SecondOpinionPage() {
       });
     } catch (_) {}
     clearAuth();
+    window.location.href = KEYCLOAK_LOGOUT_URL;
   };
 
   return (

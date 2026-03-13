@@ -10,6 +10,16 @@ export const GIRDER_BASE = import.meta.env.VITE_GIRDER_BASE || '/api/v1';
 // Set to null to hide the SSO button entirely (username/password only mode).
 export const KEYCLOAK_OAUTH_PROVIDERS_URL = `${GIRDER_BASE}/oauth/provider`;
 
+// Keycloak logout — clears the Keycloak session so SSO doesn't auto-login again.
+// post_logout_redirect_uri must be registered in Keycloak client "Valid post logout redirect URIs".
+const _KC_BASE = import.meta.env.VITE_KC_BASE || 'https://auth.pathassist.health';
+const _KC_REALM = import.meta.env.VITE_KC_REALM || 'pathassist';
+const _APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
+export const KEYCLOAK_LOGOUT_URL =
+  `${_KC_BASE}/realms/${_KC_REALM}/protocol/openid-connect/logout` +
+  `?client_id=pathassist-girder` +
+  `&post_logout_redirect_uri=${encodeURIComponent(_APP_URL)}`;
+
 export const endpoints = {
   // Auth
   login: () => `${GIRDER_BASE}/user/authentication`,

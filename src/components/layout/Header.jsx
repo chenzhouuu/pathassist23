@@ -5,6 +5,7 @@ import { logout } from '../../api/index.js';
 import ThemeSwitcher from '../ThemeSwitcher.jsx';
 import AppLogo from './AppLogo.jsx';
 import { APP_NAME } from '../../config/branding.js';
+import { KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 
 export default function Header({ showBack = false }) {
   const { user, clearAuth, breadcrumb, tilesInfo, toggleLeftPanel, toggleRightPanel, setPage } = useStore();
@@ -12,6 +13,8 @@ export default function Header({ showBack = false }) {
   const handleLogout = async () => {
     try { await logout(); } catch (_) {}
     clearAuth();
+    // End the Keycloak session so SSO doesn't auto-login on next visit
+    window.location.href = KEYCLOAK_LOGOUT_URL;
   };
 
   return (
