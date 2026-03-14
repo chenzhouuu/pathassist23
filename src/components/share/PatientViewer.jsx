@@ -448,37 +448,38 @@ export default function PatientViewer({ encodedData }) {
       const json = atob(encodedData);
       const data = JSON.parse(json);
       if (!data.folderId || !data.otp || !data.gt || !data.api) throw new Error('Invalid share link');
+      if (Array.isArray(data.items)) {
+        data.items = data.items
+          .filter((item) => item && item._id)
+          .map((item) => ({ _id: item._id, name: item.name || 'Untitled slide' }));
+      }
       setShareData(data);
     } catch (e) {
       setParseError('This link is invalid or has been corrupted. Please contact your healthcare provider.');
     }
   }, [encodedData]);
 
-  async function fetchAllItems(folderId, gt, api, depth = 0) {
-    const headers = { 'Girder-Token': gt };
-    const itemsRes = await fetch(`${api}/item?folderId=${folderId}&limit=500&sort=name`, { headers });
-    const directItems = itemsRes.ok ? await itemsRes.json() : [];
-    const collected = Array.isArray(directItems) ? directItems : [];
-    if (depth < 2) {
-      const foldersRes = await fetch(`${api}/folder?parentType=folder&parentId=${folderId}&limit=200`, { headers });
-      if (foldersRes.ok) {
-        const subFolders = await foldersRes.json();
-        if (Array.isArray(subFolders) && subFolders.length > 0) {
-          const nested = await Promise.all(subFolders.map(sf => fetchAllItems(sf._id, gt, api, depth + 1)));
-          collected.push(...nested.flat());
-        }
-      }
-    }
-    return collected;
-  }
-
   useEffect(() => {
     if (!verified || !shareData) return;
-    const { folderId, gt, api } = shareData;
+    const { folderId, gt, api, items: sharedItems } = shareData;
     setLoadingItems(true);
     setFetchError('');
-    fetchAllItems(folderId, gt, api)
-      .then(all => setItems(all))
+    const loadItems = async () => {
+      if (Array.isArray(sharedItems) && sharedItems.length > 0) {
+        return sharedItems;
+      }
+
+      const headers = { 'Girder-Token': gt };
+      const itemsRes = await fetch(`${api}/item?folderId=${folderId}&limit=500&sort=name`, { headers });
+      const directItems = itemsRes.ok ? await itemsRes.json() : [];
+      return (Array.isArray(directItems) ? directItems : []).map((item) => ({
+        _id: item._id,
+        name: item.name || 'Untitled slide',
+      }));
+    };
+
+    loadItems()
+      .then((all) => setItems(all))
       .catch(e => {
         console.error('PatientViewer: failed to load slides', e);
         setFetchError('Could not load slides. The link may have expired.');
