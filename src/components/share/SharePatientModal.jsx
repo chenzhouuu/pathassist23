@@ -2,7 +2,7 @@
 // Generates a patient-accessible link for an entire folder (patient case).
 // All slides in the folder are accessible after OTP verification.
 // Share data is base64-encoded in the URL hash — no backend required for MVP.
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { GIRDER_BASE } from '../../config/girder.js';
 
 const EXPIRY_OPTIONS = [
@@ -24,6 +24,7 @@ export default function SharePatientModal({ folder, onClose }) {
   const [shareUrl, setShareUrl]       = useState('');
   const [otp, setOtp]                 = useState('');
   const [copied, setCopied]           = useState('');
+  const [generating, setGenerating]   = useState(false);
   const smsEndpoint                   = import.meta.env?.VITE_SMS_WEBHOOK_URL || '';
   const [smsSending, setSmsSending]   = useState(false);
   const [smsSent, setSmsSent]         = useState(false);
@@ -35,10 +36,50 @@ export default function SharePatientModal({ folder, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const handleGenerate = () => {
+  // Creates a Girder API key and exchanges it for a token with the share's exact expiry duration.
+  // This ensures the token stays valid for the full share window (24h / 48h / 7d).
+  // Fallback: use the current session token if API key creation fails.
+  async function createShareToken(durationDays) {
+    const sessionToken = localStorage.getItem('girderToken') || '';
+    try {
+      const keyRes = await fetch(`${GIRDER_BASE}/api_key`, {
+        method: 'POST',
+        headers: { 'Girder-Token': sessionToken, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          name:          `patient-share-${folder._id}-${Date.now()}`,
+          active:        'true',
+          tokenDuration: String(durationDays),
+        }),
+      });
+      if (!keyRes.ok) return sessionToken;
+      const keyData = await keyRes.json();
+      if (!keyData?.key) return sessionToken;
+
+      const tokenRes = await fetch(`${GIRDER_BASE}/api_key/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ key: keyData.key, duration: String(durationDays) }),
+      });
+      if (!tokenRes.ok) return sessionToken;
+      const tokenData = await tokenRes.json();
+      return tokenData?.authToken?.token || sessionToken;
+    } catch (e) {
+      console.warn('[SharePatientModal] API key creation failed, using session token:', e);
+      return sessionToken;
+    }
+  }
+
+  const handleGenerate = async () => {
     if (!patientName.trim()) return;
+    setGenerating(true);
+
+    const expiryOpt = EXPIRY_OPTIONS[expiryIdx];
+    const expiry = Date.now() + expiryOpt.ms;
+    const durationDays = expiryOpt.ms / 86_400_000;
+
+    const shareToken = await createShareToken(durationDays);
+
     const generatedOtp = generateOtp();
-    const expiry = Date.now() + EXPIRY_OPTIONS[expiryIdx].ms;
     const shareData = {
       folderId:    folder._id,
       folderName:  folder.name,
@@ -46,13 +87,14 @@ export default function SharePatientModal({ folder, onClose }) {
       phone:       phone.trim(),
       otp:         generatedOtp,
       expiry,
-      gt:          localStorage.getItem('girderToken') || '',
+      gt:          shareToken,
       api:         GIRDER_BASE,
     };
     const encoded = btoa(JSON.stringify(shareData));
     const url = `${window.location.origin}${window.location.pathname}#/patient/${encoded}`;
     setOtp(generatedOtp);
     setShareUrl(url);
+    setGenerating(false);
     setStep('share');
   };
 
@@ -181,14 +223,18 @@ export default function SharePatientModal({ folder, onClose }) {
                 style={{ background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
                 Cancel
               </button>
-              <button onClick={handleGenerate} disabled={!patientName.trim()}
+              <button onClick={handleGenerate} disabled={!patientName.trim() || generating}
                 className="px-4 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-                style={{ background: '#4da6ff', color: '#fff', opacity: !patientName.trim() ? 0.5 : 1 }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-                  <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
-                </svg>
-                Generate Link
+                style={{ background: '#4da6ff', color: '#fff', opacity: (!patientName.trim() || generating) ? 0.6 : 1 }}>
+                {generating ? (
+                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                ) : (
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                    <polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+                  </svg>
+                )}
+                {generating ? 'Creating secure token…' : 'Generate Link'}
               </button>
             </div>
           </>
