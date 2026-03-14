@@ -2,6 +2,7 @@
 // No-auth slide viewer for patients shared via PIN-protected link.
 // Layout: left panel = slide list, right panel = OSD viewer (no annotation/AI tools).
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import OpenSeadragon from 'openseadragon';
 
 // ─── OTP Form ─────────────────────────────────────────────────────────────────
 function OtpForm({ patientName, folderName, onVerify, isExpired }) {
@@ -122,10 +123,9 @@ function ViewerPanel({ item, girderToken, apiBase }) {
     let destroyed = false;
 
     function initViewer() {
-      if (destroyed || !containerRef.current || !window.OpenSeadragon) return;
-      const osd = window.OpenSeadragon({
+      if (destroyed || !containerRef.current) return;
+      const osd = OpenSeadragon({
         element: containerRef.current,
-        prefixUrl: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/',
         showNavigator: true,
         navigatorPosition: 'BOTTOM_LEFT',
         navigatorSizeRatio: 0.15,
@@ -146,35 +146,63 @@ function ViewerPanel({ item, girderToken, apiBase }) {
 
       const osdOpen = (source, timeoutMs = 15000) => new Promise((resolve, reject) => {
         let settled = false;
+        let opened = false;
         const done = (fn) => () => {
           if (settled) return;
           settled = true;
           osd.removeHandler('open', onOk);
           osd.removeHandler('open-failed', onFail);
+          osd.removeHandler('tile-drawn', onDrawn);
           fn();
         };
-        const onOk = done(resolve), onFail = done(reject);
+        const onOk = () => {
+          opened = true;
+          try {
+            osd.viewport?.goHome(true);
+            osd.forceRedraw?.();
+          } catch (_) {}
+        };
+        const onDrawn = () => {
+          if (opened) done(resolve)();
+        };
+        const onFail = done(reject);
         osd.addHandler('open', onOk);
         osd.addHandler('open-failed', onFail);
+        osd.addHandler('tile-drawn', onDrawn);
         try { osd.open(source); } catch (e) { done(reject)(); }
         setTimeout(done(reject), timeoutMs);
       });
 
       async function loadSlide() {
-        // ── Strategy 1: Large thumbnail as single image (most reliable) ───────
-        // ZXY custom tile source fires 'open' before tiles render, causing black
-        // canvas. Using type:'image' with a large thumbnail is guaranteed to work
-        // since the same token+URL already loads thumbnails in the left panel.
+        // ── Strategy 1: Thumbnail as single image ─────────────────────────────
         try {
-          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=4096&height=4096&token=${girderToken}`;
-          console.log('[PatientViewer] Loading thumbnail image for:', item.name);
-          await osdOpen({ type: 'image', url: thumbUrl }, 20000);
-          if (!destroyed) { console.log('[PatientViewer] Thumbnail loaded ok'); setLoaded(true); return; }
+          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}`;
+          const probe = await fetch(thumbUrl, { headers: { 'Girder-Token': girderToken } });
+          if (probe.ok && (probe.headers.get('content-type') || '').startsWith('image/')) {
+            console.log('[PatientViewer] Loading thumbnail image for:', item.name);
+            await osdOpen({ type: 'image', url: thumbUrl }, 20000);
+            if (!destroyed) { console.log('[PatientViewer] Thumbnail loaded ok'); setLoaded(true); return; }
+          }
         } catch (e) { console.warn('[PatientViewer] Thumbnail failed:', e?.message); }
 
         if (destroyed) return;
 
-        // ── Strategy 2: ZXY tile source (full resolution tiling) ─────────────
+        // ── Strategy 2: DZI tile source ───────────────────────────────────────
+        try {
+          const res = await fetch(`${apiBase}/item/${item._id}/tiles`, { headers: { 'Girder-Token': girderToken } });
+          if (!destroyed && res.ok) {
+            const info = await res.json();
+            if (info?.sizeX > 0 && info?.sizeY > 0) {
+              console.log('[PatientViewer] Trying DZI, sizeX:', info.sizeX, 'levels:', info.levels);
+              await osdOpen(`${apiBase}/item/${item._id}/tiles/dzi?token=${girderToken}`);
+              if (!destroyed) { console.log('[PatientViewer] DZI ok'); setLoaded(true); return; }
+            }
+          }
+        } catch (e) { console.warn('[PatientViewer] DZI failed:', e?.message); }
+
+        if (destroyed) return;
+
+        // ── Strategy 3: ZXY tile source (full resolution tiling) ─────────────
         try {
           const res = await fetch(`${apiBase}/item/${item._id}/tiles`, { headers: { 'Girder-Token': girderToken } });
           if (!destroyed && res.ok) {
@@ -194,22 +222,23 @@ function ViewerPanel({ item, girderToken, apiBase }) {
           }
         } catch (e) { console.warn('[PatientViewer] ZXY failed:', e?.message); }
 
+        if (destroyed) return;
+
+        // ── Strategy 4: Larger thumbnail fallback ─────────────────────────────
+        try {
+          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=4096&height=4096&token=${girderToken}`;
+          console.log('[PatientViewer] Falling back to large thumbnail for:', item.name);
+          await osdOpen({ type: 'image', url: thumbUrl }, 25000);
+          if (!destroyed) { console.log('[PatientViewer] Large thumbnail loaded ok'); setLoaded(true); return; }
+        } catch (e) { console.warn('[PatientViewer] Large thumbnail failed:', e?.message); }
+
         if (!destroyed) { setLoadError(true); setLoaded(true); }
       }
 
       loadSlide();
     }
 
-    // Load OSD from CDN if not already loaded, then init
-    if (window.OpenSeadragon) {
-      initViewer();
-    } else {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js';
-      s.async = true;
-      s.onload = initViewer;
-      document.head.appendChild(s);
-    }
+    initViewer();
 
     return () => {
       destroyed = true;
