@@ -130,8 +130,9 @@ function ViewerPanel({ item, girderToken, apiBase }) {
         navigatorPosition: 'BOTTOM_LEFT',
         navigatorSizeRatio: 0.15,
         showNavigationControl: false,
-        ajaxHeaders: { 'Girder-Token': girderToken },
-        crossOriginPolicy: 'Anonymous',
+        // No ajaxHeaders — token is embedded in tile URLs via ?token=
+        // ajaxHeaders would switch OSD to AJAX/blob mode which can fail silently
+        crossOriginPolicy: false,
         defaultZoomLevel: 0,
         animationTime: 0.3,
         blendTime: 0.1,
