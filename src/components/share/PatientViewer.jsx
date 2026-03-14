@@ -161,61 +161,38 @@ function ViewerPanel({ item, girderToken, apiBase }) {
       });
 
       async function loadSlide() {
-        // ── Strategy 1: ZXY tile source ──────────────────────────────────────
+        // ── Strategy 1: Large thumbnail as single image (most reliable) ───────
+        // ZXY custom tile source fires 'open' before tiles render, causing black
+        // canvas. Using type:'image' with a large thumbnail is guaranteed to work
+        // since the same token+URL already loads thumbnails in the left panel.
+        try {
+          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=4096&height=4096&token=${girderToken}`;
+          console.log('[PatientViewer] Loading thumbnail image for:', item.name);
+          await osdOpen({ type: 'image', url: thumbUrl }, 20000);
+          if (!destroyed) { console.log('[PatientViewer] Thumbnail loaded ok'); setLoaded(true); return; }
+        } catch (e) { console.warn('[PatientViewer] Thumbnail failed:', e?.message); }
+
+        if (destroyed) return;
+
+        // ── Strategy 2: ZXY tile source (full resolution tiling) ─────────────
         try {
           const res = await fetch(`${apiBase}/item/${item._id}/tiles`, { headers: { 'Girder-Token': girderToken } });
           if (!destroyed && res.ok) {
             const info = await res.json();
             if (info?.sizeX > 0 && info?.sizeY > 0) {
-              console.log('[PatientViewer] Tiles info ok, trying ZXY. sizeX:', info.sizeX, 'levels:', info.levels);
-              // Probe first tile to verify actual tile serving works
-              const tileProbeUrl = `${apiBase}/item/${item._id}/tiles/zxy/0/0/0?token=${girderToken}`;
-              const probe = await fetch(tileProbeUrl, { headers: { 'Girder-Token': girderToken } });
-              if (probe.ok && (probe.headers.get('content-type') || '').startsWith('image/')) {
-                await osdOpen({
-                  height: info.sizeY, width: info.sizeX,
-                  tileSize: info.tileWidth || 256,
-                  minLevel: 0, maxLevel: (info.levels || 1) - 1,
-                  getTileUrl(level, x, y) {
-                    return `${apiBase}/item/${item._id}/tiles/zxy/${level}/${x}/${y}?token=${girderToken}`;
-                  },
-                });
-                if (!destroyed) { console.log('[PatientViewer] ZXY ok'); setLoaded(true); return; }
-              } else {
-                console.warn('[PatientViewer] ZXY tile probe failed, status:', probe.status);
-              }
-            } else {
-              console.warn('[PatientViewer] No tile dimensions, sizeX:', info?.sizeX);
+              console.log('[PatientViewer] Trying ZXY, sizeX:', info.sizeX, 'levels:', info.levels);
+              await osdOpen({
+                height: info.sizeY, width: info.sizeX,
+                tileSize: info.tileWidth || 256,
+                minLevel: 0, maxLevel: (info.levels || 1) - 1,
+                getTileUrl(level, x, y) {
+                  return `${apiBase}/item/${item._id}/tiles/zxy/${level}/${x}/${y}?token=${girderToken}`;
+                },
+              });
+              if (!destroyed) { console.log('[PatientViewer] ZXY ok'); setLoaded(true); return; }
             }
-          } else {
-            console.warn('[PatientViewer] /tiles endpoint status:', res.status);
           }
-        } catch (e) { console.warn('[PatientViewer] ZXY strategy failed:', e?.message); }
-
-        if (destroyed) return;
-
-        // ── Strategy 2: DZI ──────────────────────────────────────────────────
-        try {
-          console.log('[PatientViewer] Trying DZI');
-          const dziUrl = `${apiBase}/item/${item._id}/tiles/dzi?token=${girderToken}`;
-          await osdOpen(dziUrl);
-          if (!destroyed) { console.log('[PatientViewer] DZI ok'); setLoaded(true); return; }
-        } catch (e) { console.warn('[PatientViewer] DZI failed:', e?.message); }
-
-        if (destroyed) return;
-
-        // ── Strategy 3: Large thumbnail ───────────────────────────────────────
-        try {
-          console.log('[PatientViewer] Trying thumbnail fallback');
-          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}`;
-          const thumbProbe = await fetch(thumbUrl, { headers: { 'Girder-Token': girderToken } });
-          if (thumbProbe.ok && (thumbProbe.headers.get('content-type') || '').startsWith('image/')) {
-            await osdOpen({ type: 'image', url: thumbUrl });
-            if (!destroyed) { console.log('[PatientViewer] Thumbnail ok'); setLoaded(true); return; }
-          } else {
-            console.warn('[PatientViewer] Thumbnail probe failed, status:', thumbProbe.status);
-          }
-        } catch (e) { console.warn('[PatientViewer] Thumbnail fallback failed:', e?.message); }
+        } catch (e) { console.warn('[PatientViewer] ZXY failed:', e?.message); }
 
         if (!destroyed) { setLoadError(true); setLoaded(true); }
       }
