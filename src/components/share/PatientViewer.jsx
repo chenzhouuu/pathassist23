@@ -131,7 +131,7 @@ function ViewerPanel({ item, girderToken, apiBase }) {
         navigatorSizeRatio: 0.15,
         showNavigationControl: false,
         ajaxHeaders: { 'Girder-Token': girderToken },
-        crossOriginPolicy: false,
+        crossOriginPolicy: 'Anonymous',
         defaultZoomLevel: 0,
         animationTime: 0.3,
         blendTime: 0.1,
@@ -160,29 +160,60 @@ function ViewerPanel({ item, girderToken, apiBase }) {
       });
 
       async function loadSlide() {
+        // ── Strategy 1: ZXY tile source ──────────────────────────────────────
         try {
           const res = await fetch(`${apiBase}/item/${item._id}/tiles`, { headers: { 'Girder-Token': girderToken } });
           if (!destroyed && res.ok) {
             const info = await res.json();
             if (info?.sizeX > 0 && info?.sizeY > 0) {
-              await osdOpen({
-                height: info.sizeY, width: info.sizeX,
-                tileSize: info.tileWidth || 256,
-                minLevel: 0, maxLevel: (info.levels || 1) - 1,
-                getTileUrl(level, x, y) {
-                  return `${apiBase}/item/${item._id}/tiles/zxy/${level}/${x}/${y}?token=${girderToken}`;
-                },
-              });
-              if (!destroyed) { setLoaded(true); return; }
+              console.log('[PatientViewer] Tiles info ok, trying ZXY. sizeX:', info.sizeX, 'levels:', info.levels);
+              // Probe first tile to verify actual tile serving works
+              const tileProbeUrl = `${apiBase}/item/${item._id}/tiles/zxy/0/0/0?token=${girderToken}`;
+              const probe = await fetch(tileProbeUrl, { headers: { 'Girder-Token': girderToken } });
+              if (probe.ok && (probe.headers.get('content-type') || '').startsWith('image/')) {
+                await osdOpen({
+                  height: info.sizeY, width: info.sizeX,
+                  tileSize: info.tileWidth || 256,
+                  minLevel: 0, maxLevel: (info.levels || 1) - 1,
+                  getTileUrl(level, x, y) {
+                    return `${apiBase}/item/${item._id}/tiles/zxy/${level}/${x}/${y}?token=${girderToken}`;
+                  },
+                });
+                if (!destroyed) { console.log('[PatientViewer] ZXY ok'); setLoaded(true); return; }
+              } else {
+                console.warn('[PatientViewer] ZXY tile probe failed, status:', probe.status);
+              }
+            } else {
+              console.warn('[PatientViewer] No tile dimensions, sizeX:', info?.sizeX);
             }
+          } else {
+            console.warn('[PatientViewer] /tiles endpoint status:', res.status);
           }
-        } catch (e) { console.warn('[PatientViewer] ZXY failed:', e?.message); }
+        } catch (e) { console.warn('[PatientViewer] ZXY strategy failed:', e?.message); }
 
         if (destroyed) return;
 
+        // ── Strategy 2: DZI ──────────────────────────────────────────────────
         try {
-          await osdOpen({ type: 'image', url: `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}` });
-          if (!destroyed) { setLoaded(true); return; }
+          console.log('[PatientViewer] Trying DZI');
+          const dziUrl = `${apiBase}/item/${item._id}/tiles/dzi?token=${girderToken}`;
+          await osdOpen(dziUrl);
+          if (!destroyed) { console.log('[PatientViewer] DZI ok'); setLoaded(true); return; }
+        } catch (e) { console.warn('[PatientViewer] DZI failed:', e?.message); }
+
+        if (destroyed) return;
+
+        // ── Strategy 3: Large thumbnail ───────────────────────────────────────
+        try {
+          console.log('[PatientViewer] Trying thumbnail fallback');
+          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}`;
+          const thumbProbe = await fetch(thumbUrl, { headers: { 'Girder-Token': girderToken } });
+          if (thumbProbe.ok && (thumbProbe.headers.get('content-type') || '').startsWith('image/')) {
+            await osdOpen({ type: 'image', url: thumbUrl });
+            if (!destroyed) { console.log('[PatientViewer] Thumbnail ok'); setLoaded(true); return; }
+          } else {
+            console.warn('[PatientViewer] Thumbnail probe failed, status:', thumbProbe.status);
+          }
         } catch (e) { console.warn('[PatientViewer] Thumbnail fallback failed:', e?.message); }
 
         if (!destroyed) { setLoadError(true); setLoaded(true); }
