@@ -111,14 +111,28 @@ function OtpForm({ patientName, folderName, onVerify, isExpired }) {
 // ─── OSD Viewer Panel (embedded, not full-screen) ─────────────────────────────
 function ViewerPanel({ item, girderToken, apiBase }) {
   const containerRef = useRef(null);
+  const fallbackViewportRef = useRef(null);
   const osdRef       = useRef(null);
   const [loaded, setLoaded]     = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const [usingFallbackImage, setUsingFallbackImage] = useState(false);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+  const [downloadUrl, setDownloadUrl] = useState('');
+  const [downloadName, setDownloadName] = useState('');
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, originX: 0, originY: 0 });
 
   useEffect(() => {
     if (!containerRef.current || !item) return;
     setLoaded(false);
     setLoadError(false);
+    setImageUrl('');
+    setUsingFallbackImage(false);
+    setImageZoom(1);
+    setImageOffset({ x: 0, y: 0 });
+    setDownloadUrl('');
+    setDownloadName(item.name || '');
 
     let destroyed = false;
 
@@ -176,12 +190,19 @@ function ViewerPanel({ item, girderToken, apiBase }) {
       async function loadSlide() {
         // ── Strategy 1: Thumbnail as single image ─────────────────────────────
         try {
-          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}`;
+          const thumbUrl = `${apiBase}/item/${item._id}/tiles/thumbnail?width=4096&height=4096&token=${girderToken}`;
           const probe = await fetch(thumbUrl, { headers: { 'Girder-Token': girderToken } });
           if (probe.ok && (probe.headers.get('content-type') || '').startsWith('image/')) {
             console.log('[PatientViewer] Loading thumbnail image for:', item.name);
-            await osdOpen({ type: 'image', url: thumbUrl }, 20000);
-            if (!destroyed) { console.log('[PatientViewer] Thumbnail loaded ok'); setLoaded(true); return; }
+            if (!destroyed) {
+              setImageUrl(thumbUrl);
+              setUsingFallbackImage(true);
+              setLoaded(true);
+            }
+            try {
+              await osdOpen({ type: 'image', url: thumbUrl }, 8000);
+            } catch (_) {}
+            if (!destroyed) { console.log('[PatientViewer] Thumbnail loaded ok'); return; }
           }
         } catch (e) { console.warn('[PatientViewer] Thumbnail failed:', e?.message); }
 
@@ -236,6 +257,27 @@ function ViewerPanel({ item, girderToken, apiBase }) {
       }
 
       loadSlide();
+
+      (async () => {
+        try {
+          const res = await fetch(`${apiBase}/item/${item._id}/files?limit=20`, {
+            headers: { 'Girder-Token': girderToken },
+          });
+          if (!res.ok) return;
+          const files = await res.json();
+          if (!Array.isArray(files) || files.length === 0 || destroyed) return;
+
+          const preferred =
+            files.find((f) => f.name === item.name) ||
+            files.find((f) => /\.ome\.tiff?$/i.test(f.name)) ||
+            files[0];
+
+          if (preferred?._id) {
+            setDownloadUrl(`${apiBase}/file/${preferred._id}/download?token=${girderToken}`);
+            setDownloadName(preferred.name || item.name || 'slide');
+          }
+        } catch (_) {}
+      })();
     }
 
     initViewer();
@@ -247,14 +289,53 @@ function ViewerPanel({ item, girderToken, apiBase }) {
   }, [item, girderToken, apiBase]);
 
 
-  const zoom = (f) => osdRef.current?.viewport?.zoomBy(f, null, true);
-  const home = () => osdRef.current?.viewport?.goHome(true);
+  const clampZoom = (next) => Math.min(12, Math.max(1, next));
+  const zoom = (f) => {
+    if (usingFallbackImage) {
+      setImageZoom((prev) => clampZoom(prev * f));
+      return;
+    }
+    osdRef.current?.viewport?.zoomBy(f, null, true);
+  };
+  const home = () => {
+    if (usingFallbackImage) {
+      setImageZoom(1);
+      setImageOffset({ x: 0, y: 0 });
+      return;
+    }
+    osdRef.current?.viewport?.goHome(true);
+  };
   const fullscreen = () => {
     const el = containerRef.current?.parentElement;
     if (!el) return;
     if (!document.fullscreenElement) el.requestFullscreen?.();
     else document.exitFullscreen?.();
   };
+  const onFallbackWheel = (e) => {
+    if (!usingFallbackImage) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    setImageZoom((prev) => clampZoom(prev * factor));
+  };
+  const onPointerDown = (e) => {
+    if (!usingFallbackImage || imageZoom <= 1) return;
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: imageOffset.x,
+      originY: imageOffset.y,
+    };
+  };
+  const onPointerMove = (e) => {
+    if (!dragRef.current.active) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setImageOffset({ x: dragRef.current.originX + dx, y: dragRef.current.originY + dy });
+  };
+  const endDrag = () => { dragRef.current.active = false; };
+  const resolvedDownloadUrl = downloadUrl || imageUrl || `${apiBase}/item/${item?._id}/tiles/thumbnail?width=4096&height=4096&token=${girderToken}`;
+  const resolvedDownloadName = downloadName || item?.name;
 
   if (!item) {
     return (
@@ -286,6 +367,32 @@ function ViewerPanel({ item, girderToken, apiBase }) {
       {/* OSD canvas */}
       <div className="flex-1 relative" style={{ minHeight: 0 }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0, touchAction: 'none' }}/>
+        {imageUrl && (
+          <div
+            ref={fallbackViewportRef}
+            className="absolute inset-0 flex items-center justify-center overflow-hidden"
+            style={{ background: '#08090f', cursor: usingFallbackImage && imageZoom > 1 ? 'grab' : 'default' }}
+            onWheel={onFallbackWheel}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerLeave={endDrag}
+          >
+            <img
+              src={imageUrl}
+              alt={item.name}
+              className="max-w-full max-h-full object-contain select-none"
+              draggable={false}
+              style={{
+                display: loaded && !loadError ? 'block' : 'none',
+                transform: `translate(${imageOffset.x}px, ${imageOffset.y}px) scale(${imageZoom})`,
+                transformOrigin: 'center center',
+                transition: dragRef.current.active ? 'none' : 'transform 0.12s ease-out',
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
+        )}
         {loadError && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
@@ -315,6 +422,17 @@ function ViewerPanel({ item, girderToken, apiBase }) {
             </svg>
           </button>
         ))}
+        <a
+          href={resolvedDownloadUrl}
+          download={resolvedDownloadName}
+          title="Download"
+          className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid #1e2537', color: '#6b7280' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>
+          </svg>
+        </a>
       </div>
     </div>
   );
