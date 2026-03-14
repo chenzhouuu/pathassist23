@@ -2,7 +2,6 @@
 // No-auth slide viewer for patients shared via PIN-protected link.
 // Layout: left panel = slide list, right panel = OSD viewer (no annotation/AI tools).
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import OpenSeadragon from 'openseadragon';
 
 // ─── OTP Form ─────────────────────────────────────────────────────────────────
 function OtpForm({ patientName, folderName, onVerify, isExpired }) {
@@ -120,68 +119,95 @@ function ViewerPanel({ item, girderToken, apiBase }) {
     setLoaded(false);
     setLoadError(false);
 
-    const osd = OpenSeadragon({
-      element: containerRef.current,
-      prefixUrl: 'https://openseadragon.github.io/openseadragon/images/',
-      showNavigator: true,
-      navigatorPosition: 'BOTTOM_LEFT',
-      navigatorSizeRatio: 0.15,
-      showNavigationControl: false,
-      ajaxHeaders: { 'Girder-Token': girderToken },
-      crossOriginPolicy: 'Anonymous',
-      gestureSettingsTouch: { pinchToZoom: true, flickEnabled: true, scrollToZoom: false, dblClickToZoom: true },
-      gestureSettingsMouse: { scrollToZoom: true, clickToZoom: false, dblClickToZoom: true },
-      animationTime: 0.3,
-      minZoomImageRatio: 0.3,
-      maxZoomPixelRatio: 16,
-      visibilityRatio: 0.2,
-      zoomPerScroll: 1.3,
-    });
-    osdRef.current = osd;
     let destroyed = false;
 
-    const osdOpen = (source, timeoutMs = 15000) => new Promise((resolve, reject) => {
-      let settled = false;
-      const done = (fn) => () => { if (settled) return; settled = true; osd.removeHandler('open', onOk); osd.removeHandler('open-failed', onFail); fn(); };
-      const onOk = done(resolve), onFail = done(reject);
-      osd.addHandler('open', onOk);
-      osd.addHandler('open-failed', onFail);
-      try { osd.open(source); } catch (e) { done(reject)(); }
-      setTimeout(done(reject), timeoutMs);
-    });
+    function initViewer() {
+      if (destroyed || !containerRef.current || !window.OpenSeadragon) return;
+      const osd = window.OpenSeadragon({
+        element: containerRef.current,
+        prefixUrl: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/',
+        showNavigator: true,
+        navigatorPosition: 'BOTTOM_LEFT',
+        navigatorSizeRatio: 0.15,
+        showNavigationControl: false,
+        ajaxHeaders: { 'Girder-Token': girderToken },
+        crossOriginPolicy: false,
+        defaultZoomLevel: 0,
+        animationTime: 0.3,
+        blendTime: 0.1,
+        minZoomImageRatio: 0.3,
+        maxZoomPixelRatio: 16,
+        visibilityRatio: 0.2,
+        zoomPerScroll: 1.3,
+        smoothTileEdgesMinZoom: Infinity,
+      });
+      osdRef.current = osd;
 
-    async function loadSlide() {
-      try {
-        const res = await fetch(`${apiBase}/item/${item._id}/tiles`, { headers: { 'Girder-Token': girderToken } });
-        if (!destroyed && res.ok) {
-          const info = await res.json();
-          if (info?.sizeX > 0 && info?.sizeY > 0) {
-            await osdOpen({
-              height: info.sizeY, width: info.sizeX,
-              tileSize: info.tileWidth || 256,
-              minLevel: 0, maxLevel: (info.levels || 1) - 1,
-              getTileUrl(level, x, y) {
-                return `${apiBase}/item/${item._id}/tiles/zxy/${level}/${x}/${y}?token=${girderToken}`;
-              },
-            });
-            if (!destroyed) { setLoaded(true); return; }
+      const osdOpen = (source, timeoutMs = 15000) => new Promise((resolve, reject) => {
+        let settled = false;
+        const done = (fn) => () => {
+          if (settled) return;
+          settled = true;
+          osd.removeHandler('open', onOk);
+          osd.removeHandler('open-failed', onFail);
+          fn();
+        };
+        const onOk = done(resolve), onFail = done(reject);
+        osd.addHandler('open', onOk);
+        osd.addHandler('open-failed', onFail);
+        try { osd.open(source); } catch (e) { done(reject)(); }
+        setTimeout(done(reject), timeoutMs);
+      });
+
+      async function loadSlide() {
+        try {
+          const res = await fetch(`${apiBase}/item/${item._id}/tiles`, { headers: { 'Girder-Token': girderToken } });
+          if (!destroyed && res.ok) {
+            const info = await res.json();
+            if (info?.sizeX > 0 && info?.sizeY > 0) {
+              await osdOpen({
+                height: info.sizeY, width: info.sizeX,
+                tileSize: info.tileWidth || 256,
+                minLevel: 0, maxLevel: (info.levels || 1) - 1,
+                getTileUrl(level, x, y) {
+                  return `${apiBase}/item/${item._id}/tiles/zxy/${level}/${x}/${y}?token=${girderToken}`;
+                },
+              });
+              if (!destroyed) { setLoaded(true); return; }
+            }
           }
-        }
-      } catch (e) { console.warn('[PatientViewer] ZXY failed:', e?.message); }
+        } catch (e) { console.warn('[PatientViewer] ZXY failed:', e?.message); }
 
-      if (destroyed) return;
+        if (destroyed) return;
 
-      try {
-        await osdOpen({ type: 'image', url: `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}` });
-        if (!destroyed) { setLoaded(true); return; }
-      } catch (e) { console.warn('[PatientViewer] Thumbnail fallback failed:', e?.message); }
+        try {
+          await osdOpen({ type: 'image', url: `${apiBase}/item/${item._id}/tiles/thumbnail?width=2048&height=2048&token=${girderToken}` });
+          if (!destroyed) { setLoaded(true); return; }
+        } catch (e) { console.warn('[PatientViewer] Thumbnail fallback failed:', e?.message); }
 
-      if (!destroyed) { setLoadError(true); setLoaded(true); }
+        if (!destroyed) { setLoadError(true); setLoaded(true); }
+      }
+
+      loadSlide();
     }
 
-    loadSlide();
-    return () => { destroyed = true; osd.destroy(); };
+    // Load OSD from CDN if not already loaded, then init
+    if (window.OpenSeadragon) {
+      initViewer();
+    } else {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js';
+      s.async = true;
+      s.onload = initViewer;
+      document.head.appendChild(s);
+    }
+
+    return () => {
+      destroyed = true;
+      if (osdRef.current) { osdRef.current.destroy(); osdRef.current = null; }
+    };
   }, [item, girderToken, apiBase]);
+
 
   const zoom = (f) => osdRef.current?.viewport?.zoomBy(f, null, true);
   const home = () => osdRef.current?.viewport?.goHome(true);
