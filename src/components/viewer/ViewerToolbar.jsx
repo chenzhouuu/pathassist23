@@ -5,6 +5,12 @@ import { hexToRgba } from '../annotations/annotationUtils.js';
 import ImageFilters from './ImageFilters.jsx';
 import { getFolders, createFolder, uploadCaptureToFolder } from '../../api/index.js';
 
+function useToast() {
+  const [msg, setMsg] = useState(null);
+  const show = (text, ms = 2500) => { setMsg(text); setTimeout(() => setMsg(null), ms); };
+  return [msg, show];
+}
+
 const ToolBtn = ({ title, active, onClick, children, color }) => (
   <button
     className={`tool-btn ${active ? 'active' : ''}`}
@@ -20,8 +26,9 @@ const ToolBtn = ({ title, active, onClick, children, color }) => (
 );
 
 export default function ViewerToolbar({ viewer }) {
-  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen, activeItem, user } = useStore();
+  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen, activeItem, user, addPanel } = useStore();
   const [savingCapture, setSavingCapture] = useState(false);
+  const [toast, showToast] = useToast();
 
   const zoom = (factor) => viewer.current?.viewport?.zoomBy(factor);
   const home = () => viewer.current?.viewport?.goHome();
@@ -61,22 +68,66 @@ export default function ViewerToolbar({ viewer }) {
     if (!canvas || !activeItem) return;
     setSavingCapture(true);
     try {
+      // ── Capture viewport region in image pixel coords ──────────────────────
+      const osd = viewer.current;
+      let region = null;
+      if (osd?.viewport) {
+        try {
+          const b = osd.viewport.getBounds(true);
+          const tl = osd.viewport.viewportToImageCoordinates(b.x, b.y);
+          const br = osd.viewport.viewportToImageCoordinates(b.x + b.width, b.y + b.height);
+          region = {
+            x: Math.max(0, Math.round(tl.x)),
+            y: Math.max(0, Math.round(tl.y)),
+            width:  Math.round(br.x - tl.x),
+            height: Math.round(br.y - tl.y),
+          };
+        } catch (_) {}
+      }
+
+      // ── Generate small thumbnail from current canvas ───────────────────────
+      const THUMB_W = 240;
+      const THUMB_H = Math.round(canvas.height * THUMB_W / canvas.width);
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = THUMB_W; thumbCanvas.height = THUMB_H;
+      thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, THUMB_W, THUMB_H);
+      const thumbnail = thumbCanvas.toDataURL('image/jpeg', 0.75);
+
+      // ── Save panel to localStorage via store ──────────────────────────────
+      if (region) {
+        addPanel({
+          id: crypto.randomUUID(),
+          itemId:    activeItem._id,
+          itemName:  activeItem.name || 'Slide',
+          thumbnail,
+          region,
+          capturedAt: new Date().toISOString(),
+          capturedBy: user?.login || user?.firstName || 'unknown',
+        });
+        setRightPanelOpen(true);
+        setRightPanelTab('panels');
+      }
+
+      // ── Also upload full PNG to server (Captures folder) ──────────────────
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!blob) throw new Error('Failed to capture screenshot');
-      const capturesFolder = await ensureCapturesFolder();
-      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      const safeItem = (activeItem.name || 'slide').replace(/[^\w.-]+/g, '_');
-      const filename = `${safeItem}__capture__${ts}.png`;
-      await uploadCaptureToFolder(capturesFolder._id, blob, filename, {
-        sourceItemId: activeItem._id,
-        sourceItemName: activeItem.name || '',
-        sourceFolderId: activeItem.folderId || '',
-        capturedAt: new Date().toISOString(),
-        capturedBy: user?.login || user?.firstName || 'unknown',
-      });
-      window.alert('Capture saved to server folder: Captures');
+      if (blob) {
+        const capturesFolder = await ensureCapturesFolder();
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const safeItem = (activeItem.name || 'slide').replace(/[^\w.-]+/g, '_');
+        const filename = `${safeItem}__capture__${ts}.png`;
+        await uploadCaptureToFolder(capturesFolder._id, blob, filename, {
+          sourceItemId:   activeItem._id,
+          sourceItemName: activeItem.name || '',
+          sourceFolderId: activeItem.folderId || '',
+          capturedAt:     new Date().toISOString(),
+          capturedBy:     user?.login || user?.firstName || 'unknown',
+          region: region ? JSON.stringify(region) : '',
+        });
+      }
+
+      showToast('Panel saved ✓');
     } catch (e) {
-      window.alert(`Failed to save capture: ${e?.message || 'Unknown error'}`);
+      showToast(`Save failed: ${e?.message || 'Unknown error'}`);
     } finally {
       setSavingCapture(false);
     }
@@ -85,7 +136,15 @@ export default function ViewerToolbar({ viewer }) {
   const activeColor = drawColor || '#4da6ff';
 
   return (
-    <div className="viewer-toolbar">
+    <div className="viewer-toolbar" style={{ position: 'relative' }}>
+      {toast && (
+        <div style={{
+          position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+          marginTop: 6, zIndex: 200, background: 'var(--bg-panel)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: '4px 10px', fontSize: 11, color: 'var(--text)',
+          whiteSpace: 'nowrap', boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+        }}>{toast}</div>
+      )}
       {/* Navigation */}
       <ToolBtn title="Zoom in [+]" onClick={() => zoom(1.5)}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

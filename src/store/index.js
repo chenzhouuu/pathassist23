@@ -214,6 +214,27 @@ export const useStore = create((set, get) => ({
   wsiProgress: null,
   setWsiProgress: (p) => set({ wsiProgress: p }),
 
+  // ── Panels (captured viewport ROIs for batch AI analysis) ────────────────
+  // Each entry: { id, itemId, itemName, thumbnail, region:{x,y,width,height}, capturedAt, capturedBy }
+  panels: (() => {
+    try { return JSON.parse(localStorage.getItem('pathassist_panels') || '[]'); }
+    catch { return []; }
+  })(),
+  addPanel: (panel) => set((s) => {
+    const next = [panel, ...s.panels].slice(0, 100);
+    localStorage.setItem('pathassist_panels', JSON.stringify(next));
+    return { panels: next };
+  }),
+  removePanel: (id) => set((s) => {
+    const next = s.panels.filter((p) => p.id !== id);
+    localStorage.setItem('pathassist_panels', JSON.stringify(next));
+    return { panels: next };
+  }),
+  clearPanels: () => {
+    localStorage.removeItem('pathassist_panels');
+    set({ panels: [] });
+  },
+
   // ── Theme ────────────────────────────────────────────────────────────────
   theme: localStorage.getItem('theme') || 'he',
   setTheme: (theme) => {

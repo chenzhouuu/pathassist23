@@ -148,38 +148,6 @@ export default function MetadataPanel() {
         )}
       </div>
 
-      {/* ── Image Info ── */}
-      {tilesInfo && (
-        <div className="rounded p-2" style={{ background: 'var(--highlight)', border: '1px solid var(--border)' }}>
-          <SectionLabel>Image Info</SectionLabel>
-          {/* Dimensions — prominent single line */}
-          {tilesInfo.sizeX && tilesInfo.sizeY && (
-            <div className="font-mono font-semibold mb-1.5" style={{ color: 'var(--text)', fontSize: 12 }}>
-              {tilesInfo.sizeX.toLocaleString()} <span style={{ color: 'var(--muted)' }}>×</span> {tilesInfo.sizeY.toLocaleString()}
-              <span className="font-normal ml-1" style={{ color: 'var(--muted)', fontSize: 10 }}>px</span>
-            </div>
-          )}
-          {/* Detail chips */}
-          <div className="flex flex-wrap gap-1">
-            {tilesInfo.magnification && (
-              <span className="tag">{tilesInfo.magnification}×</span>
-            )}
-            {tilesInfo.tileWidth && (
-              <span className="tag">Tile {tilesInfo.tileWidth}px</span>
-            )}
-            {tilesInfo.levels && (
-              <span className="tag">{tilesInfo.levels} levels</span>
-            )}
-            {tilesInfo.mm_x && (
-              <span className="tag">{(tilesInfo.mm_x * 1000).toFixed(3)} μm/px</span>
-            )}
-            {tilesInfo.tilesource && (
-              <span className="tag truncate max-w-[120px]" title={tilesInfo.tilesource}>{tilesInfo.tilesource}</span>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ── File Info ── */}
       {item && (
         <div className="rounded p-2" style={{ background: 'var(--highlight)', border: '1px solid var(--border)' }}>
