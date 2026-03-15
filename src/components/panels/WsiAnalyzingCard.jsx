@@ -45,7 +45,7 @@ export default function WsiAnalyzingCard() {
           fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 3,
           background: 'rgba(52,168,83,0.15)', color: '#34a853',
           border: '1px solid rgba(52,168,83,0.3)',
-        }}>Gemini</span>
+        }}>Pragna</span>
       </div>
 
       {/* 4×4 live patch grid */}

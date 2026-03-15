@@ -78,15 +78,13 @@ function ErrorCard({ entry, onRemove }) {
 // ── Model badge in card header ─────────────────────────────────────────────────
 function ModelTag({ label }) {
   if (!label) return null;
-  const isGemini = label.includes('Gemini');
-  const color = isGemini ? '#34a853' : '#4da6ff';
-  const short = isGemini ? 'Gemini' : 'Sonnet';
+  const color = '#7c3aed';
   return (
     <span style={{
       fontSize:9, fontWeight:600, padding:'1px 5px', borderRadius:3,
       background:`${color}18`, color, border:`1px solid ${color}33`,
       flexShrink:0,
-    }}>{short}</span>
+    }}>Pragna</span>
   );
 }
 
@@ -205,10 +203,7 @@ function UsageFooter({ usage, modelLabel }) {
   const { input_tokens: inp, output_tokens: out, cost_usd } = usage;
   const totalTok = (inp + out).toLocaleString();
   const costStr  = cost_usd < 0.001 ? '<$0.001' : `$${cost_usd.toFixed(4)}`;
-  const isGemini = modelLabel?.includes('Gemini');
-  const modelIcon = isGemini
-    ? <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/>
-    : <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>;
+  const modelIcon = <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>;
   return (
     <div style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 10px 7px', borderTop:'1px solid var(--border)', marginTop:2 }}>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2">
@@ -259,7 +254,7 @@ function EmptyState({ ki67Pending }) {
 // ── Analyzing spinner ─────────────────────────────────────────────────────────
 function AnalyzingCard() {
   const pendingModel = useStore((s) => s.ki67PendingModel);
-  const label = pendingModel === 'gemini' ? 'Gemini 2.5 Flash Lite' : AI_MODEL_LABEL;
+  const label = 'Pragna';
   return (
     <div style={{ background:'var(--bg-panel)', border:'1px solid var(--border)', borderRadius:10, padding:'14px 12px', marginBottom:10, display:'flex', alignItems:'center', gap:10 }}>
       <div style={{ width:20, height:20, borderRadius:'50%', border:'2.5px solid #4da6ff', borderTopColor:'transparent', animation:'spin 0.9s linear infinite', flexShrink:0 }} />

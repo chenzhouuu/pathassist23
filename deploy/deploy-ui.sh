@@ -61,7 +61,7 @@ for BRAND in "${DEPLOY_BRANDS[@]}"; do
     npm run build 2>&1 | tail -5"
 
   info "==> [3] Copying dist → $TARGET/dist/"
-  ssh_cmd "cp -r $EC2_SOURCE/dist/. $TARGET/dist/"
+  ssh_cmd "rm -rf $TARGET/dist/* && cp -r $EC2_SOURCE/dist/. $TARGET/dist/"
 
   info "==> [4] Restarting container: $CONTAINER"
   ssh_cmd "cd $EC2_COMPOSE && docker compose restart $CONTAINER"

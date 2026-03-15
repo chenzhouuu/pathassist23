@@ -5,7 +5,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // ── Model config ──────────────────────────────────────────────────────────────
 export const GEMINI_MODEL       = 'gemini-2.5-flash-lite';
-export const GEMINI_MODEL_LABEL = 'Gemini 2.5 Flash Lite';
+export const GEMINI_MODEL_LABEL = 'Pragna';
 
 // Pricing (USD per token) — Gemini 1.5 Pro (≤128K context)
 const PRICE_INPUT_PER_TOK  = 1.25 / 1_000_000; // $1.25 / MTok

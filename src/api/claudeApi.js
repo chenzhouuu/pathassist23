@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 // ── Model config ──────────────────────────────────────────────────────────────
 export const AI_MODEL        = 'claude-sonnet-4-6';
-export const AI_MODEL_LABEL  = 'Claude Sonnet 4.6';
+export const AI_MODEL_LABEL  = 'Pragna';
 
 // Pricing (USD per token) — update if Anthropic changes rates
 const PRICE_INPUT_PER_TOK  = 3.00  / 1_000_000; // $3.00 / MTok
