@@ -186,7 +186,7 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
             <path d="M12 6v6l4 2"/>
           </svg>
         }
-        label="Analyze Ki67 % · Pragna"
+        label="Analyze Ki67 % · Pragna(Zi)"
         hint="$1.25/MTok"
         onClick={() => { onClose(); onAnalyzeKi67?.('gemini'); }}
       />
@@ -199,7 +199,7 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
             <line x1="6" y1="11" x2="6" y2="13"/><line x1="18" y1="11" x2="18" y2="13"/>
           </svg>
         }
-        label="Analyze Region Grid"
+        label="Analyze Region Tumar"
         hint="Pragna · 3×3 patches"
         onClick={() => { onClose(); onAnalyzeRoiGrid?.(); }}
       />
@@ -210,7 +210,7 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
             <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
           </svg>
         }
-        label="Analyze Whole Slide"
+        label="Analyze WSI Tumar"
         hint="Pragna · 16 patches"
         onClick={() => { onClose(); onAnalyzeWsi?.(); }}
       />
