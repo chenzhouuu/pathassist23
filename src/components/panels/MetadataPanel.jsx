@@ -6,7 +6,7 @@ import { getItem, getThumbnailUrl, updateItemMetadata } from '../../api/index.js
 
 function SectionLabel({ children }) {
   return (
-    <div className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: 'var(--muted)', fontSize: 10 }}>
+    <div style={{ color: 'var(--muted)', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
       {children}
     </div>
   );
@@ -14,7 +14,7 @@ function SectionLabel({ children }) {
 
 
 export default function MetadataPanel() {
-  const { activeItem, tilesInfo } = useStore();
+  const { activeItem } = useStore();
   const qc = useQueryClient();
 
   const { data: item } = useQuery({
@@ -76,108 +76,81 @@ export default function MetadataPanel() {
   const meta = item?.meta || {};
 
   return (
-    <div className="p-2 flex flex-col gap-2">
+    <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto' }}>
 
-      {/* Thumbnail */}
-      <div className="rounded overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-        <img
-          src={thumbUrl}
-          alt="Slide thumbnail"
-          className="w-full object-contain"
-          style={{ maxHeight: 130, background: 'var(--bg-viewer)' }}
-          onError={(e) => { e.target.style.display = 'none'; }}
-        />
-      </div>
-
-      {/* Slide name */}
-      <div className="text-xs font-medium break-all leading-tight" style={{ color: 'var(--text)' }}>
-        {activeItem.name}
+      {/* Thumbnail + name row */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ width: 72, height: 54, flexShrink: 0, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-viewer)' }}>
+          <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(e) => { e.target.style.display = 'none'; }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all', lineHeight: 1.4 }}>
+            {activeItem.name}
+          </div>
+          {item?.size && (
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+              {(item.size / 1024 / 1024 / 1024).toFixed(2)} GB
+            </div>
+          )}
+          {item?.created && (
+            <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>
+              {new Date(item.created).toLocaleDateString()}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Dr. Notes ── */}
-      <div className="rounded p-2" style={{ background: 'var(--highlight)', border: '1px solid var(--border)' }}>
-        <div className="flex items-center justify-between mb-1">
+      <div style={{ borderRadius: 6, padding: '6px 8px', background: 'var(--highlight)', border: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
           <SectionLabel>Dr. Notes</SectionLabel>
-          <div className="flex items-center gap-2">
-            {notesSaved && <span style={{ color: '#4caf82', fontSize: 10 }}>✓ Saved</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {notesSaved && <span style={{ color: '#4caf82', fontSize: 9 }}>✓ Saved</span>}
             {!notesEditing && (
-              <button
-                onClick={() => setNotesEditing(true)}
-                className="text-xs px-1.5 py-0.5 rounded transition-all"
-                style={{ color: 'var(--accent)', background: 'rgba(77,166,255,0.1)', border: '1px solid rgba(77,166,255,0.25)', fontSize: 10 }}>
+              <button onClick={() => setNotesEditing(true)}
+                style={{ fontSize: 9, color: 'var(--accent)', background: 'rgba(77,166,255,0.1)', border: '1px solid rgba(77,166,255,0.25)', borderRadius: 3, padding: '1px 6px', cursor: 'pointer' }}>
                 Edit
               </button>
             )}
           </div>
         </div>
-
         {notesEditing ? (
           <>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Write clinical notes, observations, or comments…"
-              rows={4}
+            <textarea value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="Clinical notes…" rows={3}
               className="login-input resize-none w-full"
-              style={{ fontFamily: 'IBM Plex Sans', lineHeight: 1.6, fontSize: 11 }}
-            />
-            <div className="flex gap-2 mt-1.5 justify-end">
-              <button
-                onClick={() => { setNotes(item?.meta?.notes || ''); setNotesEditing(false); }}
-                className="btn-ghost px-2 text-xs" style={{ fontSize: 10 }}>
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveNotes}
-                disabled={notesSaving}
-                className="flex items-center gap-1 px-2 py-1 rounded font-medium transition-all"
-                style={{ background: 'rgba(77,166,255,0.15)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.3)', fontSize: 10 }}>
-                {notesSaving && <div className="spinner" style={{ width: 9, height: 9 }} />}
+              style={{ fontSize: 10, lineHeight: 1.5 }} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 4, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setNotes(item?.meta?.notes || ''); setNotesEditing(false); }}
+                className="btn-ghost px-2" style={{ fontSize: 9 }}>Cancel</button>
+              <button onClick={handleSaveNotes} disabled={notesSaving}
+                style={{ fontSize: 9, background: 'rgba(77,166,255,0.15)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.3)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                {notesSaving && <div className="spinner" style={{ width: 8, height: 8 }} />}
                 {notesSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </>
         ) : (
-          <div
-            className="whitespace-pre-wrap cursor-pointer"
-            style={{ color: notes ? 'var(--text)' : 'var(--muted)', lineHeight: 1.6, fontSize: 11, minHeight: 32 }}
-            onClick={() => setNotesEditing(true)}
-            title="Click to edit notes">
-            {notes || 'No notes yet. Click to add…'}
+          <div onClick={() => setNotesEditing(true)} title="Click to edit"
+            style={{ fontSize: 10, color: notes ? 'var(--text)' : 'var(--muted)', lineHeight: 1.5, minHeight: 22, cursor: 'pointer', whiteSpace: 'pre-wrap' }}>
+            {notes || 'No notes. Click to add…'}
           </div>
         )}
       </div>
 
-      {/* ── File Info ── */}
+      {/* ── File Info (compact) ── */}
       {item && (
-        <div className="rounded p-2" style={{ background: 'var(--highlight)', border: '1px solid var(--border)' }}>
+        <div style={{ borderRadius: 6, padding: '5px 8px', background: 'var(--highlight)', border: '1px solid var(--border)' }}>
           <SectionLabel>File Info</SectionLabel>
-          {/* Size prominent */}
-          {item.size && (
-            <div className="font-semibold mb-1.5" style={{ color: 'var(--text)', fontSize: 12 }}>
-              {(item.size / 1024 / 1024 / 1024).toFixed(2)}
-              <span className="font-normal ml-1" style={{ color: 'var(--muted)', fontSize: 10 }}>GB</span>
-            </div>
-          )}
-          {/* ID */}
-          <div className="font-mono mb-1.5 truncate" style={{ color: 'var(--muted)', fontSize: 10 }} title={item._id}>
+          <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item._id}>
             {item._id}
           </div>
-          {/* Dates */}
-          <div className="flex gap-3">
-            {item.created && (
-              <div>
-                <div style={{ color: 'var(--muted)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created</div>
-                <div style={{ color: 'var(--text)', fontSize: 10 }}>{new Date(item.created).toLocaleDateString()}</div>
-              </div>
-            )}
-            {item.updated && (
-              <div>
-                <div style={{ color: 'var(--muted)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Updated</div>
-                <div style={{ color: 'var(--text)', fontSize: 10 }}>{new Date(item.updated).toLocaleDateString()}</div>
-              </div>
-            )}
-          </div>
+          {item.updated && (
+            <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>
+              Updated: {new Date(item.updated).toLocaleDateString()}
+            </div>
+          )}
         </div>
       )}
 

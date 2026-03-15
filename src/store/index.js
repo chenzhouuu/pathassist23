@@ -246,7 +246,7 @@ export const useStore = create((set, get) => ({
   // ── Viewer UI ────────────────────────────────────────────────────────────
   leftPanelOpen: true,
   rightPanelOpen: true,
-  rightPanelTab: 'metadata',
+  rightPanelTab: 'ai',
   setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
