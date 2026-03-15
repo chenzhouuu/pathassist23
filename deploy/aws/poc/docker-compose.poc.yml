@@ -1,0 +1,201 @@
+---
+# docker-compose.poc.yml
+# AWS POC deployment — m5.xlarge (4 vCPU / 16GB), spot instance
+# Mirrors production stack with reduced resource limits
+#
+# Access (via ALB):
+#   https://poc.impart.pathassist.health/
+#   https://poc.mda.pathassist.health/
+#   https://poc.algopath.pathassist.health/
+
+services:
+
+  # ── WSI Tile Server ──────────────────────────────────────────────────────────
+  girder:
+    image: dsarchive/dsa_common_5
+    container_name: ver5-girder-1
+    privileged: true
+    environment:
+      DSA_USER: ${DSA_USER:-1000:1000}
+      DSA_PROVISION_YAML: /opt/digital_slide_archive/devops/dsa/provision.yaml
+      DSA_WORKER_CONCURRENCY: 0
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq/
+      CELERY_RESULT_BACKEND: rpc://guest:guest@rabbitmq/
+      GIRDER_MONGO_URI: mongodb://mongodb:27017/girder?socketTimeoutMS=3600000
+      GIRDER_SERVER_MODE: production
+      GIRDER_SETTING_CORE_CACHE_ENABLED: true
+      LARGE_IMAGE_CACHE_BACKEND: memcached
+      LARGE_IMAGE_CACHE_TILESOURCE_MAXIMUM: 50
+      LARGE_IMAGE_SOURCE_TIFF_CONCURRENCY: 2
+      LARGE_IMAGE_SOURCE_PYVIPS_ENABLED: true
+      C_FORCE_ROOT: true
+    restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 5g
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./girder.cfg:/etc/girder.cfg:ro
+      - ./assetstore:/assetstore
+      - ./provision.py:/opt/digital_slide_archive/devops/dsa/provision.py
+      - ./provision.yaml:/opt/digital_slide_archive/devops/dsa/provision.yaml
+      - ./logs:/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/dsa-cache:/data/large_image_cache
+    depends_on:
+      - mongodb
+      - memcached
+      - rabbitmq
+    command: /opt/digital_slide_archive/devops/dsa/start_girder.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/system/version"]
+      interval: 2m
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+
+  # ── Database ──────────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:latest
+    container_name: ver5-mongodb-1
+    user: ${DSA_USER:-1000:1000}
+    restart: unless-stopped
+    command: --maxConns 200 --wiredTigerCacheSizeGB 1
+    mem_limit: 2g
+    volumes:
+      - ./db:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 2m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Tile Cache ────────────────────────────────────────────────────────────────
+  memcached:
+    image: memcached
+    container_name: ver5-memcached-1
+    command: -m 1024 --max-item-size 8M
+    restart: unless-stopped
+
+  # ── Task Queue ────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:latest
+    container_name: ver5-rabbitmq-1
+    restart: unless-stopped
+    volumes:
+      - ./rabbitmq.advanced.config:/etc/rabbitmq/advanced.config:ro
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+  # ── Background Worker ─────────────────────────────────────────────────────────
+  worker:
+    image: dsarchive/dsa_common_5
+    container_name: ver5-worker-1
+    environment:
+      DSA_USER: ${DSA_USER:-1000:1000}
+      DSA_WORKER_CONCURRENCY: 2
+      CELERY_BROKER_URL: amqp://guest:guest@rabbitmq/
+      CELERY_RESULT_BACKEND: rpc://guest:guest@rabbitmq/
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 2g
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./start_worker.sh:/opt/digital_slide_archive/devops/dsa/start_worker.sh
+      - /tmp:/tmp
+      - ./gunicorn:/opt/digital_slide_archive/devops/dsa/utils/gunicorn
+    depends_on:
+      - rabbitmq
+    command: /opt/digital_slide_archive/devops/dsa/start_worker.sh
+
+  # ── PathAssist UI — Impart DX ─────────────────────────────────────────────────
+  pathassist-lymphoma:
+    image: node:20-alpine
+    container_name: pathassist-lymphoma
+    working_dir: /app
+    restart: unless-stopped
+    volumes:
+      - /opt/pathassist-lymphoma:/app
+    command: sh -c "npx serve dist -p 3000 -s --no-clipboard"
+
+  # ── PathAssist UI — MDA ───────────────────────────────────────────────────────
+  pathassist-mda:
+    image: node:20-alpine
+    container_name: pathassist-mda
+    working_dir: /app
+    restart: unless-stopped
+    volumes:
+      - /opt/pathassist-mda:/app
+    command: sh -c "npx serve dist -p 3000 -s --no-clipboard"
+
+  # ── PathAssist UI — Algopath ──────────────────────────────────────────────────
+  pathassist-algopath:
+    image: node:20-alpine
+    container_name: pathassist-algopath
+    working_dir: /app
+    restart: unless-stopped
+    volumes:
+      - /opt/pathassist-algopath:/app
+    command: sh -c "npx serve dist -p 3000 -s --no-clipboard"
+
+  # ── Keycloak PostgreSQL ───────────────────────────────────────────────────────
+  postgres-keycloak:
+    image: postgres:15-alpine
+    container_name: keycloak-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:-poc_keycloak_db}
+    volumes:
+      - ./keycloak-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── Keycloak SSO ──────────────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    restart: unless-stopped
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-keycloak:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-poc_keycloak_db}
+      KC_HOSTNAME: poc.auth.pathassist.health
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN: ${KC_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
+    command: start
+    depends_on:
+      postgres-keycloak:
+        condition: service_healthy
+    mem_limit: 1g
+
+  # ── Nginx Reverse Proxy ───────────────────────────────────────────────────────
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: nginx-multi-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx-poc.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - girder
+      - keycloak
+      - pathassist-lymphoma
+      - pathassist-mda
+      - pathassist-algopath
