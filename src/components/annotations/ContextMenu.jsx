@@ -32,7 +32,7 @@ function Divider() {
   return <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />;
 }
 
-export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNuclei }) {
+export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNuclei, onAnalyzeKi67, onAnalyzeRoiGrid, onAnalyzeWsi }) {
   const menuRef = useRef(null);
   const qc = useQueryClient();
   const { activeItem, setSelectedAnnotation, annotations } = useStore();
@@ -167,8 +167,53 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
         </>
       )}
 
-      {/* Always: dismiss */}
-      {ann && <Divider />}
+      {/* Always: AI analysis */}
+      <Divider />
+      <MenuItem
+        icon={
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+        }
+        label="Analyze Ki67 % · Sonnet"
+        hint="$3/MTok"
+        onClick={() => { onClose(); onAnalyzeKi67?.('claude'); }}
+      />
+      <MenuItem
+        icon={
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/>
+            <path d="M12 6v6l4 2"/>
+          </svg>
+        }
+        label="Analyze Ki67 % · Gemini"
+        hint="$1.25/MTok"
+        onClick={() => { onClose(); onAnalyzeKi67?.('gemini'); }}
+      />
+      <MenuItem
+        icon={
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="2" width="9" height="9"/><rect x="13" y="2" width="9" height="9"/>
+            <rect x="2" y="13" width="9" height="9"/><rect x="13" y="13" width="9" height="9"/>
+            <line x1="11" y1="6" x2="13" y2="6"/><line x1="11" y1="18" x2="13" y2="18"/>
+            <line x1="6" y1="11" x2="6" y2="13"/><line x1="18" y1="11" x2="18" y2="13"/>
+          </svg>
+        }
+        label="Analyze Region Grid"
+        hint="Gemini · 3×3 patches"
+        onClick={() => { onClose(); onAnalyzeRoiGrid?.(); }}
+      />
+      <MenuItem
+        icon={
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+          </svg>
+        }
+        label="Analyze Whole Slide"
+        hint="Gemini · 16 patches"
+        onClick={() => { onClose(); onAnalyzeWsi?.(); }}
+      />
       <MenuItem
         icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>}
         label="Dismiss"

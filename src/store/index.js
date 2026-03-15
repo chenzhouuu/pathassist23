@@ -170,6 +170,50 @@ export const useStore = create((set, get) => ({
   setCompareItems: (items) => set({ compareItems: items, currentPage: 'compare' }),
   clearCompare: () => set({ compareItems: [], currentPage: 'worklist' }),
 
+  // ── AI / Ki67 ─────────────────────────────────────────────────────────────
+  // Each entry: { id, timestamp, roi, thumbnailUrl, result, usage, itemId, itemName, modelLabel }
+  // Persisted to localStorage under 'pathassist_ki67_results'
+  aiResults: (() => {
+    try { return JSON.parse(localStorage.getItem('pathassist_ki67_results') || '[]'); }
+    catch { return []; }
+  })(),
+  addAiResult: (entry) => set((s) => {
+    const next = [entry, ...s.aiResults].slice(0, 20);
+    localStorage.setItem('pathassist_ki67_results', JSON.stringify(next));
+    return { aiResults: next };
+  }),
+  removeAiResult: (id) => set((s) => {
+    const next = s.aiResults.filter((e) => e.id !== id);
+    localStorage.setItem('pathassist_ki67_results', JSON.stringify(next));
+    return { aiResults: next };
+  }),
+  clearAiResults: () => {
+    localStorage.removeItem('pathassist_ki67_results');
+    set({ aiResults: [] });
+  },
+
+  // 'claude' | 'gemini' — which model to run when ROI is drawn
+  ki67PendingModel: 'claude',
+  setKi67PendingModel: (v) => set({ ki67PendingModel: v }),
+
+  // Set to true while waiting for the user to draw a Ki67 ROI
+  ki67RoiPending: false,
+  setKi67RoiPending: (v) => set({ ki67RoiPending: v }),
+
+  // Set to true while the API call is in-flight
+  ki67Analyzing: false,
+  setKi67Analyzing: (v) => set({ ki67Analyzing: v }),
+
+  // ── WSI / ROI-grid analysis ───────────────────────────────────────────────
+  roiWsiPending: false,
+  setRoiWsiPending: (v) => set({ roiWsiPending: v }),
+
+  wsiAnalyzing: false,
+  setWsiAnalyzing: (v) => set({ wsiAnalyzing: v }),
+  // { current, total, patchGrid: Array<'pending'|'analyzing'|'done'|'skipped'|'failed'> }
+  wsiProgress: null,
+  setWsiProgress: (p) => set({ wsiProgress: p }),
+
   // ── Theme ────────────────────────────────────────────────────────────────
   theme: localStorage.getItem('theme') || 'he',
   setTheme: (theme) => {

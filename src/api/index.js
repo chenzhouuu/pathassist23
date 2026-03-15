@@ -184,6 +184,36 @@ export const getSOCases = async () => {
   return results;
 };
 
+// ─── Tiles info (slide dimensions, native magnification) ──────────────────────
+export const getTilesInfo = async (itemId) => {
+  const res = await client.get(`/item/${itemId}/tiles`);
+  return res.data; // { sizeX, sizeY, levels, magnification, mm_x, mm_y, ... }
+};
+
+// ─── Region image fetch (for AI analysis) ─────────────────────────────────────
+// Fetches a rectangular region of a WSI at the given magnification as a PNG blob.
+// x, y, w, h are in base image pixels (level 0 coordinates).
+// maxOutputPx: if set, caps the output image to this size (width & height) to
+//              control blob size sent to AI models.
+export const getRegionImageBlob = async (itemId, x, y, w, h, magnification = 40, maxOutputPx = null) => {
+  const params = {
+    left:         Math.round(x),
+    top:          Math.round(y),
+    regionWidth:  Math.round(w),
+    regionHeight: Math.round(h),
+    units:        'base_pixels',
+    encoding:     'PNG',
+    exact:        false,
+  };
+  if (magnification  != null) params.magnification  = magnification;
+  if (maxOutputPx    != null) { params.width = maxOutputPx; params.height = maxOutputPx; }
+  const res = await client.get(`/item/${itemId}/tiles/region`, {
+    params,
+    responseType: 'blob',
+  });
+  return res.data; // Blob (image/png)
+};
+
 // ─── Large Image tile creation ────────────────────────────────────────────────
 // POST creates a large_image tile source for the item (async job).
 // Returns the created job object with a _id.

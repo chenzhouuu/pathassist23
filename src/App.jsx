@@ -9,6 +9,7 @@ import ViewerApp from './components/ViewerApp.jsx';
 import CompareViewer from './components/viewer/CompareViewer.jsx';
 import ProjectsPage from './components/projects/ProjectsPage.jsx';
 import PatientViewer from './components/share/PatientViewer.jsx';
+import SingleImageViewer from './components/share/SingleImageViewer.jsx';
 import SecondOpinionPage from './components/cases/SecondOpinionPage.jsx';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
   // Must check before any auth gating.
   const hash = typeof window !== 'undefined' ? window.location.hash : '';
   const isPatientView = hash.startsWith('#/patient/');
+  const isSharedImageView = hash.startsWith('#/shared-image/');
 
   // Handle Keycloak OAuth callback: Girder appends ?girderToken=TOKEN after SSO.
   useEffect(() => {
@@ -44,6 +46,10 @@ export default function App() {
 
   if (isPatientView) {
     return <PatientViewer encodedData={hash.slice('#/patient/'.length)} />;
+  }
+
+  if (isSharedImageView) {
+    return <SingleImageViewer encodedData={hash.slice('#/shared-image/'.length)} />;
   }
 
   if (!token) return <LoginModal />;

@@ -2,7 +2,10 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { useQueryClient } from '@tanstack/react-query';
-import { createAnnotation } from '../../api/index.js';
+import { createAnnotation, getRegionImageBlob, getTilesInfo } from '../../api/index.js';
+import { analyzeKi67WithOpus, AI_MODEL_LABEL } from '../../api/claudeApi.js';
+import { analyzeKi67WithGemini, GEMINI_MODEL_LABEL } from '../../api/geminiApi.js';
+import { analyzeWholeSlide, analyzeRoiGrid } from '../../api/wsiAnalysis.js';
 import {
   ANN_COLORS, hexToRgba, viewerToImg,
   makePoint, makeRectangle, makePolyline, makeEllipse,
@@ -23,7 +26,14 @@ export default function AnnotationCanvas({ viewer }) {
     annotations, setAnnotations,
     visibleAnnotations,
     selectedAnnotation,
-    setRoiSelectResult,
+    roiSelectResult, setRoiSelectResult, clearRoiSelectResult,
+    ki67RoiPending, setKi67RoiPending,
+    ki67PendingModel, setKi67PendingModel,
+    setKi67Analyzing,
+    roiWsiPending, setRoiWsiPending,
+    setWsiAnalyzing, setWsiProgress,
+    addAiResult,
+    setRightPanelTab,
   } = useStore();
 
   // mutable draw state (not React state — avoids re-renders on mouse move)
@@ -41,6 +51,168 @@ export default function AnnotationCanvas({ viewer }) {
     clearTimeout(saveErrorTimer.current);
     saveErrorTimer.current = setTimeout(() => setSaveError(null), 7000);
   }, []);
+
+  // ── Ki67 analysis ───────────────────────────────────────────────────────────
+  // Called when user picks "Analyze Ki67 %" from the context menu.
+  // Switches to roi-select mode; when the user finishes drawing the ROI,
+  // the useEffect below detects ki67RoiPending + roiSelectResult and fires Opus.
+  const handleAnalyzeKi67 = useCallback((model = 'claude') => {
+    setKi67PendingModel(model);
+    setKi67RoiPending(true);
+    setDrawingMode('roi-select');
+  }, [setKi67PendingModel, setKi67RoiPending, setDrawingMode]);
+
+  const handleAnalyzeWsi = useCallback(async () => {
+    if (!activeItem) return;
+    setRightPanelTab('ai');
+    setWsiAnalyzing(true);
+    setWsiProgress({ current: 0, total: 16, patchGrid: Array(16).fill('pending') });
+    try {
+      const tilesInfo = await getTilesInfo(activeItem._id);
+      const { aggregate, patchResults, gridN, slideWidth, slideHeight, modelLabel, usage } =
+        await analyzeWholeSlide(activeItem._id, tilesInfo, setWsiProgress);
+      addAiResult({
+        id: Date.now().toString(),
+        type: 'wsi',
+        timestamp: Date.now(),
+        itemId: activeItem._id,
+        itemName: activeItem.name,
+        modelLabel,
+        aggregate,
+        patchResults,
+        gridN,
+        slideWidth,
+        slideHeight,
+        usage,
+      });
+    } catch (err) {
+      console.error('[WSI] Analysis failed:', err);
+      addAiResult({
+        id: Date.now().toString(),
+        type: 'wsi',
+        timestamp: Date.now(),
+        itemId: activeItem._id,
+        itemName: activeItem.name,
+        aggregate: null,
+        result: { error: err.message || 'WSI analysis failed' },
+      });
+    } finally {
+      setWsiAnalyzing(false);
+      setWsiProgress(null);
+    }
+  }, [activeItem, setRightPanelTab, setWsiAnalyzing, setWsiProgress, addAiResult]);
+
+  // Watch for a completed ROI while a Ki67 analysis is pending.
+  useEffect(() => {
+    if (!ki67RoiPending || !roiSelectResult || !activeItem) return;
+
+    const { x, y, width, height } = roiSelectResult;
+    setKi67RoiPending(false);
+    clearRoiSelectResult();
+    setKi67Analyzing(true);
+    setRightPanelTab('ai');
+
+    // Capture the current ROI as a data-URL for the thumbnail shown in the panel.
+    let thumbnailUrl = null;
+    try {
+      const osd = viewer.current;
+      if (osd) {
+        const canvas = document.createElement('canvas');
+        const THUMB = 120;
+        canvas.width = THUMB; canvas.height = THUMB;
+        const ctx = canvas.getContext('2d');
+        // draw from the OSD internal canvas (first canvas child of the OSD element)
+        const osdCanvas = osd.element?.querySelector('canvas');
+        if (osdCanvas) {
+          // compute the viewport rect of the ROI so we can crop the OSD canvas
+          const tl = osd.viewport.imageToViewerElementCoordinates(
+            new window.OpenSeadragon.Point(x, y)
+          );
+          const br = osd.viewport.imageToViewerElementCoordinates(
+            new window.OpenSeadragon.Point(x + width, y + height)
+          );
+          const sw = br.x - tl.x, sh = br.y - tl.y;
+          if (sw > 0 && sh > 0) {
+            ctx.drawImage(osdCanvas, tl.x, tl.y, sw, sh, 0, 0, THUMB, THUMB);
+            thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
+          }
+        }
+      }
+    } catch (_) { /* thumbnail is optional */ }
+
+    const model = useStore.getState().ki67PendingModel ?? 'claude';
+    const modelLabel = model === 'gemini' ? GEMINI_MODEL_LABEL : AI_MODEL_LABEL;
+    const baseEntry = {
+      id: Date.now().toString(),
+      timestamp: Date.now(),
+      roi: { x, y, width, height },
+      thumbnailUrl,
+      itemId: activeItem._id,
+      itemName: activeItem.name,
+      modelLabel,
+    };
+
+    (async () => {
+      try {
+        const blob = await getRegionImageBlob(activeItem._id, x, y, width, height, 40);
+        const analyze = model === 'gemini' ? analyzeKi67WithGemini : analyzeKi67WithOpus;
+        const { result, usage } = await analyze(blob);
+        addAiResult({ ...baseEntry, result, usage });
+      } catch (err) {
+        console.error('[Ki67] Analysis failed:', err);
+        addAiResult({ ...baseEntry, result: { error: err.message || 'Analysis failed' } });
+      } finally {
+        setKi67Analyzing(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ki67RoiPending, roiSelectResult]);
+
+  // ── ROI grid analysis ────────────────────────────────────────────────────────
+  const handleAnalyzeRoiGrid = useCallback(() => {
+    setRoiWsiPending(true);
+    setDrawingMode('roi-select');
+  }, [setRoiWsiPending, setDrawingMode]);
+
+  useEffect(() => {
+    if (!roiWsiPending || !roiSelectResult || !activeItem) return;
+    const { x, y, width, height } = roiSelectResult;
+    setRoiWsiPending(false);
+    clearRoiSelectResult();
+    setWsiAnalyzing(true);
+    setWsiProgress({ current: 0, total: 9, patchGrid: Array(9).fill('pending') });
+    setRightPanelTab('ai');
+
+    (async () => {
+      try {
+        const { aggregate, patchResults, gridN, modelLabel, usage } =
+          await analyzeRoiGrid(activeItem._id, { x, y, width, height }, setWsiProgress);
+        addAiResult({
+          id: Date.now().toString(),
+          type: 'roi-grid',
+          timestamp: Date.now(),
+          itemId: activeItem._id,
+          itemName: activeItem.name,
+          roi: { x, y, width, height },
+          modelLabel, aggregate, patchResults, gridN, usage,
+        });
+      } catch (err) {
+        console.error('[ROI Grid] Analysis failed:', err);
+        addAiResult({
+          id: Date.now().toString(),
+          type: 'roi-grid',
+          timestamp: Date.now(),
+          itemId: activeItem._id,
+          itemName: activeItem.name,
+          result: { error: err.message || 'ROI grid analysis failed' },
+        });
+      } finally {
+        setWsiAnalyzing(false);
+        setWsiProgress(null);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roiWsiPending, roiSelectResult]);
 
   // ── Canvas resize ───────────────────────────────────────────────────────────
   const syncCanvasSize = useCallback(() => {
@@ -342,6 +514,9 @@ export default function AnnotationCanvas({ viewer }) {
           viewer={viewer}
           onClose={() => setCtxMenu(null)}
           onAnnotateNuclei={(ann) => { setCtxMenu(null); setNucleiAnn(ann); }}
+          onAnalyzeKi67={handleAnalyzeKi67}
+          onAnalyzeRoiGrid={handleAnalyzeRoiGrid}
+          onAnalyzeWsi={handleAnalyzeWsi}
         />
       )}
 

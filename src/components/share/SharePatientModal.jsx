@@ -15,6 +15,28 @@ function generateOtp() {
   return Math.floor(100_000 + Math.random() * 900_000).toString();
 }
 
+async function fetchShareItems(folderId, token, depth = 0) {
+  const headers = { 'Girder-Token': token };
+  const itemsRes = await fetch(`${GIRDER_BASE}/item?folderId=${folderId}&limit=500&sort=name`, { headers });
+  const directItems = itemsRes.ok ? await itemsRes.json() : [];
+  const collected = (Array.isArray(directItems) ? directItems : []).map((item) => ({
+    _id: item._id,
+    name: item.name,
+  }));
+
+  if (depth < 2) {
+    const foldersRes = await fetch(`${GIRDER_BASE}/folder?parentType=folder&parentId=${folderId}&limit=200&sort=name`, { headers });
+    const subFolders = foldersRes.ok ? await foldersRes.json() : [];
+    if (Array.isArray(subFolders) && subFolders.length > 0) {
+      const nested = await Promise.all(subFolders.map((sf) => fetchShareItems(sf._id, token, depth + 1)));
+      collected.push(...nested.flat());
+    }
+  }
+
+  collected.sort((a, b) => a.name.localeCompare(b.name));
+  return collected;
+}
+
 // folder: { _id, name, nItems, ... } — the patient's case folder
 export default function SharePatientModal({ folder, onClose }) {
   const [patientName, setPatientName] = useState(folder?.name || '');
@@ -29,6 +51,7 @@ export default function SharePatientModal({ folder, onClose }) {
   const [smsSending, setSmsSending]   = useState(false);
   const [smsSent, setSmsSent]         = useState(false);
   const [smsError, setSmsError]       = useState('');
+  const [generateError, setGenerateError] = useState('');
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -37,10 +60,10 @@ export default function SharePatientModal({ folder, onClose }) {
   }, [onClose]);
 
   // Creates a Girder API key and exchanges it for a token with the share's exact expiry duration.
-  // This ensures the token stays valid for the full share window (24h / 48h / 7d).
-  // Fallback: use the current session token if API key creation fails.
+  // Patient-share links should only be created from a dedicated expiring token.
   async function createShareToken(durationDays) {
     const sessionToken = localStorage.getItem('girderToken') || '';
+    if (!sessionToken) throw new Error('No active Girder session found.');
     try {
       const keyRes = await fetch(`${GIRDER_BASE}/api_key`, {
         method: 'POST',
@@ -51,51 +74,63 @@ export default function SharePatientModal({ folder, onClose }) {
           tokenDuration: String(durationDays),
         }),
       });
-      if (!keyRes.ok) return sessionToken;
+      if (!keyRes.ok) throw new Error(`API key creation failed (${keyRes.status})`);
       const keyData = await keyRes.json();
-      if (!keyData?.key) return sessionToken;
+      if (!keyData?.key) throw new Error('API key creation did not return a key.');
 
       const tokenRes = await fetch(`${GIRDER_BASE}/api_key/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ key: keyData.key, duration: String(durationDays) }),
       });
-      if (!tokenRes.ok) return sessionToken;
+      if (!tokenRes.ok) throw new Error(`Token exchange failed (${tokenRes.status})`);
       const tokenData = await tokenRes.json();
-      return tokenData?.authToken?.token || sessionToken;
+      const token = tokenData?.authToken?.token;
+      if (!token) throw new Error('Token exchange did not return an auth token.');
+      return token;
     } catch (e) {
-      console.warn('[SharePatientModal] API key creation failed, using session token:', e);
-      return sessionToken;
+      console.warn('[SharePatientModal] Dedicated patient share token failed:', e);
+      throw e;
     }
   }
 
   const handleGenerate = async () => {
     if (!patientName.trim()) return;
     setGenerating(true);
+    setGenerateError('');
 
     const expiryOpt = EXPIRY_OPTIONS[expiryIdx];
     const expiry = Date.now() + expiryOpt.ms;
     const durationDays = expiryOpt.ms / 86_400_000;
+    try {
+      const shareToken = await createShareToken(durationDays);
+      const sharedItems = await fetchShareItems(folder._id, shareToken);
+      if (sharedItems.length === 0) {
+        throw new Error('No slides were found in this case folder.');
+      }
 
-    const shareToken = await createShareToken(durationDays);
-
-    const generatedOtp = generateOtp();
-    const shareData = {
-      folderId:    folder._id,
-      folderName:  folder.name,
-      patientName: patientName.trim(),
-      phone:       phone.trim(),
-      otp:         generatedOtp,
-      expiry,
-      gt:          shareToken,
-      api:         GIRDER_BASE,
-    };
-    const encoded = btoa(JSON.stringify(shareData));
-    const url = `${window.location.origin}${window.location.pathname}#/patient/${encoded}`;
-    setOtp(generatedOtp);
-    setShareUrl(url);
-    setGenerating(false);
-    setStep('share');
+      const generatedOtp = generateOtp();
+      const shareData = {
+        folderId:    folder._id,
+        folderName:  folder.name,
+        patientName: patientName.trim(),
+        phone:       phone.trim(),
+        otp:         generatedOtp,
+        expiry,
+        gt:          shareToken,
+        api:         GIRDER_BASE,
+        items:       sharedItems,
+      };
+      const encoded = btoa(JSON.stringify(shareData));
+      const url = `${window.location.origin}${window.location.pathname}#/patient/${encoded}`;
+      setOtp(generatedOtp);
+      setShareUrl(url);
+      setStep('share');
+    } catch (e) {
+      setGenerateError(e?.message || 'Could not create a patient share link.');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const smsBody =
@@ -216,6 +251,13 @@ export default function SharePatientModal({ folder, onClose }) {
                 </div>
               </div>
             </div>
+
+            {generateError && (
+              <div className="text-xs px-3 py-2 rounded-lg"
+                style={{ background: '#e9456018', color: '#e94560', border: '1px solid #e9456033' }}>
+                {generateError}
+              </div>
+            )}
 
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={onClose}

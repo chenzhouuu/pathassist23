@@ -9,14 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@google/generative-ai": "^0.24.1",
+    "@tanstack/react-query": "^5.50.0",
     "axios": "^1.7.2",
+    "lucide-react": "^0.400.0",
     "openseadragon": "^4.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.24.1",
-    "zustand": "^4.5.4",
-    "lucide-react": "^0.400.0",
-    "@tanstack/react-query": "^5.50.0"
+    "zustand": "^4.5.4"
   },
   "devDependencies": {
     "@types/openseadragon": "^3.0.10",

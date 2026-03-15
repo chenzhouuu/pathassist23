@@ -3,7 +3,7 @@ import React from 'react';
 import { useStore } from '../../store/index.js';
 import MetadataPanel from './MetadataPanel.jsx';
 import AnnotationsPanel from './AnnotationsPanel.jsx';
-import AnalysisPanel from './AnalysisPanel.jsx';
+import AIPanel from './AIPanel.jsx';
 
 export default function RightPanel() {
   const { rightPanelOpen, rightPanelTab, setRightPanelTab } = useStore();
@@ -19,9 +19,9 @@ export default function RightPanel() {
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
       </svg> },
-    { id:'analysis',    label:'Analysis', icon:
+    { id:'ai',          label:'AI', icon:
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
       </svg> },
   ];
 
@@ -38,7 +38,7 @@ export default function RightPanel() {
       <div className="flex-1 overflow-hidden flex flex-col">
         {rightPanelTab === 'annotations' && <AnnotationsPanel/>}
         {rightPanelTab === 'metadata'    && <MetadataPanel/>}
-        {rightPanelTab === 'analysis'    && <AnalysisPanel/>}
+        {rightPanelTab === 'ai'          && <AIPanel/>}
       </div>
     </div>
   );
