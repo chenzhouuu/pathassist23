@@ -32,7 +32,14 @@ export default function App() {
     window.history.replaceState({}, '', window.location.pathname + window.location.hash);
     (async () => {
       try {
-        const user = await getMe();          // fetch full user profile with the new token
+        localStorage.setItem('girderToken', oauthToken); // must set before getMe() so interceptor uses it
+        // Girder can return null for /user/me immediately after token creation
+        // (token not yet committed / visible). Retry with backoff before giving up.
+        let user = await getMe();
+        if (!user) { await new Promise(r => setTimeout(r, 800));  user = await getMe(); }
+        if (!user) { await new Promise(r => setTimeout(r, 1500)); user = await getMe(); }
+        if (!user) { await new Promise(r => setTimeout(r, 3000)); user = await getMe(); }
+        if (!user) throw new Error('getMe returned null after retries');
         setAuth(oauthToken, user);
         const groups = await getMyGroups(user._id);
         setUserGroups(groups);
