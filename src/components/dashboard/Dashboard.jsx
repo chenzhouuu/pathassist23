@@ -1,8 +1,8 @@
 // src/components/dashboard/Dashboard.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../../store/index.js';
-import { useQuery } from '@tanstack/react-query';
-import { getCollectionStats, getSOCases } from '../../api/index.js';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getCollectionStats, getSOCases, createCollection } from '../../api/index.js';
 import { GIRDER_BASE, KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 import AppLogo from '../layout/AppLogo.jsx';
 
@@ -81,10 +81,129 @@ function CollectionCard({ collection, stats, onClick }) {
   );
 }
 
+function CreateOrgModal({ onClose, onCreated }) {
+  const [name, setName]         = useState('');
+  const [slug, setSlug]         = useState('');
+  const [desc, setDesc]         = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState('');
+  const [created, setCreated]   = useState(null); // collection object after success
+
+  const handleNameChange = (v) => {
+    setName(v);
+    if (!slug || slug === toSlug(name)) setSlug(toSlug(v));
+  };
+  const toSlug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError('Organization name is required.'); return; }
+    if (!slug.trim())  { setError('Org slug is required.'); return; }
+    setSaving(true); setError('');
+    try {
+      const col = await createCollection(name.trim(), desc.trim());
+      setCreated({ col, slug: slug.trim() });
+      onCreated();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to create collection.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const steps = created ? [
+    { done: true,  text: `Girder collection "${created.col.name}" created` },
+    { done: false, text: `Create Keycloak groups: /${created.slug}/admin  /${created.slug}/pathologist  /${created.slug}/lab-tech  /${created.slug}/referring  /${created.slug}/patient` },
+    { done: false, text: `Run ACL setup script: bash deploy/scripts/setup-org-acl.sh "${created.col._id}" ${created.slug}` },
+    { done: false, text: `Create org admin account in Keycloak → assign /${created.slug}/admin` },
+    { done: false, text: `Org admin logs in → Girder group sync runs → confirm collection access` },
+  ] : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="rounded-xl p-6 w-full max-w-lg" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+            {created ? 'Organization Created' : 'New Organization'}
+          </h2>
+          <button onClick={onClose} className="btn-icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        {!created ? (
+          <>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: 'var(--muted)' }}>Organization Name *</label>
+                <input
+                  autoFocus
+                  className="input w-full"
+                  placeholder="e.g. BMJH"
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: 'var(--muted)' }}>Org Slug (Keycloak group prefix) *</label>
+                <input
+                  className="input w-full font-mono"
+                  placeholder="e.g. bmjh"
+                  value={slug}
+                  onChange={(e) => setSlug(toSlug(e.target.value))}
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+                  Used for Keycloak groups: /{slug || 'slug'}/admin, /{slug || 'slug'}/pathologist …
+                </p>
+              </div>
+              <div>
+                <label className="text-xs mb-1 block" style={{ color: 'var(--muted)' }}>Description (optional)</label>
+                <input className="input w-full" placeholder="e.g. Baptist Memorial Johns Hopkins" value={desc} onChange={(e) => setDesc(e.target.value)} />
+              </div>
+            </div>
+
+            {error && <p className="text-xs mt-3" style={{ color: '#e94560' }}>{error}</p>}
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button className="btn btn-secondary text-xs" onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary text-xs" onClick={handleCreate} disabled={saving}>
+                {saving ? <span className="flex items-center gap-1.5"><div className="spinner" style={{ width: 10, height: 10 }}/> Creating…</span> : 'Create Organization'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-xs mb-4" style={{ color: 'var(--muted)' }}>
+              Collection created. Complete these steps to finish onboarding:
+            </p>
+            <ol className="flex flex-col gap-2">
+              {steps.map((s, i) => (
+                <li key={i} className="flex gap-2 text-xs" style={{ color: s.done ? '#4caf82' : 'var(--text)' }}>
+                  <span className="shrink-0 mt-0.5">
+                    {s.done
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      : <span className="inline-block w-3.5 h-3.5 rounded-full text-center leading-3.5 font-bold" style={{ background: 'var(--border)', fontSize: 9 }}>{i + 1}</span>
+                    }
+                  </span>
+                  <span className="font-mono leading-relaxed">{s.text}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="flex justify-end mt-5">
+              <button className="btn btn-primary text-xs" onClick={onClose}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { user, clearAuth, setPage, setActiveCollection } = useStore();
   const [collectionStats, setCollectionStats] = useState({});
   const [greeting, setGreeting] = useState('');
+  const [showCreateOrg, setShowCreateOrg] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     const h = new Date().getHours();
@@ -151,6 +270,12 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+      {showCreateOrg && (
+        <CreateOrgModal
+          onClose={() => setShowCreateOrg(false)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ['collections'] })}
+        />
+      )}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20" style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center">
           <AppLogo />
@@ -207,15 +332,26 @@ export default function Dashboard() {
 
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold tracking-tight" style={{ color: 'var(--text)' }}>
-              Your Collections
+              Organizations
               <span className="ml-2 text-xs font-normal" style={{ color: 'var(--muted)' }}>({collections.length})</span>
             </h2>
-            <button onClick={() => setPage('worklist')} className="text-xs flex items-center gap-1 transition-colors" style={{ color: 'var(--accent)' }}>
-              View all images
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-3">
+              {user?.admin && (
+                <button
+                  onClick={() => setShowCreateOrg(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  style={{ background: 'rgba(77,166,255,0.12)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.25)' }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  New Organization
+                </button>
+              )}
+              <button onClick={() => setPage('worklist')} className="text-xs flex items-center gap-1 transition-colors" style={{ color: 'var(--accent)' }}>
+                View all images
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {isLoading ? (
