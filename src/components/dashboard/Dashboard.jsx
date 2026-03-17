@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCollectionStats, getSOCases, createCollection } from '../../api/index.js';
 import { GIRDER_BASE, KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 import AppLogo from '../layout/AppLogo.jsx';
+import ImportModal from './ImportModal.jsx';
 
 function StatCard({ icon, label, value, sub, color = '#4da6ff', onClick }) {
   return (
@@ -199,10 +200,11 @@ function CreateOrgModal({ onClose, onCreated }) {
 }
 
 export default function Dashboard() {
-  const { user, clearAuth, setPage, setActiveCollection } = useStore();
+  const { user, userGroups, clearAuth, setPage, setActiveCollection } = useStore();
   const [collectionStats, setCollectionStats] = useState({});
   const [greeting, setGreeting] = useState('');
   const [showCreateOrg, setShowCreateOrg] = useState(false);
+  const [showImport, setShowImport]       = useState(false);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -276,6 +278,13 @@ export default function Dashboard() {
           onCreated={() => qc.invalidateQueries({ queryKey: ['collections'] })}
         />
       )}
+      {showImport && (
+        <ImportModal
+          collections={collections}
+          onClose={() => setShowImport(false)}
+          onImported={() => qc.invalidateQueries({ queryKey: ['collections'] })}
+        />
+      )}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20" style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center">
           <AppLogo />
@@ -343,6 +352,18 @@ export default function Dashboard() {
                   style={{ background: 'rgba(77,166,255,0.12)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.25)' }}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   New Organization
+                </button>
+              )}
+              {hasRole('import-users') && collections.length > 0 && (
+                <button
+                  onClick={() => setShowImport(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  style={{ background: 'rgba(76,175,130,0.12)', color: '#4caf82', border: '1px solid rgba(76,175,130,0.25)' }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  Import Slides
                 </button>
               )}
               <button onClick={() => setPage('worklist')} className="text-xs flex items-center gap-1 transition-colors" style={{ color: 'var(--accent)' }}>
