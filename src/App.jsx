@@ -15,7 +15,7 @@ import PatientPortalPage from './components/patient/PatientPortalPage.jsx';
 import ReferringPortalPage from './components/referring/ReferringPortalPage.jsx';
 
 export default function App() {
-  const { token, currentPage, theme, setAuth, setUserGroups, hasRole } = useStore();
+  const { token, currentPage, theme, setAuth, setUserGroups, hasRole, user } = useStore();
 
   // Patient share links use URL hash — no auth required.
   // Must check before any auth gating.
@@ -55,9 +55,10 @@ export default function App() {
   }
 
   if (!token) return <LoginModal />;
-  // Role-isolated portals: these users never see the main app shell.
-  if (hasRole('patient-portal-users'))   return <PatientPortalPage />;
-  if (hasRole('referring-portal-users')) return <ReferringPortalPage />;
+  // Role-isolated portals — only for non-admin users.
+  // Girder admins (user.admin) bypass hasRole(), so we must guard explicitly.
+  if (!user?.admin && hasRole('patient-portal-users'))   return <PatientPortalPage />;
+  if (!user?.admin && hasRole('referring-portal-users')) return <ReferringPortalPage />;
   // All internal roles use page-based routing.
   if (currentPage === 'dashboard')       return <Dashboard />;
   if (currentPage === 'projects')        return <ProjectsPage />;
