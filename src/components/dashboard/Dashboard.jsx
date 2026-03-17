@@ -200,7 +200,7 @@ function CreateOrgModal({ onClose, onCreated }) {
 }
 
 export default function Dashboard() {
-  const { user, userGroups, clearAuth, setPage, setActiveCollection } = useStore();
+  const { user, clearAuth, setPage, setActiveCollection } = useStore();
   const [collectionStats, setCollectionStats] = useState({});
   const [greeting, setGreeting] = useState('');
   const [showCreateOrg, setShowCreateOrg] = useState(false);
@@ -264,7 +264,9 @@ export default function Dashboard() {
     setPage('worklist');
   };
 
-  const hasRole = useStore((s) => s.hasRole);
+  const hasRole  = useStore((s) => s.hasRole);
+  // Derive boolean so Zustand re-renders this component when userGroups loads after OAuth
+  const canImport = useStore((s) => s.hasRole('import-users'));
 
   const displayName = user?.firstName
     ? `${user.firstName} ${user.lastName || ''}`.trim()
@@ -354,7 +356,7 @@ export default function Dashboard() {
                   New Organization
                 </button>
               )}
-              {hasRole('import-users') && collections.length > 0 && (
+              {canImport && collections.length > 0 && (
                 <button
                   onClick={() => setShowImport(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
