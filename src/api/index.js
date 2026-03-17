@@ -30,7 +30,7 @@ export const updateCollectionMetadata = (id, meta) =>
 export const getFolders = (parentType, parentId) =>
   client.get(`/folder?parentType=${parentType}&parentId=${parentId}&limit=200&sort=name`).then((r) => r.data);
 export const createFolder = (parentType, parentId, name, description = '') =>
-  client.post('/folder', { parentType, parentId, name, description, reuseExisting: false }).then((r) => r.data);
+  client.post('/folder', null, { params: { parentType, parentId, name, description, reuseExisting: false } }).then((r) => r.data);
 export const updateFolderMetadata = (folderId, meta) =>
   client.put(`/folder/${folderId}/metadata`, meta).then((r) => r.data);
 
@@ -89,6 +89,16 @@ export const uploadCaptureToFolder = async (folderId, blob, filename, metadata =
   }
   return file;
 };
+
+// ─── Assetstore ───────────────────────────────────────────────────────────────
+export const getAssetstores = () =>
+  client.get('/assetstore?limit=50').then((r) => r.data);
+
+export const importFromAssetstore = (assetstoreId, { destinationType, destinationId, path, leafFoldersAsItems = false }) =>
+  client.post(`/assetstore/${assetstoreId}/import`, '', {
+    params: { destinationType, destinationId, path, leafFoldersAsItems },
+    headers: { 'Content-Length': '0' },
+  }).then((r) => r.data);
 
 // ─── Annotations ─────────────────────────────────────────────────────────────
 // GET /annotation?itemId=X returns an array of annotation headers (no elements by default)
