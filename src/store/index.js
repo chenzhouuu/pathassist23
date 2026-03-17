@@ -21,7 +21,7 @@ export const useStore = create((set, get) => ({
     'worklist-users':          ['lab-manager', 'pathologist', 'fellow', 'researcher', 'lab-technician'],
     'annotation-users':        ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer'],
     'ai-users':                ['lab-manager', 'pathologist', 'fellow', 'researcher'],
-    'import-users':            ['lab-manager', 'lab-technician'],
+    'import-users':            ['lab-manager'],
     'case-create-users':       ['lab-manager', 'pathologist'],
     'projects-users':          ['lab-manager', 'pathologist'],
     'second-opinion-users':    ['lab-manager', 'pathologist', 'fellow', 'second-opinion-reviewer', 'referring-physician'],
