@@ -20,7 +20,7 @@ export const getCollections = () =>
 export const getCollection = (id) =>
   client.get(`/collection/${id}`).then((r) => r.data);
 export const createCollection = (name, description = '') =>
-  client.post('/collection', { name, description, public: false }).then((r) => r.data);
+  client.post('/collection', null, { params: { name, description, public: false } }).then((r) => r.data);
 export const updateCollection = (id, data) =>
   client.put(`/collection/${id}`, data).then((r) => r.data);
 export const updateCollectionMetadata = (id, meta) =>
