@@ -80,9 +80,11 @@ export default function SecondOpinionPage() {
   const [updatingId, setUpdatingId] = useState(null);
   const [statusMenuId, setStatusMenuId] = useState(null);
 
+  // Referring physicians only see cases they submitted; all other roles see the full list.
+  const isReferring = hasRole('referring-portal-users');
   const { data: cases = [], isLoading } = useQuery({
-    queryKey: ['so-cases'],
-    queryFn: getSOCases,
+    queryKey: ['so-cases', isReferring ? user?._id : 'all'],
+    queryFn: () => getSOCases({ submittedByUserId: isReferring ? user?._id : null }),
     staleTime: 30_000,
   });
 

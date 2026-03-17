@@ -18,12 +18,20 @@ export const useStore = create((set, get) => ({
   // Feature → which groups can access it.
   // Girder site admins (user.admin) bypass all checks automatically.
   ROLE_MAP: {
-    'projects-users':       ['lab-manager', 'pathologist'],
-    'second-opinion-users': ['lab-manager', 'pathologist', 'fellow', 'second-opinion-reviewer', 'referring-physician'],
-    'annotation-users':     ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer'],
-    'import-users':         ['lab-manager', 'lab-technician'],
-    'worklist-users':       ['lab-manager', 'pathologist', 'fellow', 'researcher', 'lab-technician'],
+    'worklist-users':          ['lab-manager', 'pathologist', 'fellow', 'researcher', 'lab-technician'],
+    'annotation-users':        ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer'],
+    'ai-users':                ['lab-manager', 'pathologist', 'fellow', 'researcher'],
+    'import-users':            ['lab-manager', 'lab-technician'],
+    'case-create-users':       ['lab-manager', 'pathologist'],
+    'projects-users':          ['lab-manager', 'pathologist'],
+    'second-opinion-users':    ['lab-manager', 'pathologist', 'fellow', 'second-opinion-reviewer', 'referring-physician'],
+    'referring-portal-users':  ['referring-physician'],
+    'patient-portal-users':    ['patient'],
   },
+
+  // Org collection this user belongs to (resolved post-login from their Girder groups).
+  activeOrgCollection: null,
+  setActiveOrgCollection: (col) => set({ activeOrgCollection: col }),
   // hasRole('projects-users') → true if user is admin OR belongs to any group
   // that is mapped to that feature in ROLE_MAP.
   hasRole: (feature) => {

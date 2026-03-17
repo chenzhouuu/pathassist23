@@ -26,7 +26,8 @@ const ToolBtn = ({ title, active, onClick, children, color }) => (
 );
 
 export default function ViewerToolbar({ viewer }) {
-  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen, activeItem, user, addPanel } = useStore();
+  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen, activeItem, user, addPanel, hasRole } = useStore();
+  const canAnnotate = hasRole('annotation-users');
   const [savingCapture, setSavingCapture] = useState(false);
   const [toast, showToast] = useToast();
 
@@ -188,53 +189,55 @@ export default function ViewerToolbar({ viewer }) {
       {/* Image filters */}
       <ImageFilters viewer={viewer}/>
 
-      <div className="divider"/>
+      {canAnnotate && <>
+        <div className="divider"/>
 
-      {/* Drawing tools */}
-      <ToolBtn title="Point" active={drawingMode === 'point'} color={activeColor} onClick={() => toggleDraw('point')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/></svg>
-      </ToolBtn>
-      <ToolBtn title="Rectangle (drag)" active={drawingMode === 'rectangle'} color={activeColor} onClick={() => toggleDraw('rectangle')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-          <rect x="3" y="3" width="18" height="18" rx="1.5"/>
-        </svg>
-      </ToolBtn>
-      <ToolBtn title="Polygon (click pts, dbl-click finish)" active={drawingMode === 'polygon'} color={activeColor} onClick={() => toggleDraw('polygon')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polygon points="12 2 22 9 18 21 6 21 2 9"/>
-        </svg>
-      </ToolBtn>
-      <ToolBtn title="Polyline (click pts, dbl-click finish)" active={drawingMode === 'polyline'} color={activeColor} onClick={() => toggleDraw('polyline')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="3 17 9 11 13 15 21 7"/>
-        </svg>
-      </ToolBtn>
-      <ToolBtn title="Ellipse (drag)" active={drawingMode === 'ellipse'} color={activeColor} onClick={() => toggleDraw('ellipse')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <ellipse cx="12" cy="12" rx="10" ry="6"/>
-        </svg>
-      </ToolBtn>
+        {/* Drawing tools */}
+        <ToolBtn title="Point" active={drawingMode === 'point'} color={activeColor} onClick={() => toggleDraw('point')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/></svg>
+        </ToolBtn>
+        <ToolBtn title="Rectangle (drag)" active={drawingMode === 'rectangle'} color={activeColor} onClick={() => toggleDraw('rectangle')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <rect x="3" y="3" width="18" height="18" rx="1.5"/>
+          </svg>
+        </ToolBtn>
+        <ToolBtn title="Polygon (click pts, dbl-click finish)" active={drawingMode === 'polygon'} color={activeColor} onClick={() => toggleDraw('polygon')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="12 2 22 9 18 21 6 21 2 9"/>
+          </svg>
+        </ToolBtn>
+        <ToolBtn title="Polyline (click pts, dbl-click finish)" active={drawingMode === 'polyline'} color={activeColor} onClick={() => toggleDraw('polyline')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="3 17 9 11 13 15 21 7"/>
+          </svg>
+        </ToolBtn>
+        <ToolBtn title="Ellipse (drag)" active={drawingMode === 'ellipse'} color={activeColor} onClick={() => toggleDraw('ellipse')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <ellipse cx="12" cy="12" rx="10" ry="6"/>
+          </svg>
+        </ToolBtn>
 
-      {/* Color preview dot */}
-      {drawingMode && drawingMode !== 'measure' && (
-        <div className="w-4 h-4 rounded-full ml-1 ring-1 ring-white/20 shrink-0"
-          style={{ background: activeColor }}/>
-      )}
+        {/* Color preview dot */}
+        {drawingMode && drawingMode !== 'measure' && (
+          <div className="w-4 h-4 rounded-full ml-1 ring-1 ring-white/20 shrink-0"
+            style={{ background: activeColor }}/>
+        )}
 
-      <div className="divider"/>
+        <div className="divider"/>
 
-      {/* Measure tool */}
-      <ToolBtn title="Measure distance [M]" active={drawingMode === 'measure'} onClick={() => toggleDraw('measure')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <line x1="2" y1="12" x2="22" y2="12"/>
-          <line x1="2" y1="8" x2="2" y2="16"/>
-          <line x1="22" y1="8" x2="22" y2="16"/>
-          <line x1="8" y1="10" x2="8" y2="14"/>
-          <line x1="14" y1="10" x2="14" y2="14"/>
-        </svg>
-      </ToolBtn>
+        {/* Measure tool */}
+        <ToolBtn title="Measure distance [M]" active={drawingMode === 'measure'} onClick={() => toggleDraw('measure')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <line x1="2" y1="8" x2="2" y2="16"/>
+            <line x1="22" y1="8" x2="22" y2="16"/>
+            <line x1="8" y1="10" x2="8" y2="14"/>
+            <line x1="14" y1="10" x2="14" y2="14"/>
+          </svg>
+        </ToolBtn>
 
-      <div className="divider"/>
+        <div className="divider"/>
+      </>}
 
       {/* Snapshot */}
       <ToolBtn title="Screenshot (Local)" onClick={snapshot}>

@@ -11,9 +11,11 @@ import ProjectsPage from './components/projects/ProjectsPage.jsx';
 import PatientViewer from './components/share/PatientViewer.jsx';
 import SingleImageViewer from './components/share/SingleImageViewer.jsx';
 import SecondOpinionPage from './components/cases/SecondOpinionPage.jsx';
+import PatientPortalPage from './components/patient/PatientPortalPage.jsx';
+import ReferringPortalPage from './components/referring/ReferringPortalPage.jsx';
 
 export default function App() {
-  const { token, currentPage, theme, setAuth, setUserGroups } = useStore();
+  const { token, currentPage, theme, setAuth, setUserGroups, hasRole } = useStore();
 
   // Patient share links use URL hash — no auth required.
   // Must check before any auth gating.
@@ -53,10 +55,14 @@ export default function App() {
   }
 
   if (!token) return <LoginModal />;
-  if (currentPage === 'dashboard') return <Dashboard />;
-  if (currentPage === 'projects')  return <ProjectsPage />;
-  if (currentPage === 'worklist') return <WorklistPage />;
-  if (currentPage === 'compare')        return <CompareViewer />;
-  if (currentPage === 'second-opinion') return <SecondOpinionPage />;
+  // Role-isolated portals: these users never see the main app shell.
+  if (hasRole('patient-portal-users'))   return <PatientPortalPage />;
+  if (hasRole('referring-portal-users')) return <ReferringPortalPage />;
+  // All internal roles use page-based routing.
+  if (currentPage === 'dashboard')       return <Dashboard />;
+  if (currentPage === 'projects')        return <ProjectsPage />;
+  if (currentPage === 'worklist')        return <WorklistPage />;
+  if (currentPage === 'compare')         return <CompareViewer />;
+  if (currentPage === 'second-opinion')  return <SecondOpinionPage />;
   return <ViewerApp />;
 }

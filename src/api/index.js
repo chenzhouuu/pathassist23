@@ -164,13 +164,20 @@ export const getFolderDetails = (folderId) =>
 
 // ─── Second Opinion Cases ─────────────────────────────────────────────────────
 // Scans all collections → top-level folders → filters folders with secondOpinion metadata.
-export const getSOCases = async () => {
+// Pass currentUserId when the caller is a referring-physician to scope results to their
+// own submissions only (matches secondOpinion.submittedBy === currentUserId).
+export const getSOCases = async ({ submittedByUserId = null } = {}) => {
   const collections = await getCollections();
   const perCollection = await Promise.all(
     collections.map((col) =>
       getFolders('collection', col._id).then((folders) =>
         folders
-          .filter((f) => f.meta?.pathassist?.secondOpinion)
+          .filter((f) => {
+            const so = f.meta?.pathassist?.secondOpinion;
+            if (!so) return false;
+            if (submittedByUserId) return so.submittedBy === submittedByUserId;
+            return true;
+          })
           .map((f) => ({ ...f, _collection: col }))
       )
     )
