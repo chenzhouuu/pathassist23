@@ -187,18 +187,9 @@ function CreateOrgModal({ onClose, onCreated }) {
 export default function Dashboard() {
   const { user, clearAuth, setPage, setActiveCollection } = useStore();
   const [collectionStats, setCollectionStats] = useState({});
-  const [greeting, setGreeting]   = useState('');
-  const [greetingIcon, setGreetingIcon] = useState('');
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showImport, setShowImport]       = useState(false);
   const qc = useQueryClient();
-
-  useEffect(() => {
-    const h = new Date().getHours();
-    if (h < 12)      { setGreeting('Good morning');   setGreetingIcon('🌅'); }
-    else if (h < 17) { setGreeting('Good afternoon'); setGreetingIcon('☀️'); }
-    else             { setGreeting('Good evening');   setGreetingIcon('🌙'); }
-  }, []);
 
   const { data: collections = [], isLoading } = useQuery({
     queryKey: ['collections'],
@@ -329,45 +320,9 @@ export default function Dashboard() {
 
       <div className="flex-1 overflow-y-auto">
 
-        {/* ── Hero Banner ──────────────────────────────────────────────── */}
-        <div className="relative overflow-hidden px-6 pt-10 pb-8"
-          style={{ background: 'linear-gradient(135deg, var(--bg-toolbar) 0%, var(--bg) 100%)', borderBottom: '1px solid var(--border)' }}>
-
-          {/* Background decorative blobs */}
-          <div className="absolute top-0 right-0 w-96 h-48 opacity-10 pointer-events-none"
-            style={{ background: 'radial-gradient(ellipse at top right, #4da6ff, transparent 70%)', filter: 'blur(40px)' }} />
-          <div className="absolute bottom-0 left-32 w-64 h-32 opacity-8 pointer-events-none"
-            style={{ background: 'radial-gradient(ellipse at bottom left, #7c3aed, transparent 70%)', filter: 'blur(32px)' }} />
-
-          <div className="relative max-w-7xl mx-auto">
-            {/* Greeting */}
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-lg">{greetingIcon}</span>
-                  <span className="text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--muted)' }}>{greeting}</span>
-                </div>
-                <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text)', lineHeight: 1.2 }}>
-                  {user?.firstName || user?.login || 'Welcome'}
-                  {user?.lastName ? <span style={{ color: 'var(--accent)' }}> {user.lastName}</span> : ''}
-                </h1>
-                <p className="text-sm mt-2" style={{ color: 'var(--muted)', maxWidth: 480 }}>
-                  {APP_TAGLINE} · {isLoading ? 'Loading workspace…' : statsReady
-                    ? `${totalImages.toLocaleString()} images · ${totalFolders} cases · ${collections.length} org${collections.length !== 1 ? 's' : ''}`
-                    : 'Calculating stats…'}
-                </p>
-              </div>
-
-              {/* AI badge */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl shrink-0"
-                style={{ background: 'linear-gradient(135deg, rgba(77,166,255,0.08), rgba(124,58,237,0.08))', border: '1px solid rgba(77,166,255,0.2)' }}>
-                <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#4caf82' }} />
-                <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>AI Analysis Ready</span>
-              </div>
-            </div>
-
-            {/* Metrics strip */}
-            <div className="flex gap-3 mt-6 flex-wrap">
+        {/* ── Metrics strip ────────────────────────────────────────────── */}
+        <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="max-w-7xl mx-auto flex gap-3 flex-wrap">
               <MetricCard
                 icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="1.8"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>}
                 label="Organizations" value={collections.length} color="#4da6ff" onClick={() => setPage('worklist')} />
@@ -382,7 +337,6 @@ export default function Dashboard() {
                 label="Second Opinion" value={soCases.length}
                 sub={pendingSO > 0 ? `${pendingSO} pending review` : undefined}
                 color="#c27aff" onClick={() => setPage('second-opinion')} />
-            </div>
           </div>
         </div>
 
