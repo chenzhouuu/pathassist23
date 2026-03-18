@@ -690,100 +690,116 @@ textarea.login-input {
 
 [data-theme="light"] .annotation-group .selected { background: rgba(26,115,232,0.06) !important; }
 
-/* ─── H&E theme (histology pinkish) ──────────────────────────── */
-[data-theme="he"] {
-  --bg: #fdf0f5;
-  --bg-panel: #fff5f8;
-  --bg-sidebar: #f8e8f0;
-  --bg-toolbar: #f2e0ea;
-  --bg-viewer: #c8aab8;
-  --border: #e4c0d4;
-  --accent: #c2185b;
-  --accent2: #6a1b9a;
-  --danger: #b71c1c;
-  --success: #2e7d32;
-  --text: #2d1020;
-  --muted: #7b5a6a;
-  --highlight: #f8d7e8;
+/* ─── Clinical Neutral theme ──────────────────────────────────── */
+/* Light content + Dark midnight sidebar + Medical Blue accent    */
+[data-theme="clinical"] {
+  --bg:         #F8FAFC;
+  --bg-panel:   #FFFFFF;
+  --bg-sidebar: #0F172A;   /* deep midnight — dark "pro" anchor */
+  --bg-toolbar: #FFFFFF;
+  --bg-viewer:  #0d0e14;   /* dark charcoal — slide is brightest */
+  --border:     #E2E8F0;
+  --accent:     #2563EB;   /* medical blue */
+  --accent2:    #1E293B;   /* deep navy */
+  --danger:     #DC2626;   /* alert red — STAT/Urgent only */
+  --success:    #059669;   /* teal green — AI success */
+  --text:       #0F172A;
+  --muted:      #64748B;
+  --highlight:  #EFF6FF;
+  --shadow-strong: 0 8px 32px rgba(15,23,42,0.12);
+  --shadow-soft:   0 2px 12px rgba(15,23,42,0.07);
 }
 
-[data-theme="he"] body {
-  background: #fdf0f5;
-  color: #2d1020;
+[data-theme="clinical"] body {
+  background: #F8FAFC;
+  color: #0F172A;
 }
 
-[data-theme="he"] ::-webkit-scrollbar-track { background: #f8e8f0; }
-[data-theme="he"] ::-webkit-scrollbar-thumb { background: #d4a0bc; }
-[data-theme="he"] ::-webkit-scrollbar-thumb:hover { background: #c080a0; }
+[data-theme="clinical"] ::-webkit-scrollbar-track { background: #F1F5F9; }
+[data-theme="clinical"] ::-webkit-scrollbar-thumb { background: #CBD5E1; }
+[data-theme="clinical"] ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
-[data-theme="he"] .btn-ghost {
-  background: rgba(194,24,91,0.05);
-  color: #7b5a6a;
-  border-color: rgba(194,24,91,0.15);
+[data-theme="clinical"] .btn-ghost {
+  background: rgba(37,99,235,0.05);
+  color: #475569;
+  border-color: rgba(37,99,235,0.15);
 }
-[data-theme="he"] .btn-ghost:hover { background: rgba(194,24,91,0.1); color: #2d1020; }
+[data-theme="clinical"] .btn-ghost:hover { background: rgba(37,99,235,0.1); color: #0F172A; }
 
-[data-theme="he"] .login-input {
-  background: #fff5f8;
-  border-color: #e4c0d4;
-  color: #2d1020;
+[data-theme="clinical"] .login-input {
+  background: #FFFFFF;
+  border-color: #CBD5E1;
+  color: #0F172A;
 }
-[data-theme="he"] .login-input:focus { border-color: #c2185b; }
+[data-theme="clinical"] .login-input:focus { border-color: #2563EB; }
 
-[data-theme="he"] select option { background: #fff5f8; color: #2d1020; }
+[data-theme="clinical"] select option { background: #FFFFFF; color: #0F172A; }
 
-[data-theme="he"] .tree-item.selected { background: rgba(194,24,91,0.12); color: #c2185b; }
+/* Sidebar tree-items: white text on dark midnight background */
+[data-theme="clinical"] .tree-item { color: rgba(255,255,255,0.65); }
+[data-theme="clinical"] .tree-item.selected { background: rgba(37,99,235,0.2); color: #fff; }
 
-[data-theme="he"] .ann-row.selected { background: rgba(194,24,91,0.08); }
+[data-theme="clinical"] .ann-row.selected { background: rgba(37,99,235,0.08); }
 
-[data-theme="he"] .tag {
-  background: rgba(194,24,91,0.1);
-  color: #c2185b;
-  border-color: rgba(194,24,91,0.2);
-}
-
-[data-theme="he"] .slide-thumb { border-color: #e4c0d4; }
-[data-theme="he"] .slide-thumb.selected { border-color: #c2185b; box-shadow: 0 0 0 2px rgba(194,24,91,0.25); }
-
-[data-theme="he"] .tab.active { color: #c2185b; border-bottom-color: #c2185b; }
-
-[data-theme="he"] .viewer-toolbar .tool-btn.active {
-  background: rgba(194,24,91,0.12);
-  color: #c2185b;
+[data-theme="clinical"] .tag {
+  background: rgba(37,99,235,0.08);
+  color: #2563EB;
+  border-color: rgba(37,99,235,0.2);
 }
 
-[data-theme="he"] .mag-btn.active {
-  background: rgba(194,24,91,0.12);
-  color: #c2185b;
+[data-theme="clinical"] .slide-thumb { border-color: #E2E8F0; }
+[data-theme="clinical"] .slide-thumb.selected { border-color: #2563EB; box-shadow: 0 0 0 2px rgba(37,99,235,0.25); }
+
+[data-theme="clinical"] .tab.active { color: #2563EB; border-bottom-color: #2563EB; }
+
+[data-theme="clinical"] .viewer-toolbar .tool-btn.active {
+  background: rgba(37,99,235,0.12);
+  color: #2563EB;
 }
 
-[data-theme="he"] .spinner {
-  border-color: rgba(194,24,91,0.2);
-  border-top-color: #c2185b;
+[data-theme="clinical"] .mag-btn.active {
+  background: rgba(37,99,235,0.12);
+  color: #2563EB;
 }
 
-[data-theme="he"] .login-card { box-shadow: 0 4px 24px rgba(194,24,91,0.1); }
-[data-theme="he"] .login-overlay { background: rgba(194,24,91,0.15); backdrop-filter: blur(8px); }
-[data-theme="he"] .app-shell {
-  background:
-    radial-gradient(circle at top, rgba(194,24,91,0.12) 0, transparent 38%),
-    linear-gradient(180deg, #fdf5f9, #f8eaf1);
+[data-theme="clinical"] .spinner {
+  border-color: rgba(37,99,235,0.2);
+  border-top-color: #2563EB;
 }
-[data-theme="he"] .app-shell::before { background-image: linear-gradient(rgba(98,34,57,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(98,34,57,0.04) 1px, transparent 1px); }
-[data-theme="he"] .app-user-chip,
-[data-theme="he"] .app-nav-chip,
-[data-theme="he"] .app-search-input,
-[data-theme="he"] .login-mode-pill,
-[data-theme="he"] .login-input { background: rgba(255,255,255,0.6); }
-[data-theme="he"] .app-brand-mark,
-[data-theme="he"] .app-user-avatar,
-[data-theme="he"] .login-brand-mark { background: rgba(194,24,91,0.1); }
-[data-theme="he"] .login-overlay {
-  background: radial-gradient(circle at top, rgba(194,24,91,0.14) 0, transparent 34%), rgba(248,226,236,0.8);
-}
-[data-theme="he"] .login-alert { color: #9c163f; background: rgba(194,24,91,0.08); border-color: rgba(194,24,91,0.18); }
 
-[data-theme="he"] .annotation-group .selected { background: rgba(194,24,91,0.06) !important; }
+[data-theme="clinical"] .login-card { box-shadow: 0 4px 24px rgba(15,23,42,0.1); }
+[data-theme="clinical"] .login-overlay { background: rgba(15,23,42,0.4); backdrop-filter: blur(8px); }
+[data-theme="clinical"] .app-shell {
+  background: linear-gradient(180deg, #F8FAFC, #F1F5F9);
+}
+[data-theme="clinical"] .app-shell::before { background-image: linear-gradient(rgba(15,23,42,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.03) 1px, transparent 1px); }
+[data-theme="clinical"] .app-user-chip,
+[data-theme="clinical"] .app-nav-chip,
+[data-theme="clinical"] .app-search-input,
+[data-theme="clinical"] .login-mode-pill,
+[data-theme="clinical"] .login-input { background: rgba(255,255,255,0.9); }
+[data-theme="clinical"] .app-brand-mark,
+[data-theme="clinical"] .app-user-avatar,
+[data-theme="clinical"] .login-brand-mark { background: rgba(37,99,235,0.1); }
+[data-theme="clinical"] .login-overlay {
+  background: radial-gradient(circle at top, rgba(37,99,235,0.1) 0, transparent 34%), rgba(241,245,249,0.85);
+}
+[data-theme="clinical"] .login-alert { color: #DC2626; background: rgba(220,38,38,0.06); border-color: rgba(220,38,38,0.18); }
+
+[data-theme="clinical"] .annotation-group .selected { background: rgba(37,99,235,0.06) !important; }
+
+/* ─── Clinical: border-radius cap (4px max — "scientific tool") ─ */
+[data-theme="clinical"] .rounded-2xl,
+[data-theme="clinical"] .rounded-xl { border-radius: 4px; }
+[data-theme="clinical"] .rounded-lg  { border-radius: 4px; }
+[data-theme="clinical"] .rounded-md  { border-radius: 3px; }
+/* .rounded-full preserved for avatars, badges, spinners */
+[data-theme="clinical"] .btn-primary,
+[data-theme="clinical"] .btn-secondary,
+[data-theme="clinical"] .btn-ghost   { border-radius: 4px; }
+[data-theme="clinical"] .input-field,
+[data-theme="clinical"] .input       { border-radius: 4px; }
+[data-theme="clinical"] .app-nav-chip { border-radius: 4px; }
 
 /* ─── Light & H&E: fix near-white / invisible text classes ───── */
 /* text-white, gray-100..300 are invisible on light backgrounds   */
@@ -798,47 +814,47 @@ textarea.login-input {
 [data-theme="light"] .text-gray-700 { color: #adb5bd !important; }
 [data-theme="light"] .text-gray-800 { color: #bec3c9 !important; }
 
-[data-theme="he"] .text-white,
-[data-theme="he"] .text-gray-100,
-[data-theme="he"] .text-gray-200,
-[data-theme="he"] .text-gray-300 { color: var(--text) !important; }
+/* Clinical: keep sidebar tree text light (overrides the general .tree-item color set below) */
+[data-theme="clinical"] .text-white,
+[data-theme="clinical"] .text-gray-100,
+[data-theme="clinical"] .text-gray-200,
+[data-theme="clinical"] .text-gray-300 { color: var(--text) !important; }
 
-[data-theme="he"] .text-gray-400 { color: #7b5a6a !important; }
-[data-theme="he"] .text-gray-500 { color: #9a7585 !important; }
-[data-theme="he"] .text-gray-600 { color: #b090a0 !important; }
-[data-theme="he"] .text-gray-700 { color: #c8aab8 !important; }
-[data-theme="he"] .text-gray-800 { color: #ddc5d0 !important; }
+[data-theme="clinical"] .text-gray-400 { color: #64748B !important; }
+[data-theme="clinical"] .text-gray-500 { color: #94A3B8 !important; }
+[data-theme="clinical"] .text-gray-600 { color: #CBD5E1 !important; }
+[data-theme="clinical"] .text-gray-700 { color: #E2E8F0 !important; }
+[data-theme="clinical"] .text-gray-800 { color: #F1F5F9 !important; }
 
 /* Restore white text on explicitly coloured buttons & badges */
 [data-theme="light"] .btn-primary,
-[data-theme="he"] .btn-primary,
+[data-theme="clinical"] .btn-primary,
 [data-theme="light"] .btn-danger,
-[data-theme="he"] .btn-danger { color: #ffffff !important; }
+[data-theme="clinical"] .btn-danger { color: #ffffff !important; }
 
-/* ─── Light & H&E: fix panel/card backgrounds with rgba-white values ── */
-/* Viewer, worklist cards, dropdowns all use rgba(255,255,255,0.03-.12)  */
+/* ─── Light & Clinical: fix panel/card backgrounds ─────────────── */
 [data-theme="light"] .bg-gray-900,
-[data-theme="he"] .bg-gray-900 { background: #f0f0f0 !important; }
+[data-theme="clinical"] .bg-gray-900 { background: #f0f0f0 !important; }
 
 /* Tabs inactive text */
 [data-theme="light"] .tab,
-[data-theme="he"] .tab { color: var(--muted); }
+[data-theme="clinical"] .tab { color: var(--muted); }
 
-/* tree-item default text */
-[data-theme="light"] .tree-item,
-[data-theme="he"] .tree-item { color: var(--text); }
+/* tree-item default text (clinical overrides this per sidebar context above) */
+[data-theme="light"] .tree-item { color: var(--text); }
+[data-theme="clinical"] .tree-item { color: rgba(255,255,255,0.65); }
 
 /* Viewer toolbar default icon colour */
 [data-theme="light"] .viewer-toolbar .tool-btn,
-[data-theme="he"] .viewer-toolbar .tool-btn { color: var(--muted); }
+[data-theme="clinical"] .viewer-toolbar .tool-btn { color: var(--muted); }
 [data-theme="light"] .viewer-toolbar .tool-btn:hover,
-[data-theme="he"] .viewer-toolbar .tool-btn:hover { color: var(--text); background: rgba(0,0,0,0.06); }
+[data-theme="clinical"] .viewer-toolbar .tool-btn:hover { color: var(--text); background: rgba(0,0,0,0.06); }
 
 /* Mag button */
 [data-theme="light"] .mag-btn,
-[data-theme="he"] .mag-btn { color: var(--muted); }
+[data-theme="clinical"] .mag-btn { color: var(--muted); }
 [data-theme="light"] .mag-btn:hover,
-[data-theme="he"] .mag-btn:hover { color: var(--text); background: rgba(0,0,0,0.06); }
+[data-theme="clinical"] .mag-btn:hover { color: var(--text); background: rgba(0,0,0,0.06); }
 
 /* ─── Responsive cleanup ─────────────────────────────────────── */
 @media (max-width: 960px) {

@@ -244,7 +244,7 @@ export const useStore = create((set, get) => ({
   },
 
   // ── Theme ────────────────────────────────────────────────────────────────
-  theme: localStorage.getItem('theme') || 'he',
+  theme: localStorage.getItem('theme') || 'clinical',
   setTheme: (theme) => {
     localStorage.setItem('theme', theme);
     document.documentElement.dataset.theme = theme;

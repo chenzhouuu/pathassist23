@@ -105,7 +105,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: 'var(--bg-panel)', border: '1px solid var(--border)',
-          borderRadius: 14, padding: 24, width: 500, maxWidth: '92vw',
+          borderRadius: 4, padding: 24, width: 500, maxWidth: '92vw',
           maxHeight: '88vh', overflowY: 'auto',
           boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
           fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
@@ -150,7 +150,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
                   background: 'rgba(76,175,130,0.08)', border: '1px solid rgba(76,175,130,0.25)',
-                  borderRadius: 8,
+                  borderRadius: 4,
                 }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2">
                     <ellipse cx="12" cy="5" rx="9" ry="3"/>
@@ -168,7 +168,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                   </div>
                 </div>
               ) : (
-                <div style={{ height: 38, background: 'var(--highlight)', borderRadius: 8, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
+                <div style={{ height: 38, background: 'var(--highlight)', borderRadius: 4, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
                   <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
                   <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>Loading…</span>
                 </div>
@@ -212,7 +212,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
             </Field>
 
             {error && (
-              <p style={{ fontSize: 12, padding: '8px 12px', borderRadius: 8, background: '#e9456015', color: '#e94560', border: '1px solid #e9456030', margin: 0 }}>
+              <p style={{ fontSize: 12, padding: '8px 12px', borderRadius: 4, background: '#e9456015', color: '#e94560', border: '1px solid #e9456030', margin: 0 }}>
                 {error}
               </p>
             )}
@@ -303,7 +303,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
             {jobData?.log?.length > 0 && (
               <div style={{
                 width: '100%', fontFamily: 'monospace', fontSize: 11, padding: '10px 12px',
-                borderRadius: 8, overflowY: 'auto', maxHeight: 110,
+                borderRadius: 4, overflowY: 'auto', maxHeight: 110,
                 background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)',
               }}>
                 {jobData.log.slice(-8).map((line, i) => <div key={i}>{line}</div>)}
