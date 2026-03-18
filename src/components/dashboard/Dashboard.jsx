@@ -25,7 +25,7 @@ function MetricCard({ icon, label, value, sub, color, onClick }) {
       onMouseLeave={e => { if (onClick) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}}
     >
       <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: `linear-gradient(135deg, ${color}25, ${color}10)`, border: `1px solid ${color}30` }}>
+        style={{ background: `linear-gradient(135deg, ${color}55, ${color}30)`, border: `1px solid ${color}60` }}>
         {icon}
       </div>
       <div className="min-w-0">
@@ -390,14 +390,7 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto px-6 py-8">
 
           <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-sm font-bold tracking-tight" style={{ color: 'var(--text)' }}>
-                Organizations
-                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold"
-                  style={{ background: 'var(--highlight)', color: 'var(--muted)' }}>{collections.length}</span>
-              </h2>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>Click a card to browse slides and cases</p>
-            </div>
+            <p className="text-xs font-medium" style={{ color: 'var(--muted)' }}>Click a card to browse slides and cases</p>
             <button onClick={() => setPage('worklist')}
               className="flex items-center gap-1.5 text-xs font-medium transition-all hover:gap-2.5"
               style={{ color: 'var(--accent)' }}>
