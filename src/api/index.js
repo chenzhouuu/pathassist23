@@ -33,11 +33,37 @@ export const createFolder = (parentType, parentId, name, description = '') =>
   client.post('/folder', null, { params: { parentType, parentId, name, description, reuseExisting: false } }).then((r) => r.data);
 export const updateFolderMetadata = (folderId, meta) =>
   client.put(`/folder/${folderId}/metadata`, meta).then((r) => r.data);
+export const getCollectionAccess = (collectionId) =>
+  client.get(`/collection/${collectionId}/access`).then((r) => r.data);
+export const setFolderAccess = (folderId, access, recurse = true) =>
+  client.put(`/folder/${folderId}/access`, access, { params: { recurse } }).then((r) => r.data);
 
 // ─── Items ────────────────────────────────────────────────────────────────────
 export const getItems = (folderId, offset = 0, limit = 200) =>
   client.get(`/item?folderId=${folderId}&limit=${limit}&offset=${offset}&sort=name`).then((r) => r.data);
 export const getItem = (id) => client.get(`/item/${id}`).then((r) => r.data);
+
+// Pre-generate and cache thumbnails for all items in a folder.
+// Called after import so users never wait for on-demand JP2 decode.
+// Runs sequentially with a small delay to avoid overwhelming the server.
+export const prewarmThumbnails = async (folderId, { width = 256, height = 256, onProgress } = {}) => {
+  const items = await getItems(folderId, 0, 500);
+  let done = 0;
+  for (const item of items) {
+    try {
+      await client.get(`/item/${item._id}/tiles/thumbnail`, {
+        params: { width, height, encoding: 'JPEG' },
+        responseType: 'arraybuffer',
+        timeout: 120000,
+      });
+    } catch (_) { /* skip non-image items silently */ }
+    done++;
+    if (onProgress) onProgress(done, items.length);
+    // Small pause between tiles to keep server CPU manageable
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return { total: items.length };
+};
 
 // ─── Large Image / Tiles ──────────────────────────────────────────────────────
 export const getTilesInfoSafe = async (itemId) => {

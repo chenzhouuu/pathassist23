@@ -153,9 +153,9 @@ make_gd_group() {
   echo "$GID"
 }
 
-GG_ADMIN=$(make_gd_group "/${ORG_SLUG}-admin")
-GG_PATHO=$(make_gd_group "/${ORG_SLUG}-pathologist")
-GG_LAB=$(make_gd_group "/${ORG_SLUG}-lab-manager")
+GG_ADMIN=$(make_gd_group "${ORG_SLUG}-admin")
+GG_PATHO=$(make_gd_group "${ORG_SLUG}-pathologist")
+GG_LAB=$(make_gd_group "${ORG_SLUG}-lab-manager")
 
 info "Applying collection ACL..."
 curl -s -X PUT "$GIRDER_URL/collection/$ORG_COL_ID/access" \

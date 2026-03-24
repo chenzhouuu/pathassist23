@@ -7,34 +7,29 @@ import { GIRDER_BASE, KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
 import { APP_NAME, APP_TAGLINE } from '../../config/branding.js';
 import AppLogo from '../layout/AppLogo.jsx';
 import ImportModal from './ImportModal.jsx';
+import ThemeSwitcher from '../ThemeSwitcher.jsx';
 
 // ── Metric card in the stats row ────────────────────────────────────────────
 function MetricCard({ icon, label, value, sub, color, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="flex items-center gap-4 p-5 rounded-2xl transition-all duration-200 group"
-      style={{
-        background: 'var(--bg-panel)',
-        border: '1px solid var(--border)',
-        cursor: onClick ? 'pointer' : 'default',
-        flex: '1 1 0',
-        minWidth: 0,
-      }}
-      onMouseEnter={e => { if (onClick) { e.currentTarget.style.borderColor = color + '60'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 8px 24px ${color}18`; }}}
-      onMouseLeave={e => { if (onClick) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}}
+      className="dashboard-metric-card group"
+      style={{ '--metric-color': color, cursor: onClick ? 'pointer' : 'default' }}
     >
-      <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: `linear-gradient(135deg, ${color}55, ${color}30)`, border: `1px solid ${color}60` }}>
+      <div className="dashboard-metric-icon">
         {icon}
       </div>
-      <div className="min-w-0">
-        <div className="text-xl font-bold tracking-tight font-mono leading-none" style={{ color }}>{value}</div>
-        <div className="text-xs mt-1 font-medium" style={{ color: 'var(--muted)' }}>{label}</div>
-        {sub && <div className="text-xs mt-0.5 font-semibold" style={{ color: color + 'cc' }}>{sub}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="dashboard-metric-label-row">
+          <span className="dashboard-metric-label">{label}</span>
+          <span className="dashboard-metric-chip">Live</span>
+        </div>
+        <div className="dashboard-metric-value">{value}</div>
+        {sub && <div className="dashboard-metric-sub">{sub}</div>}
       </div>
       {onClick && (
-        <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="dashboard-metric-arrow">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
@@ -59,54 +54,114 @@ function CollectionCard({ collection, stats, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="group relative flex flex-col rounded-2xl cursor-pointer overflow-hidden transition-all duration-200"
-      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
-      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 16px 40px ${p.from}20`; e.currentTarget.style.borderColor = p.from + '50'; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; e.currentTarget.style.borderColor = 'var(--border)'; }}
+      className="dashboard-collection-card group"
+      style={{ '--collection-from': p.from, '--collection-to': p.to }}
     >
-      {/* Gradient header strip */}
-      <div className="h-1.5 w-full" style={{ background: `linear-gradient(90deg, ${p.from}, ${p.to})` }} />
-
-      {/* Card body */}
-      <div className="flex flex-col gap-4 p-5 flex-1">
-        {/* Icon + arrow */}
+      <div className="dashboard-collection-glow" />
+      <div className="dashboard-collection-strip" />
+      <div className="flex flex-col gap-4 p-5 flex-1 relative z-10">
         <div className="flex items-start justify-between">
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center"
-            style={{ background: `linear-gradient(135deg, ${p.from}25, ${p.to}15)`, border: `1px solid ${p.from}30` }}>
+          <div className="dashboard-collection-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={p.from} strokeWidth="1.8">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
           </div>
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200"
-            style={{ background: p.from + '18' }}>
+          <div className="dashboard-collection-arrow">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={p.from} strokeWidth="2.5">
               <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>
           </div>
         </div>
 
-        {/* Name + description */}
         <div>
-          <div className="text-sm font-bold leading-tight" style={{ color: 'var(--text)' }}>{collection.name}</div>
+          <div className="dashboard-collection-title">{collection.name}</div>
           {collection.description && (
-            <div className="text-xs mt-1 line-clamp-2 leading-relaxed" style={{ color: 'var(--muted)' }}>{collection.description}</div>
+            <div className="dashboard-collection-description">{collection.description}</div>
           )}
         </div>
 
-        {/* Stats row */}
-        <div className="flex items-center gap-4 mt-auto pt-3" style={{ borderTop: `1px solid ${p.from}20` }}>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full" style={{ background: p.from }} />
-            <span className="text-xs font-bold font-mono" style={{ color: 'var(--text)' }}>{stats?.folders ?? '—'}</span>
-            <span className="text-xs" style={{ color: 'var(--muted)' }}>Cases</span>
+        <div className="dashboard-collection-stats">
+          <div className="dashboard-collection-stat">
+            <div className="dashboard-collection-dot" style={{ background: p.from }} />
+            <span className="dashboard-collection-stat-value">{stats?.folders ?? '—'}</span>
+            <span className="dashboard-collection-stat-label">Cases</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full" style={{ background: p.to }} />
-            <span className="text-xs font-bold font-mono" style={{ color: 'var(--text)' }}>{stats?.items ?? '—'}</span>
-            <span className="text-xs" style={{ color: 'var(--muted)' }}>Images</span>
+          <div className="dashboard-collection-stat">
+            <div className="dashboard-collection-dot" style={{ background: p.to }} />
+            <span className="dashboard-collection-stat-value">{stats?.items ?? '—'}</span>
+            <span className="dashboard-collection-stat-label">Images</span>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const statusMap = {
+    Submitted: { color: '#4da6ff', bg: 'rgba(77,166,255,0.14)', border: 'rgba(77,166,255,0.28)' },
+    'In Review': { color: '#f5a623', bg: 'rgba(245,166,35,0.14)', border: 'rgba(245,166,35,0.28)' },
+    Completed: { color: '#4caf82', bg: 'rgba(76,175,130,0.14)', border: 'rgba(76,175,130,0.28)' },
+    STAT: { color: '#e94560', bg: 'rgba(233,69,96,0.14)', border: 'rgba(233,69,96,0.28)' },
+    Pending: { color: '#7c3aed', bg: 'rgba(124,58,237,0.14)', border: 'rgba(124,58,237,0.28)' },
+  };
+  const cfg = statusMap[status] || { color: 'var(--muted)', bg: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.25)' };
+  return (
+    <span className="dashboard-status-badge" style={{ color: cfg.color, background: cfg.bg, borderColor: cfg.border }}>
+      {status || 'Unknown'}
+    </span>
+  );
+}
+
+function RoleActionCard({ eyebrow, title, text, actionLabel, onAction, secondaryLabel, onSecondary, tone = 'blue' }) {
+  return (
+    <div className={`dashboard-role-card dashboard-tone-${tone}`}>
+      <div className="dashboard-eyebrow">{eyebrow}</div>
+      <div className="dashboard-role-card-title">{title}</div>
+      <p className="dashboard-role-card-text">{text}</p>
+      <div className="dashboard-role-card-actions">
+        {actionLabel && <button className="dashboard-primary-btn" onClick={onAction}>{actionLabel}</button>}
+        {secondaryLabel && <button className="dashboard-secondary-btn" onClick={onSecondary}>{secondaryLabel}</button>}
+      </div>
+    </div>
+  );
+}
+
+function RoleTable({ title, subtitle, columns, rows, emptyText }) {
+  return (
+    <div className="dashboard-table-card">
+      <div className="dashboard-table-header">
+        <div>
+          <div className="dashboard-eyebrow">Role Workspace</div>
+          <div className="dashboard-table-title">{title}</div>
+          <p className="dashboard-table-subtitle">{subtitle}</p>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="dashboard-table-empty">{emptyText}</div>
+      ) : (
+        <div className="dashboard-table-wrap">
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                {columns.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={row.key || idx}>
+                  {columns.map((column) => (
+                    <td key={column.key}>{column.render(row)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -185,7 +240,7 @@ function CreateOrgModal({ onClose, onCreated }) {
 
 // ── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { user, clearAuth, setPage, setActiveCollection } = useStore();
+  const { user, clearAuth, setPage, setActiveCollection, hasRole } = useStore();
   const [collectionStats, setCollectionStats] = useState({});
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showImport, setShowImport]       = useState(false);
@@ -221,6 +276,17 @@ export default function Dashboard() {
   const statsLoadedCount = Object.keys(collectionStats).length;
   const statsReady = collections.length > 0 && statsLoadedCount >= collections.length;
   const pendingSO = soCases.filter(f => f.meta?.pathassist?.secondOpinion?.status === 'Submitted').length;
+  const readyCollections = Object.values(collectionStats).filter(Boolean).length;
+  const utilization = collections.length ? Math.round((readyCollections / collections.length) * 100) : 0;
+  const isAdmin = !!user?.admin;
+  const isLabAdmin = !isAdmin && hasRole('import-users');
+  const isPathologist = !isAdmin && hasRole('pathologist');
+  const isPathologistLike = isPathologist || (!isLabAdmin && hasRole('second-opinion-users'));
+  const heroStats = [
+    { label: isPathologistLike ? 'Cases assigned' : 'Organizations', value: isPathologistLike ? soCases.length.toLocaleString() : collections.length.toLocaleString() },
+    { label: isLabAdmin || isAdmin ? 'Cases tracked' : 'Pending review', value: isLabAdmin || isAdmin ? (statsReady ? totalFolders.toLocaleString() : '...') : pendingSO.toLocaleString() },
+    { label: isAdmin ? 'Images indexed' : isLabAdmin ? 'Slides indexed' : 'Organizations', value: isAdmin || isLabAdmin ? (statsReady ? totalImages.toLocaleString() : '...') : collections.length.toLocaleString() },
+  ];
 
   const handleLogout = async () => {
     try { await fetch(`${GIRDER_BASE}/user/authentication`, { method: 'DELETE', headers: { 'Girder-Token': localStorage.getItem('girderToken') || '' } }); } catch (_) {}
@@ -230,8 +296,114 @@ export default function Dashboard() {
 
   const goToWorklist = (col) => { setActiveCollection(col); setPage('worklist'); };
 
-  const hasRole   = useStore((s) => s.hasRole);
   const canImport = useStore((s) => s.hasRole('import-users'));
+  const activeRole = isAdmin ? 'admin' : isLabAdmin ? 'lab-admin' : isPathologistLike ? 'pathologist' : 'default';
+
+  const roleContent = {
+    admin: {
+      eyebrow: 'System Administration',
+      title: 'Create organizations, manage imports, and keep collections aligned.',
+      text: 'Your dashboard is optimized for tenant setup, cross-organization intake, and operational oversight.',
+      primary: collections.length > 0 ? 'Import and assign slides' : 'Create first organization',
+      primaryAction: collections.length > 0 ? () => setShowImport(true) : () => setShowCreateOrg(true),
+      secondary: 'Open project workspace',
+      secondaryAction: () => setPage('projects'),
+      panelTitle: 'Administration control center',
+    },
+    'lab-admin': {
+      eyebrow: 'Lab Operations',
+      title: 'Import slide batches and route work into the right organization.',
+      text: 'This view focuses on intake throughput, collection assignment, and fast access to operational actions.',
+      primary: 'Start import',
+      primaryAction: () => setShowImport(true),
+      secondary: 'Browse all slides',
+      secondaryAction: () => setPage('worklist'),
+      panelTitle: 'Import and assignment queue',
+    },
+    pathologist: {
+      eyebrow: 'Pathologist Workspace',
+      title: 'Review cases in a cleaner tabular queue with status at a glance.',
+      text: 'Your dashboard now prioritizes patient cases, review state, and quick handoff into second-opinion workflow.',
+      primary: 'Open case queue',
+      primaryAction: () => setPage('second-opinion'),
+      secondary: 'Browse images',
+      secondaryAction: () => setPage('worklist'),
+      panelTitle: 'Case review table',
+    },
+    default: {
+      eyebrow: 'Clinical Operations Dashboard',
+      title: 'A calmer, clearer workspace for digital pathology teams.',
+      text: `${APP_NAME} brings collections, cases, imaging throughput, and second-opinion workflows into one polished control surface.`,
+      primary: 'Browse all images',
+      primaryAction: () => setPage('worklist'),
+      secondary: collections.length > 0 ? 'Open import flow' : null,
+      secondaryAction: () => setShowImport(true),
+      panelTitle: 'System pulse',
+    },
+  }[activeRole];
+
+  const casesTableRows = useMemo(() => (
+    soCases.slice(0, 8).map((folder) => {
+      const meta = folder.meta?.pathassist?.secondOpinion || {};
+      return {
+        key: folder._id,
+        caseId: meta.caseId || folder.name,
+        patient: meta.patientName || meta.patient?.name || 'Unspecified patient',
+        organization: folder._collection?.name || 'Unknown org',
+        status: meta.status || 'Submitted',
+        createdAt: meta.createdAt ? new Date(meta.createdAt).toLocaleDateString() : '—',
+      };
+    })
+  ), [soCases]);
+
+  const organizationRows = useMemo(() => (
+    collections.map((collection) => {
+      const stats = collectionStats[collection._id] || {};
+      return {
+        key: collection._id,
+        collection,
+        name: collection.name,
+        folders: stats.folders ?? '—',
+        items: stats.items ?? '—',
+        readiness: collectionStats[collection._id] ? 'Ready' : 'Syncing',
+      };
+    })
+  ), [collections, collectionStats]);
+
+  const roleTable = activeRole === 'pathologist'
+    ? (
+      <RoleTable
+        title="Cases and status"
+        subtitle="Recent second-opinion work is organized in a simple tabular view for faster review."
+        emptyText="No cases are available yet."
+        columns={[
+          { key: 'caseId', label: 'Case', render: (row) => <span className="dashboard-table-main">{row.caseId}</span> },
+          { key: 'patient', label: 'Patient', render: (row) => row.patient },
+          { key: 'organization', label: 'Organization', render: (row) => row.organization },
+          { key: 'status', label: 'Status', render: (row) => <StatusBadge status={row.status} /> },
+          { key: 'createdAt', label: 'Created', render: (row) => row.createdAt },
+          { key: 'action', label: 'Action', render: () => <button className="dashboard-link-btn" onClick={() => setPage('second-opinion')}>Open queue</button> },
+        ]}
+        rows={casesTableRows}
+      />
+    )
+    : (
+      <RoleTable
+        title={activeRole === 'admin' ? 'Organizations and collections' : 'Import destinations and assignment targets'}
+        subtitle={activeRole === 'admin'
+          ? 'Create organizations, review collection readiness, and jump into management actions.'
+          : 'Import slide batches, route collections, and move into image operations quickly.'}
+        emptyText="No organizations are available yet."
+        columns={[
+          { key: 'name', label: 'Organization', render: (row) => <span className="dashboard-table-main">{row.name}</span> },
+          { key: 'folders', label: 'Cases', render: (row) => row.folders },
+          { key: 'items', label: 'Images', render: (row) => row.items },
+          { key: 'readiness', label: 'Readiness', render: (row) => <StatusBadge status={row.readiness} /> },
+          { key: 'action', label: 'Action', render: (row) => <button className="dashboard-link-btn" onClick={() => goToWorklist(row.collection)}>Open collection</button> },
+        ]}
+        rows={organizationRows}
+      />
+    );
 
   const displayName = user?.firstName
     ? `${user.firstName} ${user.lastName || ''}`.trim()
@@ -240,22 +412,18 @@ export default function Dashboard() {
   const initials = displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+    <div className="dashboard-shell min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
 
       {showCreateOrg && <CreateOrgModal onClose={() => setShowCreateOrg(false)} onCreated={() => qc.invalidateQueries({ queryKey: ['collections'] })} />}
       {showImport && <ImportModal collections={collections} onClose={() => setShowImport(false)} onImported={() => qc.invalidateQueries({ queryKey: ['collections'] })} />}
 
-      {/* ── Navbar ─────────────────────────────────────────────────────── */}
-      <nav className="flex items-center gap-3 px-6 h-14 shrink-0 z-20"
-        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(16px)' }}>
+      <div className="dashboard-shell-bg" />
 
-        {/* Logo */}
-        <div className="flex items-center gap-3 pr-4" style={{ borderRight: '1px solid var(--border)' }}>
+      <nav className="dashboard-topbar shrink-0 z-20">
+        <div className="dashboard-topbar-inner">
           <AppLogo className="h-7 w-auto object-contain" />
-        </div>
 
-        {/* Nav links */}
-        <div className="flex items-center gap-0.5">
+          <div className="dashboard-nav">
           {[
             { id: 'dashboard',      label: 'Dashboard',      show: true,                            icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> },
             { id: 'projects',       label: 'Projects',       show: hasRole('projects-users'),        icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
@@ -263,33 +431,26 @@ export default function Dashboard() {
             { id: 'second-opinion', label: 'Second Opinion', show: hasRole('second-opinion-users'), icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
           ].filter(i => i.show).map(item => (
             <button key={item.id} onClick={() => setPage(item.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{
-                background: item.id === 'dashboard' ? 'var(--accent)18' : 'transparent',
-                color: item.id === 'dashboard' ? 'var(--accent)' : 'var(--muted)',
-                borderBottom: item.id === 'dashboard' ? '2px solid var(--accent)' : '2px solid transparent',
-              }}>
+              className={`dashboard-nav-pill ${item.id === 'dashboard' ? 'active' : ''}`}>
               {item.icon}{item.label}
             </button>
           ))}
-        </div>
+          </div>
 
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-2">
+          <div className="dashboard-topbar-actions">
+          <ThemeSwitcher />
           {user?.admin && (
             <button onClick={() => setShowCreateOrg(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={{ background: 'rgba(77,166,255,0.1)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.2)' }}>
+              className="dashboard-secondary-btn">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               New Org
             </button>
           )}
-          {collections.length > 0 && (
+          {canImport && collections.length > 0 && (
             <button onClick={() => setShowImport(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-              style={{ background: 'linear-gradient(135deg, #4caf82, #06b6d4)', color: '#fff', border: 'none', boxShadow: '0 2px 12px #4caf8240' }}>
+              className="dashboard-primary-btn">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
@@ -297,15 +458,11 @@ export default function Dashboard() {
               Import Slides
             </button>
           )}
-        </div>
-
-        {/* User avatar */}
-        <div className="flex items-center gap-2 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{ background: 'linear-gradient(135deg, #4da6ff, #7c3aed)', color: '#fff', letterSpacing: '0.05em' }}>
+          <div className="dashboard-user-chip">
+          <div className="dashboard-user-avatar">
             {initials}
           </div>
-          <div className="hidden md:block">
+          <div className="hidden md:block min-w-0">
             <div className="text-xs font-semibold leading-none" style={{ color: 'var(--text)' }}>{displayName}</div>
             <div className="text-xs mt-0.5" style={{ color: 'var(--muted)', fontSize: 10 }}>{APP_NAME}</div>
           </div>
@@ -315,14 +472,65 @@ export default function Dashboard() {
               <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
             </svg>
           </button>
+          </div>
+          </div>
         </div>
       </nav>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto relative z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8">
+          <section className="dashboard-hero">
+            <div className="dashboard-hero-copy">
+              <div className="dashboard-eyebrow">{roleContent.eyebrow}</div>
+              <h1 className="dashboard-hero-title">{roleContent.title}</h1>
+              <p className="dashboard-hero-text">
+                {roleContent.text}
+              </p>
+              <div className="dashboard-hero-actions">
+                <button onClick={roleContent.primaryAction} className="dashboard-primary-btn">{roleContent.primary}</button>
+                {roleContent.secondary && <button onClick={roleContent.secondaryAction} className="dashboard-secondary-btn">{roleContent.secondary}</button>}
+              </div>
+            </div>
 
-        {/* ── Metrics strip ────────────────────────────────────────────── */}
-        <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="max-w-7xl mx-auto flex gap-3 flex-wrap">
+            <div className="dashboard-hero-panel">
+              <div className="dashboard-hero-panel-top">
+                <div>
+                  <div className="dashboard-panel-label">{roleContent.eyebrow}</div>
+                  <div className="dashboard-panel-title">{roleContent.panelTitle}</div>
+                </div>
+                <div className="dashboard-status-pill">
+                  <span className="dashboard-status-dot" />
+                  All systems operational
+                </div>
+              </div>
+
+              <div className="dashboard-hero-stats">
+                {heroStats.map((stat) => (
+                  <div key={stat.label} className="dashboard-hero-stat">
+                    <div className="dashboard-hero-stat-value">{stat.value}</div>
+                    <div className="dashboard-hero-stat-label">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="dashboard-readiness">
+                <div className="dashboard-readiness-row">
+                  <span className="dashboard-panel-label">Collection readiness</span>
+                  <span className="dashboard-readiness-value">{utilization}%</span>
+                </div>
+                <div className="dashboard-progress-track">
+                  <div className="dashboard-progress-bar" style={{ width: `${utilization}%` }} />
+                </div>
+                <p className="dashboard-readiness-text">
+                  {statsReady ? 'All organization metrics are synced and ready for exploration.' : 'Metrics are still syncing in the background.'}
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+          <div className="dashboard-metrics-grid">
               <MetricCard
                 icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="1.8"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>}
                 label="Organizations" value={collections.length} color="#4da6ff" onClick={() => setPage('worklist')} />
@@ -340,14 +548,34 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ── Collections grid ─────────────────────────────────────────── */}
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-6">
+          <div className="dashboard-role-grid">
+            {roleTable}
+            <RoleActionCard
+              eyebrow={roleContent.eyebrow}
+              title={activeRole === 'admin' ? 'Organization setup and routing' : activeRole === 'lab-admin' ? 'Import slides and assign collections' : 'Clinical review shortcuts'}
+              text={activeRole === 'admin'
+                ? 'Create organizations, import slides, and open project management from one command center.'
+                : activeRole === 'lab-admin'
+                  ? 'Bring in batches from the assetstore, direct them into the right destination, and continue into operational review.'
+                  : 'Jump from this dashboard into second-opinion review or image browsing without hunting through navigation.'}
+              actionLabel={activeRole === 'admin' ? 'Create organization' : activeRole === 'lab-admin' ? 'Import slides' : 'Review cases'}
+              onAction={activeRole === 'admin' ? () => setShowCreateOrg(true) : activeRole === 'lab-admin' ? () => setShowImport(true) : () => setPage('second-opinion')}
+              secondaryLabel={activeRole === 'admin' ? 'Open projects' : 'Browse images'}
+              onSecondary={activeRole === 'admin' ? () => setPage('projects') : () => setPage('worklist')}
+              tone={activeRole === 'pathologist' ? 'violet' : activeRole === 'admin' ? 'amber' : 'green'}
+            />
+          </div>
+        </div>
 
-          <div className="flex items-center justify-between mb-5">
-            <p className="text-xs font-medium" style={{ color: 'var(--muted)' }}>Click a card to browse slides and cases</p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-10 sm:pb-14">
+          <div className="dashboard-section-header">
+            <div>
+              <div className="dashboard-eyebrow">Workspace Collections</div>
+              <h2 className="dashboard-section-title">Open an organization to browse cases and slides.</h2>
+            </div>
             <button onClick={() => setPage('worklist')}
-              className="flex items-center gap-1.5 text-xs font-medium transition-all hover:gap-2.5"
-              style={{ color: 'var(--accent)' }}>
+              className="dashboard-link-btn">
               View all images
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -356,15 +584,14 @@ export default function Dashboard() {
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-20">
+            <div className="dashboard-empty-state">
               <div className="flex flex-col items-center gap-3">
                 <div className="spinner" style={{ width: 32, height: 32, borderWidth: 3 }} />
                 <span className="text-xs" style={{ color: 'var(--muted)' }}>Loading collections…</span>
               </div>
             </div>
           ) : collections.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center rounded-2xl"
-              style={{ border: '2px dashed var(--border)' }}>
+            <div className="dashboard-empty-state text-center">
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
                 style={{ background: 'var(--highlight)' }}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
@@ -375,15 +602,14 @@ export default function Dashboard() {
               <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Collections will appear here once created in Girder</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="dashboard-collections-grid">
               {collections.map((col) => (
                 <CollectionCard key={col._id} collection={col} stats={collectionStats[col._id]} onClick={() => goToWorklist(col)} />
               ))}
             </div>
           )}
 
-          {/* Footer */}
-          <div className="mt-16 pt-5 flex items-center justify-between text-xs" style={{ borderTop: '1px solid var(--border)', color: 'var(--muted)' }}>
+          <div className="dashboard-footer">
             <span className="font-mono">{APP_NAME} · {window.location.hostname}</span>
             <span className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#4caf82' }} />

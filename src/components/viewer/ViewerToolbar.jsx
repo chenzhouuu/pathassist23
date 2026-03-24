@@ -26,7 +26,12 @@ const ToolBtn = ({ title, active, onClick, children, color }) => (
 );
 
 export default function ViewerToolbar({ viewer }) {
-  const { drawingMode, setDrawingMode, drawColor, setRightPanelTab, setRightPanelOpen, activeItem, user, addPanel, hasRole } = useStore();
+  const {
+    drawingMode, setDrawingMode, drawColor,
+    setRightPanelTab, setRightPanelOpen,
+    setLeftPanelTab, setLeftPanelOpen,
+    activeItem, user, addPanel, hasRole,
+  } = useStore();
   const canAnnotate = hasRole('annotation-users');
   const [savingCapture, setSavingCapture] = useState(false);
   const [toast, showToast] = useToast();
@@ -40,9 +45,8 @@ export default function ViewerToolbar({ viewer }) {
       setDrawingMode(null);
     } else {
       setDrawingMode(mode);
-      // Auto-open annotations panel
-      setRightPanelOpen(true);
-      setRightPanelTab('annotations');
+      setLeftPanelOpen(true);
+      setLeftPanelTab('annotations');
     }
   };
 

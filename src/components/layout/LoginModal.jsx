@@ -29,10 +29,17 @@ export default function LoginModal() {
       const res = await fetch(
         `${KEYCLOAK_OAUTH_PROVIDERS_URL}?redirect=${encodeURIComponent(redirect)}`
       );
+      if (!res.ok) {
+        throw new Error(`Girder returned ${res.status} — check that the OAuth plugin is enabled.`);
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Expected JSON from Girder OAuth endpoint but got ${contentType || 'HTML'}. Is the server reachable?`);
+      }
       const data = await res.json();
       // Girder v5 returns { "Keycloak": "<auth_url_with_state>" }
       const url = data?.Keycloak || data?.keycloak;
-      if (!url) throw new Error('Keycloak provider not available');
+      if (!url) throw new Error('Keycloak provider not configured in Girder. Check OAuth plugin settings.');
       window.location.href = url;
     } catch (e) {
       setError('SSO unavailable: ' + (e.message || 'Unknown error'));

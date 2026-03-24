@@ -15,13 +15,15 @@ import PatientPortalPage from './components/patient/PatientPortalPage.jsx';
 import ReferringPortalPage from './components/referring/ReferringPortalPage.jsx';
 
 export default function App() {
-  const { token, currentPage, theme, setAuth, setUserGroups, hasRole, user } = useStore();
+  const { token, currentPage, theme, setAuth, setUserGroups, hasRole, user, setPage } = useStore();
 
   // Patient share links use URL hash — no auth required.
   // Must check before any auth gating.
   const hash = typeof window !== 'undefined' ? window.location.hash : '';
+  const search = typeof window !== 'undefined' ? window.location.search : '';
   const isPatientView = hash.startsWith('#/patient/');
   const isSharedImageView = hash.startsWith('#/shared-image/');
+  const isCompareWindow = new URLSearchParams(search).get('compare') === '1';
 
   // Handle Keycloak OAuth callback: Girder appends ?girderToken=TOKEN after SSO.
   useEffect(() => {
@@ -53,6 +55,14 @@ export default function App() {
     if (!isPatientView) document.documentElement.dataset.theme = theme;
   }, [theme, isPatientView]);
 
+  useEffect(() => {
+    if (!token || !user || isPatientView || isSharedImageView || isCompareWindow) return;
+    const shouldLandOnCases = !user.admin && hasRole('second-opinion-users') && !hasRole('import-users');
+    if (shouldLandOnCases && currentPage === 'dashboard') {
+      setPage('second-opinion');
+    }
+  }, [token, user, currentPage, hasRole, setPage, isPatientView, isSharedImageView, isCompareWindow]);
+
   if (isPatientView) {
     return <PatientViewer encodedData={hash.slice('#/patient/'.length)} />;
   }
@@ -62,6 +72,7 @@ export default function App() {
   }
 
   if (!token) return <LoginModal />;
+  if (isCompareWindow) return <CompareViewer />;
   // Role-isolated portals — only for non-admin users.
   // Girder admins (user.admin) bypass hasRole(), so we must guard explicitly.
   if (!user?.admin && hasRole('patient-portal-users'))   return <PatientPortalPage />;

@@ -222,14 +222,16 @@ export function getAnnotationBBox(ann) {
 export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted = false) {
   if (!osd) return;
 
+  const isAiRoi = el.group === 'ai-roi';
   const lc  = normalizeColor(el.lineColor, fallbackColor);
-  const fc  = normalizeColor(el.fillColor, null) || hexToRgba(fallbackColor, 0.15);
+  const fc  = normalizeColor(el.fillColor, null) || hexToRgba(fallbackColor, isAiRoi ? 0.08 : 0.15);
   const lw  = highlighted ? (el.lineWidth || 2) + 1.5 : (el.lineWidth || 2);
 
   ctx.save();
   ctx.strokeStyle = highlighted ? '#ffffff' : lc;
   ctx.lineWidth   = lw;
   ctx.fillStyle   = fc;
+  if (isAiRoi) ctx.setLineDash([10, 6]);
 
   if (highlighted) {
     ctx.shadowColor = lc;
@@ -391,7 +393,7 @@ export function renderElementOnCanvas(ctx, el, fallbackColor, osd, highlighted =
         ctx.shadowBlur = 0;
         const m = ctx.measureText(txt);
         const px2 = ref.x + 8, py2 = ref.y - 14;
-        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillStyle = isAiRoi ? hexToRgba(lc, 0.92) : 'rgba(0,0,0,0.75)';
         ctx.beginPath();
         if (ctx.roundRect) ctx.roundRect(px2 - 3, py2 - 10, m.width + 8, 16, 3);
         else ctx.rect(px2 - 3, py2 - 10, m.width + 8, 16);

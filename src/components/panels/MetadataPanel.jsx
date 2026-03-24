@@ -2,11 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../../store/index.js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getItem, getThumbnailUrl, updateItemMetadata } from '../../api/index.js';
+import { getItem, getThumbnailUrl, getFileDownloadUrl, updateItemMetadata } from '../../api/index.js';
 
 function SectionLabel({ children }) {
   return (
-    <div style={{ color: 'var(--muted)', fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+    <div style={{ color: 'var(--muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
       {children}
     </div>
   );
@@ -76,33 +76,31 @@ export default function MetadataPanel() {
   const meta = item?.meta || {};
 
   return (
-    <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto' }}>
+    <div className="viewer-meta-panel">
 
-      {/* Thumbnail + name row */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <div style={{ width: 72, height: 54, flexShrink: 0, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-viewer)' }}>
+      <div className="viewer-meta-hero">
+        <div className="viewer-meta-thumb">
           <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={(e) => { e.target.style.display = 'none'; }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text)', wordBreak: 'break-all', lineHeight: 1.4 }}>
+          <div className="viewer-meta-name">
             {activeItem.name}
           </div>
           {item?.size && (
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+            <div className="viewer-meta-subtext">
               {(item.size / 1024 / 1024 / 1024).toFixed(2)} GB
             </div>
           )}
           {item?.created && (
-            <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>
+            <div className="viewer-meta-subtext" style={{ marginTop: 4 }}>
               {new Date(item.created).toLocaleDateString()}
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Dr. Notes ── */}
-      <div style={{ borderRadius: 6, padding: '6px 8px', background: 'var(--highlight)', border: '1px solid var(--border)' }}>
+      <div className="viewer-meta-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
           <SectionLabel>Dr. Notes</SectionLabel>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -139,9 +137,40 @@ export default function MetadataPanel() {
         )}
       </div>
 
+      {/* ── Associated Images (label / macro / thumbnail) ── */}
+      {meta?.associated_images && (
+        <div className="viewer-meta-card">
+          <SectionLabel>Slide Images</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { key: 'label',     label: 'Label' },
+              { key: 'macro',     label: 'Macro' },
+              { key: 'thumbnail', label: 'Thumbnail' },
+            ].map(({ key, label }) => {
+              const fileId = meta.associated_images[key];
+              if (!fileId) return null;
+              const url = getFileDownloadUrl(fileId);
+              return (
+                <div key={key}>
+                  <div style={{ fontSize: 9, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+                  <a href={url} target="_blank" rel="noreferrer" title={`Open ${label} full size`}>
+                    <img
+                      src={url}
+                      alt={label}
+                      style={{ width: '100%', borderRadius: 4, border: '1px solid var(--border)', display: 'block', cursor: 'zoom-in', transform: key === 'label' ? 'rotate(180deg)' : 'none' }}
+                      onError={(e) => { e.target.parentElement.style.display = 'none'; }}
+                    />
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── File Info (compact) ── */}
       {item && (
-        <div style={{ borderRadius: 6, padding: '5px 8px', background: 'var(--highlight)', border: '1px solid var(--border)' }}>
+        <div className="viewer-meta-card">
           <SectionLabel>File Info</SectionLabel>
           <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item._id}>
             {item._id}
@@ -166,7 +195,7 @@ export default function MetadataPanel() {
         };
         const otherMeta = Object.entries(meta).filter(([k]) => !['notes','status'].includes(k) && (meta[k] || meta[k] === 0));
         return (
-          <div className="rounded p-2" style={{ background: 'var(--highlight)', border: '1px solid var(--border)' }}>
+          <div className="viewer-meta-card">
             {/* Header */}
             <div className="flex items-center justify-between mb-2">
               <SectionLabel>Status</SectionLabel>

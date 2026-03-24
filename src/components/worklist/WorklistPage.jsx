@@ -2,15 +2,15 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
-import { getCollections, getFolders, getItems, updateItemMetadata, getTilesInfoSafe } from '../../api/index.js';
-import { GIRDER_BASE } from '../../config/girder.js';
+import { getCollections, getFolders, getItems, updateItemMetadata } from '../../api/index.js';
+import { getThumbnailUrl } from '../../config/girder.js';
 import LeftSidebar from '../sidebar/LeftSidebar.jsx';
 import ThemeSwitcher from '../ThemeSwitcher.jsx';
 import SharePatientModal from '../share/SharePatientModal.jsx';
 import AppLogo from '../layout/AppLogo.jsx';
 import CaseCreateModal from '../cases/CaseCreateModal.jsx';
 
-const PAGE_SIZE = 48;
+const PAGE_SIZE = 24;
 
 const STATUS_CONFIG = {
   'For Review': { color: '#4da6ff', bg: 'rgba(77,166,255,0.12)',  border: 'rgba(77,166,255,0.25)' },
@@ -74,7 +74,7 @@ function FolderCard({ folder, onClick, onShare }) {
 // ── Thumbnail card ────────────────────────────────────────────────────────────
 function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChange, selected, onToggleSelect }) {
   const token = localStorage.getItem('girderToken') || '';
-  const thumbUrl = `${GIRDER_BASE}/item/${item._id}/tiles/thumbnail?width=320&height=240&token=${token}`;
+  const thumbUrl = getThumbnailUrl(item._id, token, 160, 100);
   const [imgError, setImgError] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -127,6 +127,8 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
         </button>
         {!imgError ? (
           <img src={thumbUrl} alt={item.name} onError={() => setImgError(true)}
+            loading="lazy"
+            decoding="async"
             className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"/>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
@@ -202,7 +204,7 @@ function ThumbnailCard({ item, collectionName, folderPath, onOpen, onStatusChang
 // ── Table row ──────────────────────────────────────────────────────────────────
 function TableRow({ item, collectionName, folderPath, onOpen, onStatusChange, index }) {
   const token = localStorage.getItem('girderToken') || '';
-  const thumbUrl = `${GIRDER_BASE}/item/${item._id}/tiles/thumbnail?width=80&height=60&token=${token}`;
+  const thumbUrl = getThumbnailUrl(item._id, token, 160, 100);
   const status = item.meta?.status || null;
   const [showMenu, setShowMenu] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -224,7 +226,7 @@ function TableRow({ item, collectionName, folderPath, onOpen, onStatusChange, in
       <td className="px-3 py-2.5 text-xs font-mono text-gray-700 w-8">{index + 1}</td>
       <td className="px-2 py-2 w-16">
         <div className="w-14 h-10 rounded overflow-hidden bg-gray-900 cursor-pointer" onClick={() => onOpen(item)}>
-          <img src={thumbUrl} alt="" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }}/>
+          <img src={thumbUrl} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" onError={e => { e.target.style.display = 'none'; }}/>
         </div>
       </td>
       <td className="px-3 py-2.5">
@@ -290,7 +292,7 @@ export default function WorklistPage() {
     setCompareItems,
   } = useStore();
 
-  const [compareSelection, setCompareSelection] = useState([]); // max 2 items
+  const [compareSelection, setCompareSelection] = useState([]); // max 4 items
   const [shareFolder, setShareFolder] = useState(null); // folder to share with patient
   const [showCreateCase, setShowCreateCase] = useState(false);
 
@@ -298,9 +300,21 @@ export default function WorklistPage() {
     setCompareSelection(prev => {
       const exists = prev.find(i => i._id === item._id);
       if (exists) return prev.filter(i => i._id !== item._id);
-      if (prev.length >= 2) return prev; // already at max
+      if (prev.length >= 4) return prev; // already at max
       return [...prev, item];
     });
+  };
+
+  const openCompareWindow = () => {
+    if (compareSelection.length < 2) return;
+    setCompareItems(compareSelection);
+    const compareUrl = `${window.location.origin}${window.location.pathname}?compare=1`;
+    const compareWindow = window.open(compareUrl, 'pathassist-compare', 'popup=yes,width=1680,height=1080,resizable=yes,scrollbars=yes');
+    if (compareWindow) {
+      compareWindow.focus();
+      return;
+    }
+    setPage('compare');
   };
 
   const [view, setView]               = useState('grid');
@@ -436,11 +450,6 @@ export default function WorklistPage() {
       return override ? { ...row, item: { ...row.item, meta: override } } : row;
     }),
   [baseItems, localOverrides]);
-
-  // Background pre-warm: silently touch tile sources for first 20 items
-  useEffect(() => {
-    displayItems.slice(0, 20).forEach(r => { getTilesInfoSafe(r.item._id).catch(() => {}); });
-  }, [displayItems]);
 
   const handleStatusChange = (itemId, newMeta) => {
     setLocalOverrides(prev => ({ ...prev, [itemId]: newMeta }));
@@ -749,15 +758,15 @@ export default function WorklistPage() {
                 {compareSelection.length > 0 && (
                   <div className="flex items-center gap-2 shrink-0 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
                     <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                      {compareSelection.length}/2 selected
+                      {compareSelection.length}/4 selected
                     </span>
-                    {compareSelection.length === 2 && (
+                    {compareSelection.length >= 2 && (
                       <button
-                        onClick={() => setCompareItems(compareSelection)}
+                        onClick={openCompareWindow}
                         className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded font-medium transition-all"
                         style={{ background: 'rgba(77,166,255,0.15)', color: '#4da6ff', border: '1px solid rgba(77,166,255,0.35)' }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="2" y="3" width="9" height="18" rx="1"/><rect x="13" y="3" width="9" height="18" rx="1"/>
+                          <rect x="2" y="3" width="8" height="8" rx="1"/><rect x="14" y="3" width="8" height="8" rx="1"/><rect x="2" y="13" width="8" height="8" rx="1"/><rect x="14" y="13" width="8" height="8" rx="1"/>
                         </svg>
                         Compare
                       </button>

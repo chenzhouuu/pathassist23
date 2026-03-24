@@ -123,12 +123,13 @@ class Keycloak(ProviderBase):
         if not oauthId:
             raise RestException('Keycloak did not return a user ID (sub).', code=502)
 
-        email = info.get('email')
-        if not email:
-            raise RestException('Keycloak user has no email address.', code=502)
+        # Email is optional — fall back to a synthetic address so Girder's
+        # user model (which requires a unique email) stays satisfied.
+        username = info.get('preferred_username', oauthId)
+        email = info.get('email') or f'{username}@noemail.pathassist.health'
 
-        firstName = info.get('given_name', '')
-        lastName = info.get('family_name', '')
+        firstName = info.get('given_name', '') or username
+        lastName = info.get('family_name', '') or ''
 
         user = self._createOrReuseUser(oauthId, email, firstName, lastName)
 

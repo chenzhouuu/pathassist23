@@ -111,6 +111,35 @@ for f in "${OME_FILES[@]}"; do
     echo "    $SIZE  $(basename "$f")"
 done
 
+# ── Step 2.5: Embed label/macro into each OME-TIFF + collect metadata ────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EMBED_SCRIPT="${SCRIPT_DIR}/embed_slide_images.py"
+declare -A SLIDE_METADATA  # item_name -> metadata JSON
+
+if [ -f "$EMBED_SCRIPT" ] && command -v python3 &>/dev/null; then
+    info "Embedding label/macro images into OME-TIFF files..."
+    for FILE in "${OME_FILES[@]}"; do
+        FILENAME=$(basename "$FILE")
+        SLIDE_ID="${FILENAME%.ome.tiff}"
+        SLIDE_ID="${SLIDE_ID%.ome.tif}"
+
+        # Look for scanner output folder alongside the OME-TIFF
+        SLIDE_FOLDER="$(dirname "$FILE")/${SLIDE_ID}"
+
+        if [ -d "$SLIDE_FOLDER" ]; then
+            info "  Processing: $FILENAME"
+            META_JSON=$(python3 "$EMBED_SCRIPT" "$SLIDE_FOLDER" "$FILE" 2>/dev/null || echo "{}")
+            SLIDE_METADATA["$FILENAME"]="$META_JSON"
+            info "  ✓ Embedded + metadata extracted: $FILENAME"
+        else
+            warn "  No scanner folder found for $FILENAME (expected: $SLIDE_FOLDER) — skipping embed"
+            SLIDE_METADATA["$FILENAME"]="{}"
+        fi
+    done
+else
+    warn "embed_slide_images.py not found or python3 unavailable — skipping embed step"
+fi
+
 # ── Step 3: Upload to S3 ──────────────────────────────────────────────────────
 info "Uploading to S3: ${S3_DEST}"
 
@@ -201,17 +230,36 @@ else
     info "Import triggered ✓"
 fi
 
-# ── Step 6: Verify items were created ────────────────────────────────────────
+# ── Step 6: Verify items and attach extracted metadata ───────────────────────
 info "Verifying imported items in Girder..."
-ITEM_COUNT=$(girder GET "/item?folderId=${FOLDER_ID}&limit=200" | jq 'length')
+ITEMS_JSON=$(girder GET "/item?folderId=${FOLDER_ID}&limit=200")
+ITEM_COUNT=$(echo "$ITEMS_JSON" | jq 'length')
 info "Items in folder '${PATIENT_NAME}': $ITEM_COUNT"
 
 if [ "$ITEM_COUNT" -eq 0 ]; then
     warn "No items found yet — import may still be processing"
-    echo ""
-    echo "  Check manually:"
-    echo "  curl -H 'Girder-Token: \$GIRDER_TOKEN' \\"
-    echo "    '${GIRDER_BASE}/item?folderId=${FOLDER_ID}'"
+else
+    info "Attaching scanner metadata to imported items..."
+    while IFS= read -r item; do
+        ITEM_ID=$(echo "$item" | jq -r '._id')
+        ITEM_NAME=$(echo "$item" | jq -r '.name')
+
+        # Match item name to our collected metadata
+        META="${SLIDE_METADATA[$ITEM_NAME]:-}"
+        if [ -n "$META" ] && [ "$META" != "{}" ]; then
+            # Merge with any existing item meta
+            EXISTING_META=$(girder GET "/item/${ITEM_ID}" | jq '.meta // {}')
+            MERGED=$(echo "$EXISTING_META $META" | jq -s 'add')
+
+            curl -sf -X PUT \
+                "${GIRDER_BASE}/item/${ITEM_ID}/metadata" \
+                -H "Girder-Token: ${GIRDER_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "$MERGED" > /dev/null
+
+            info "  ✓ Metadata set on: $ITEM_NAME"
+        fi
+    done < <(echo "$ITEMS_JSON" | jq -c '.[]')
 fi
 
 # ── Step 7: Cleanup ───────────────────────────────────────────────────────────

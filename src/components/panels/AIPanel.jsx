@@ -6,6 +6,12 @@ import { AI_MODEL_LABEL } from '../../api/claudeApi.js';
 import WsiResultCard from './WsiResultCard.jsx';
 import WsiAnalyzingCard from './WsiAnalyzingCard.jsx';
 
+function focusRoi(viewer, roi) {
+  if (!viewer?.viewport || !roi || !window.OpenSeadragon) return;
+  const rect = new window.OpenSeadragon.Rect(roi.x, roi.y, roi.width, roi.height);
+  viewer.viewport.fitBounds(rect, true);
+}
+
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 function activityColor(level) {
   if (level === 'high')         return '#e94560';
@@ -92,6 +98,9 @@ function ModelTag({ label }) {
 function ResultCard({ entry }) {
   const { roi, thumbnailUrl, result: r, timestamp, itemName, modelLabel } = entry;
   const removeAiResult = useStore((s) => s.removeAiResult);
+  const viewer = useStore((s) => s.viewer);
+  const annotations = useStore((s) => s.annotations);
+  const setSelectedAnnotation = useStore((s) => s.setSelectedAnnotation);
 
   if (r?.error) return <ErrorCard entry={entry} onRemove={() => removeAiResult(entry.id)} />;
 
@@ -104,6 +113,13 @@ function ResultCard({ entry }) {
   const conf     = r.confidence;
 
   const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const locateRoi = () => {
+    focusRoi(viewer, roi);
+    if (entry.aiAnnotationId) {
+      const ann = annotations.find((a) => a._id === entry.aiAnnotationId);
+      if (ann) setSelectedAnnotation(ann);
+    }
+  };
 
   return (
     <div style={{ background:'var(--bg-panel)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom:10 }}>
@@ -188,8 +204,25 @@ function ResultCard({ entry }) {
         </div>
       )}
       {roi && (
-        <div style={{ padding:'3px 10px 4px', fontSize:10, color:'var(--muted)', opacity:0.7 }}>
-          {roi.width}×{roi.height} px · ({roi.x}, {roi.y})
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'3px 10px 6px' }}>
+          <div style={{ fontSize:10, color:'var(--muted)', opacity:0.8, flex:1 }}>
+            {roi.width}×{roi.height} px · ({roi.x}, {roi.y})
+          </div>
+          <button
+            onClick={locateRoi}
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '3px 8px',
+              borderRadius: 999,
+              background: 'rgba(77,166,255,0.12)',
+              color: '#4da6ff',
+              border: '1px solid rgba(77,166,255,0.25)',
+              cursor: 'pointer',
+            }}
+          >
+            Locate ROI
+          </button>
         </div>
       )}
 

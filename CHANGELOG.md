@@ -1,0 +1,569 @@
+# PathAssist UI — Development Changelog
+
+> Recent development cycle covering AI Integration, Panels Feature, and EC2 Server Setup.
+> All changes are on branch `keycloak-integration`.
+
+---
+
+## Table of Contents
+
+1. [Pragna AI Integration](#1-pragna-ai-integration)
+2. [Panels Feature — ROI Capture & Batch Analysis](#2-panels-feature--roi-capture--batch-analysis)
+3. [Multi-Brand Deployment Architecture](#3-multi-brand-deployment-architecture)
+4. [EC2 Server Setup & Infrastructure](#4-ec2-server-setup--infrastructure)
+5. [Keycloak SSO Integration](#5-keycloak-sso-integration)
+6. [Performance Tuning — Girder & OME-TIFF](#6-performance-tuning--girder--ome-tiff)
+7. [Environment Variables Reference](#7-environment-variables-reference)
+8. [Deployment Runbook](#8-deployment-runbook)
+
+---
+
+## 1. Pragna AI Integration
+
+### Overview
+
+Ki67 IHC (immunohistochemistry) analysis is powered by two underlying vision models — **Claude Sonnet 4.6** (Anthropic) and **Gemini 2.5 Flash Lite** (Google) — both exposed to users under the unified brand name **"Pragna"**.
+
+The analysis runs **entirely in the browser** using each provider's JavaScript SDK. No image data is sent through the Girder server.
+
+### Architecture
+
+```
+User draws ROI on slide
+        │
+        ▼
+Girder API: GET /api/v1/item/{id}/tiles/region
+        │  (returns PNG/JPEG blob for that pixel region)
+        ▼
+Browser → Anthropic SDK / Google Generative AI SDK
+        │  (base64 image + Ki67 prompt → JSON result)
+        ▼
+AIPanel displays result + token cost
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `src/api/claudeApi.js` | Claude Sonnet 4.6 vision call, prompt, cost calc |
+| `src/api/geminiApi.js` | Gemini 2.5 Flash Lite vision call, prompt, cost calc |
+| `src/api/wsiAnalysis.js` | Whole-slide grid analysis (16-patch mode) |
+| `src/components/panels/AIPanel.jsx` | Results display panel |
+| `src/components/panels/WsiResultCard.jsx` | WSI grid result card |
+| `src/components/panels/WsiAnalyzingCard.jsx` | WSI analysis progress card |
+| `src/components/annotations/ContextMenu.jsx` | Right-click menu to trigger analysis |
+
+### What the AI Returns (Ki67 JSON Schema)
+
+```json
+{
+  "ki67_percentage": 42.5,
+  "positive_count": 212,
+  "negative_count": 288,
+  "total_count": 500,
+  "stain_quality": "good",
+  "proliferation_activity": "high",
+  "interpretation": "High Ki67 proliferation index consistent with aggressive neoplasm.",
+  "confidence": "high",
+  "notes": ""
+}
+```
+
+- `proliferation_activity`: `low` (<15%), `intermediate` (15–30%), `high` (>30%)
+- `stain_quality`: `good` | `fair` | `poor`
+- `confidence`: `high` | `medium` | `low`
+
+### Branding: All Models Display as "Pragna"
+
+The model label displayed in the UI is always **"Pragna"** regardless of which underlying model is called. This is set via the `AI_MODEL_LABEL` / `GEMINI_MODEL_LABEL` exports:
+
+```js
+// src/api/claudeApi.js
+export const AI_MODEL_LABEL = 'Pragna';
+
+// src/api/geminiApi.js
+export const GEMINI_MODEL_LABEL = 'Pragna';
+```
+
+The `ModelTag` component in `AIPanel.jsx` and all right-click menu items always display "Pragna".
+
+### Analysis Modes
+
+| Mode | How to trigger | Description |
+|------|---------------|-------------|
+| **Single ROI** | Right-click slide → Analyze Ki67 % → draw rectangle | Analyzes one region at chosen magnification |
+| **Whole Slide (WSI)** | Right-click slide → Analyze Whole Slide | Splits slide into 3×3 or 4×4 patch grid, analyzes each, aggregates |
+| **Batch (Panels)** | Panels tab → select panels → Analyze N with Pragna | Analyzes multiple saved viewport captures in sequence |
+
+### API Keys Required
+
+```
+VITE_ANTHROPIC_API_KEY=sk-ant-api03-...
+VITE_GEMINI_API_KEY=AIzaSy...
+```
+
+These go in `.env.local` on EC2 at `/opt/pathassist23/.env.local`. They are **not** included in git.
+
+---
+
+## 2. Panels Feature — ROI Capture & Batch Analysis
+
+### Overview
+
+The **Panels** feature lets pathologists capture any number of viewport snapshots across multiple slides, then submit them all to Pragna AI for Ki67 analysis in a single batch operation.
+
+### User Workflow
+
+```
+1. Open a slide
+2. Navigate to the region of interest
+3. Click "Camera Save to Server" (toolbar icon with download bar)
+   → Panel is saved with thumbnail + region coordinates
+   → Right panel auto-switches to "Panels" tab
+4. Browse other slides, capture more panels
+5. In the Panels tab: select panels → "Analyze N with Pragna"
+   → Results appear in the AI tab
+```
+
+### Data Stored per Panel
+
+```js
+{
+  id: "uuid-v4",
+  itemId: "girder-item-id",
+  itemName: "Slide_001.svs",
+  thumbnail: "data:image/jpeg;base64,...",   // 240px wide JPEG
+  region: {
+    x: 12000,      // image pixel X (top-left)
+    y: 8500,       // image pixel Y (top-left)
+    width: 45000,  // image pixel width
+    height: 32000  // image pixel height
+  },
+  capturedAt: "2026-03-15T10:23:00.000Z",
+  capturedBy: "dr.smith"
+}
+```
+
+- **Persisted** in `localStorage` under key `pathassist_panels`
+- Max **100 panels** stored (oldest are dropped)
+- Survives browser refresh and re-login
+
+### Region Coordinate Extraction
+
+The viewport region is captured in **image pixel coordinates** (full-resolution slide space), not screen pixels:
+
+```js
+const b = osd.viewport.getBounds(true);
+const tl = osd.viewport.viewportToImageCoordinates(b.x, b.y);
+const br = osd.viewport.viewportToImageCoordinates(b.x + b.width, b.y + b.height);
+region = {
+  x: Math.max(0, Math.round(tl.x)),
+  y: Math.max(0, Math.round(tl.y)),
+  width:  Math.round(br.x - tl.x),
+  height: Math.round(br.y - tl.y),
+};
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `src/components/viewer/ViewerToolbar.jsx` | Camera Save to Server button + `snapshotToServer()` |
+| `src/components/panels/PanelsPanel.jsx` | Panels tab UI — list, select, analyze, delete |
+| `src/components/panels/RightPanel.jsx` | Adds "Panels" tab with live badge count |
+| `src/store/index.js` | `panels`, `addPanel`, `removePanel`, `clearPanels` state |
+
+### Batch Analysis (PanelsPanel)
+
+When "Analyze N with Pragna" is clicked:
+
+1. For each selected panel, fetches a 512px region blob from Girder at 20× zoom
+2. Calls `analyzeKi67WithGemini(blob)` (same API as single ROI)
+3. Adds result to `aiResults` store
+4. 400ms delay between calls to avoid rate limits
+5. Auto-navigates to AI tab when done
+
+### "Camera Save to Server" also uploads to Girder
+
+In addition to saving locally, the full-resolution PNG is also uploaded to a **Captures** subfolder in the same Girder folder as the slide:
+
+```
+<slide folder>/
+  └── Captures/
+        └── SlideName__capture__2026-03-15T10-23-00.png
+```
+
+Metadata saved with the upload: `sourceItemId`, `sourceItemName`, `capturedAt`, `capturedBy`, `region` (JSON string).
+
+---
+
+## 3. Multi-Brand Deployment Architecture
+
+### Overview
+
+A single EC2 instance serves **three brands** from the same codebase. Each brand gets its own Nginx virtual host, its own `dist/` folder, and is rebuilt with brand-specific Vite environment variables.
+
+### Brands
+
+| Brand | Domain | Container | Folder |
+|-------|--------|-----------|--------|
+| **Impart DX** (lymphoma) | `impart.pathassist.health` | `pathassist-lymphoma` | `/opt/pathassist-lymphoma` |
+| **MDA PathAssist** | `mda.pathassist.health` | `pathassist-mda` | `/opt/pathassist-mda` |
+| **Algopath** | `algopath.pathassist.health` | `pathassist-algopath` | `/opt/pathassist-algopath` |
+
+Dev domains (`.dev.pathassist.health`) also exist for each brand.
+
+### Build-time Branding Variables
+
+Each brand is built by injecting shell environment variables before `npm run build`:
+
+```bash
+VITE_APP_NAME='MDA PathAssist' \
+VITE_LOGO_SRC='/mda-logo.png' \
+VITE_APP_TAGLINE='Digital Pathology Platform' \
+npm run build
+```
+
+**Important:** The EC2 `.env.local` must NOT contain `VITE_APP_NAME` or `VITE_LOGO_SRC`. Vite gives `.env.local` higher priority than shell env vars, which would cause all brands to show the same branding.
+
+### Deploy Script
+
+```bash
+# Deploy a single brand
+./deploy/deploy-ui.sh mda
+
+# Deploy all brands
+./deploy/deploy-ui.sh all
+```
+
+The script (`deploy/deploy-ui.sh`):
+1. `git pull` on EC2
+2. Builds with brand env vars
+3. `rm -rf $TARGET/dist/*` then copies new dist (prevents stale hashed chunks)
+4. `docker compose restart <container>`
+
+### Nginx Routing
+
+`deploy/nginx-multi.conf` routes by hostname:
+- `/api/*` → Girder (`:8080`) — shared by all brands
+- `/` → brand-specific UI container (`:3000`)
+
+All brands share the same **Girder** backend, same **Keycloak** auth, same **MongoDB** database.
+
+---
+
+## 4. EC2 Server Setup & Infrastructure
+
+### Server
+
+- **Provider:** AWS EC2
+- **IP:** `54.224.61.23`
+- **SSH:** `ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23`
+- **CPU:** 8 cores
+- **RAM:** 15.34 GiB
+
+### Docker Compose Services
+
+All services run under `/opt/digital_slide_archive/devops/ver5/docker-compose.yml`.
+
+| Service | Image | CPUs | Memory | Purpose |
+|---------|-------|------|--------|---------|
+| `girder` | `dsarchive/dsa_common_5` | 6.0 | 10g | WSI tile server (Girder + large_image) |
+| `worker` | `dsarchive/dsa_common_5` | 2.0 | 3g | Celery async task worker |
+| `mongodb` | `mongo:latest` | — | 3g | Database (WiredTiger 2GB cache) |
+| `memcached` | `memcached` | — | 2g | Tile cache (`-m 2048`) |
+| `rabbitmq` | `rabbitmq:latest` | — | — | Celery broker |
+| `keycloak` | `quay.io/keycloak/keycloak:24.0` | — | 1g | SSO / identity provider |
+| `postgres-keycloak` | `postgres:15-alpine` | — | — | Keycloak's database |
+| `pathassist-lymphoma` | `node:20-alpine` | — | — | Impart DX UI (serve dist) |
+| `pathassist-mda` | `node:20-alpine` | — | — | MDA UI (serve dist) |
+| `pathassist-algopath` | `node:20-alpine` | — | — | Algopath UI (serve dist) |
+| `nginx-multi-proxy` | `nginx:alpine` | — | — | Reverse proxy (port 80) |
+
+### Girder Configuration
+
+Girder runs under gunicorn with **6 workers**:
+
+```bash
+gunicorn --timeout 0 girder.wsgi:app --bind=0.0.0.0:8080 --workers=6 --preload
+```
+
+Key environment variables in docker-compose:
+
+```yaml
+LARGE_IMAGE_CACHE_BACKEND: memcached
+LARGE_IMAGE_CACHE_TILESOURCE_MAXIMUM: 100    # keep 100 slides open in memory
+LARGE_IMAGE_SOURCE_TIFF_CONCURRENCY: 4       # max concurrent tile decoders per slide
+LARGE_IMAGE_SOURCE_PYVIPS_ENABLED: true      # faster than openslide for OME-TIFF
+GIRDER_SERVER_MODE: production
+GIRDER_SETTING_CORE_CACHE_ENABLED: true
+```
+
+### Disk Layout
+
+```
+/opt/pathassist23/          ← git repo (source of truth)
+/opt/pathassist-lymphoma/   ← Impart DX built dist
+/opt/pathassist-mda/        ← MDA built dist
+/opt/pathassist-algopath/   ← Algopath built dist
+/opt/digital_slide_archive/ ← DSA (Girder) docker-compose + config
+  └── devops/ver5/
+        ├── docker-compose.yml
+        ├── nginx-multi.conf
+        ├── girder.cfg
+        ├── start_girder.sh
+        ├── start_worker.sh
+        ├── assetstore/        ← uploaded slide files
+        ├── db/                ← MongoDB data
+        └── logs/              ← Girder logs
+/mnt/dsa-cache/             ← large_image tile cache (FUSE diskcache, 50GB)
+```
+
+### Common Admin Commands
+
+```bash
+# SSH into EC2
+ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23
+
+# View all container status
+cd /opt/digital_slide_archive/devops/ver5
+docker compose ps
+
+# View Girder logs
+docker compose logs -f girder
+
+# Restart a specific service
+docker compose restart girder
+
+# Monitor resource usage
+docker stats
+
+# Full redeploy of all brands
+./deploy/deploy-ui.sh all   # run from local machine
+```
+
+---
+
+## 5. Keycloak SSO Integration
+
+### Overview
+
+All three brands authenticate via **Keycloak 24** running at `auth.pathassist.health`. Users log in once and are recognized across brands.
+
+### Setup
+
+- **Admin URL:** `http://auth.pathassist.health/`
+- **Admin user:** `admin`
+- **Realm:** `pathassist` (shared across all brands)
+- **Client:** `pathassist-girder` (handles Girder OAuth redirect)
+
+### Realm vs Client Strategy
+
+**One shared realm** (`pathassist`) for all brands — users and groups are defined once. Each brand does not need its own realm. The single `pathassist-girder` client handles all brands because they all share the same Girder backend.
+
+If brands needed **completely separate user bases** (e.g., different hospitals with no shared users), each would get its own realm.
+
+### Role-Based Access (Girder Groups)
+
+User access to features is controlled by Girder group membership, defined in `src/store/index.js`:
+
+```js
+ROLE_MAP: {
+  'projects-users':       ['lab-manager', 'pathologist'],
+  'second-opinion-users': ['lab-manager', 'pathologist', 'fellow', 'second-opinion-reviewer', 'referring-physician'],
+  'annotation-users':     ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer'],
+  'import-users':         ['lab-manager', 'lab-technician'],
+  'worklist-users':       ['lab-manager', 'pathologist', 'fellow', 'researcher', 'lab-technician'],
+},
+```
+
+Girder site admins (`user.admin = true`) bypass all role checks.
+
+### Resetting Keycloak Admin Password
+
+If the admin password is lost, reset it via the PostgreSQL database:
+
+```bash
+# 1. Generate a new pbkdf2-sha512 hash (Python)
+python3 - <<'EOF'
+import hashlib, base64, os, json
+salt = base64.b64encode(os.urandom(16)).decode()
+iterations = 27500
+dk = hashlib.pbkdf2_hmac('sha512', 'NewPassword123!'.encode(), salt.encode(), iterations)
+h = base64.b64encode(dk).decode()
+secret_data = json.dumps({"value": h, "salt": salt, "additionalParameters": {}}, separators=(',', ':'))
+credential_data = json.dumps({"hashIterations": iterations, "algorithm": "pbkdf2-sha512", "additionalParameters": {}}, separators=(',', ':'))
+print("secret_data:", secret_data)
+print("credential_data:", credential_data)
+EOF
+
+# 2. Connect to Keycloak's PostgreSQL
+docker exec -it keycloak-postgres psql -U keycloak -d keycloak
+
+# 3. Find the credential ID for the admin user
+SELECT c.id FROM credential c
+JOIN user_entity u ON c.user_id = u.id
+WHERE u.username = 'admin' AND c.type = 'password';
+
+# 4. Update the password hash
+UPDATE credential
+SET secret_data = '{"value":"<hash>","salt":"<salt>","additionalParameters":{}}',
+    credential_data = '{"hashIterations":27500,"algorithm":"pbkdf2-sha512","additionalParameters":{}}'
+WHERE id = '<credential-id>';
+
+# 5. Restart Keycloak to clear session cache
+docker compose restart keycloak
+```
+
+**Note:** The JSON must use compact format (no spaces after `:` or `,`). Keycloak rejects pretty-printed JSON.
+
+---
+
+## 6. Performance Tuning — Girder & OME-TIFF
+
+### Problem
+
+When 2–3 users simultaneously open OME-TIFF slides, Girder CPU spikes to 400%. Root causes:
+1. Girder was only allocated 4 CPUs — insufficient for concurrent tile decoding
+2. OpenSlide has limited OME-TIFF support; falls back to libTIFF which is slower
+3. Multiple concurrent users each trigger independent tile decoders for the same slide
+
+### Solutions Applied
+
+**1. CPU rebalancing (docker-compose.yml):**
+
+| Service | Before | After |
+|---------|--------|-------|
+| Girder CPUs | 4.0 | **6.0** |
+| Girder Memory | 7g | **10g** |
+| Gunicorn workers | 4 | **6** |
+| Worker CPUs | 6.0 | **2.0** (was unused) |
+
+**2. Tile decoder concurrency cap:**
+
+```yaml
+LARGE_IMAGE_SOURCE_TIFF_CONCURRENCY: 4
+```
+
+Prevents N users from each spawning unlimited parallel TIFF decoders. With 6 CPUs and this cap, tile throughput stays consistent under concurrent load.
+
+**3. pyvips tile source enabled:**
+
+```yaml
+LARGE_IMAGE_SOURCE_PYVIPS_ENABLED: true
+```
+
+pyvips is significantly faster than OpenSlide for pyramid TIFF and OME-TIFF formats. large_image will prefer it over openslide when both are available.
+
+**4. Memcached tile cache:**
+
+```yaml
+LARGE_IMAGE_CACHE_BACKEND: memcached
+command: -m 2048 --max-item-size 8M   # 2GB in-memory tile cache
+```
+
+Decoded tiles are cached in Memcached so subsequent requests for the same tile region don't re-decode.
+
+### Further Optimization (if needed)
+
+For very large OME-TIFF collections, convert files to **Cloud-Optimized GeoTIFF (COG)** or **pyramidal TIFF** format:
+
+```bash
+# Inside Girder container using large_image_converter
+python -m large_image_converter input.ome.tiff output.tiff
+```
+
+COG/pyramidal TIFF tiles cache far more efficiently and reduce per-tile CPU cost by 60–80%.
+
+---
+
+## 7. Environment Variables Reference
+
+### EC2 `.env.local` (`/opt/pathassist23/.env.local`)
+
+```env
+# AI API keys — required for Pragna analysis
+VITE_ANTHROPIC_API_KEY=sk-ant-api03-...
+VITE_GEMINI_API_KEY=AIzaSy...
+```
+
+**Do NOT add branding variables here.** Branding is injected as shell env vars at build time.
+
+### Vite Build-time Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `VITE_APP_NAME` | Brand name shown in header/title | `MDA PathAssist` |
+| `VITE_LOGO_SRC` | Path to logo in `public/` | `/mda-logo.png` |
+| `VITE_APP_TAGLINE` | Subtitle under logo | `Digital Pathology Platform` |
+| `VITE_ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-api03-...` |
+| `VITE_GEMINI_API_KEY` | Google AI API key | `AIzaSy...` |
+| `VITE_GIRDER_API_URL` | Girder API base URL | `https://mda.pathassist.health/api/v1` |
+
+### Priority Order (highest to lowest)
+
+1. Shell environment variables (used during `npm run build`)
+2. `.env.local` (local overrides — not committed to git)
+3. `.env` (committed defaults)
+
+---
+
+## 8. Deployment Runbook
+
+### Deploy a Single Brand
+
+```bash
+# From local machine
+./deploy/deploy-ui.sh mda        # MDA PathAssist
+./deploy/deploy-ui.sh algopath   # Algopath
+./deploy/deploy-ui.sh lymphoma   # Impart DX (latest)
+./deploy/deploy-ui.sh all        # All three brands
+```
+
+### Deploy Only the Lymphoma Build to All Impart Sites
+
+The `lymphoma` brand serves both `impart.pathassist.health` and `lymphoma.dev.pathassist.health` from the same container. One build covers both.
+
+### Verify Deployment
+
+After deploying, check:
+1. Open the brand's URL in an incognito window
+2. Confirm the correct logo and app name appear
+3. Confirm `/api/v1/system/version` returns 200 (Girder is up)
+4. Log in with a test user
+5. Open a slide and confirm tiles load
+
+### Rollback
+
+```bash
+# SSH to EC2
+ssh -i ~/.ssh/histamics20.pem ubuntu@54.224.61.23
+
+# Check git log
+cd /opt/pathassist23 && git log --oneline -5
+
+# Roll back to previous commit
+git checkout <previous-commit-hash>
+VITE_APP_NAME='MDA PathAssist' VITE_LOGO_SRC='/mda-logo.png' npm run build
+rm -rf /opt/pathassist-mda/dist/* && cp -r dist/. /opt/pathassist-mda/dist/
+cd /opt/digital_slide_archive/devops/ver5 && docker compose restart pathassist-mda
+```
+
+### Restart Services
+
+```bash
+cd /opt/digital_slide_archive/devops/ver5
+
+# Restart everything
+docker compose down && docker compose up -d
+
+# Restart only Girder (most common)
+docker compose restart girder
+
+# Recreate Girder with new resource limits
+docker compose up -d --force-recreate girder
+```
+
+---
+
+*Last updated: 2026-03-15*

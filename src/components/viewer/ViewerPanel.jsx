@@ -7,9 +7,9 @@ import {
 } from '../../api/index.js';
 import AnnotationCanvas from '../annotations/AnnotationCanvas.jsx';
 import ViewerToolbar from './ViewerToolbar.jsx';
-import MagnificationBar from './MagnificationBar.jsx';
 import MeasureTool from './MeasureTool.jsx';
 import { GIRDER_BASE } from '../../config/girder.js';
+import { hexToRgba } from '../annotations/annotationUtils.js';
 
 const LARGE_IMAGE_EXTS = ['svs','ndpi','scn','czi','lif','qptiff','tiff','tif','btf','tf2','tf8','mrxs','vms','vmu','vsf','ome.tif','ome.tiff'];
 const IMAGE_EXTS = ['jpg','jpeg','png','gif','bmp','webp'];
@@ -56,12 +56,18 @@ export default function ViewerPanel() {
   const pendingLoad = useRef(null);
   const loadSlideRef = useRef(null); // ref to break circular dep with createTilesForItem
   const tilesInfoRef = useRef(null);  // kept in sync so zoom handler can read it
+  const zoomOverlayTimer = useRef(null);
 
-  const { activeItem, setViewer, setTilesInfo, tilesInfo } = useStore();
+  const {
+    activeItem, setViewer, setTilesInfo, tilesInfo,
+    drawingMode, setDrawingMode, drawColor,
+  } = useStore();
   useEffect(() => { tilesInfoRef.current = tilesInfo; }, [tilesInfo]);
+  const activeColor = drawColor || '#4da6ff';
 
   const [status, setStatus] = useState({ state:'idle', msg:'', type:null, files:null });
   const [zoom, setZoom] = useState('—');
+  const [showZoomOverlay, setShowZoomOverlay] = useState(false);
 
   // ── Init OSD ────────────────────────────────────────────────────────────────
   const initOSD = useCallback(() => {
@@ -106,6 +112,9 @@ export default function ViewerPanel() {
       } else {
         setZoom(e.zoom.toFixed(3) + '×');
       }
+      setShowZoomOverlay(true);
+      clearTimeout(zoomOverlayTimer.current);
+      zoomOverlayTimer.current = setTimeout(() => setShowZoomOverlay(false), 1100);
     });
     if (pendingLoad.current) {
       const item = pendingLoad.current;
@@ -113,6 +122,8 @@ export default function ViewerPanel() {
       loadSlide(item);
     }
   }, []);
+
+  useEffect(() => () => clearTimeout(zoomOverlayTimer.current), []);
 
   useEffect(() => {
     if (window.OpenSeadragon) { initOSD(); return; }
@@ -311,6 +322,19 @@ export default function ViewerPanel() {
 
       <div className="flex-1 relative overflow-hidden">
 
+        {activeItem && (
+          <>
+            {drawingMode && (
+              <div className="viewer-floating-mode" style={{ borderColor: hexToRgba(activeColor, 0.35), color: activeColor, background: hexToRgba(activeColor, 0.12) }}>
+                <div className="viewer-floating-mode-dot" style={{ background: activeColor }} />
+                <span>{drawingMode}</span>
+                {(drawingMode === 'polygon' || drawingMode === 'polyline') && <span className="viewer-floating-mode-hint">double-click to finish</span>}
+                <button onClick={() => setDrawingMode(null)} className="viewer-floating-mode-close">×</button>
+              </div>
+            )}
+          </>
+        )}
+
         {/* Idle */}
         {status.state === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 select-none" style={{ background:'var(--bg-viewer)' }}>
@@ -443,17 +467,15 @@ export default function ViewerPanel() {
         {/* Measure tool overlay */}
         {activeItem && status.state === 'ok' && <MeasureTool viewer={osdRef}/>}
 
-        {/* Status bar — file name only; zoom shown in MagnificationBar below */}
-        {status.state === 'ok' && (
-          <div className="absolute bottom-0 left-0 right-0 z-10 flex items-center gap-3 px-3 py-1.5"
-            style={{ background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)', borderTop:'1px solid var(--border)' }}>
-            <StatusBadge type={status.type} label={status.type === 'wsi' ? 'WSI' : status.type === 'image' ? 'Image' : 'File'}/>
-            <span className="text-xs text-gray-500 truncate flex-1">{status.msg}</span>
+        {status.state === 'ok' && showZoomOverlay && zoom && zoom !== '—' && (
+          <div className="viewer-zoom-overlay">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <span>{zoom}</span>
           </div>
         )}
       </div>
-
-      {tilesInfo && <MagnificationBar tilesInfo={tilesInfo} zoom={zoom}/>}
     </div>
   );
 }

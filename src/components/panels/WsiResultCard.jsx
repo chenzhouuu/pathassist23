@@ -114,6 +114,19 @@ function UsageFooter({ usage, modelLabel }) {
 // ── Main card ─────────────────────────────────────────────────────────────────
 export default function WsiResultCard({ entry }) {
   const removeAiResult = useStore((s) => s.removeAiResult);
+  const viewer = useStore((s) => s.viewer);
+  const annotations = useStore((s) => s.annotations);
+  const setSelectedAnnotation = useStore((s) => s.setSelectedAnnotation);
+
+  const locateRoi = () => {
+    if (!entry.roi || !viewer?.viewport || !window.OpenSeadragon) return;
+    const rect = new window.OpenSeadragon.Rect(entry.roi.x, entry.roi.y, entry.roi.width, entry.roi.height);
+    viewer.viewport.fitBounds(rect, true);
+    if (entry.aiAnnotationId) {
+      const ann = annotations.find((a) => a._id === entry.aiAnnotationId);
+      if (ann) setSelectedAnnotation(ann);
+    }
+  };
 
   // Error case
   if (entry.result?.error) {
@@ -226,6 +239,29 @@ export default function WsiResultCard({ entry }) {
       {a?.partial_warning && (
         <div style={{ padding: '0 10px 8px', fontSize: 10, color: '#f5a623' }}>
           ⚠ {a.partial_warning}
+        </div>
+      )}
+
+      {entry.roi && (
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 10px 8px' }}>
+          <div style={{ fontSize:10, color:'var(--muted)', flex:1 }}>
+            ROI {entry.roi.width}×{entry.roi.height} px · ({entry.roi.x}, {entry.roi.y})
+          </div>
+          <button
+            onClick={locateRoi}
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '3px 8px',
+              borderRadius: 999,
+              background: 'rgba(77,166,255,0.12)',
+              color: '#4da6ff',
+              border: '1px solid rgba(77,166,255,0.25)',
+              cursor: 'pointer',
+            }}
+          >
+            Locate ROI
+          </button>
         </div>
       )}
 

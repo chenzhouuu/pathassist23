@@ -3,7 +3,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems } from '../../api/index.js';
-import { GIRDER_BASE } from '../../config/girder.js';
+import { getThumbnailUrl } from '../../config/girder.js';
+import AnnotationsPanel from '../panels/AnnotationsPanel.jsx';
+import LayersPanel from '../panels/LayersPanel.jsx';
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
 const FolderIcon = ({ open }) => (
@@ -32,18 +34,20 @@ function SlideRow({ item }) {
   const { activeItem, setActiveItem } = useStore();
   const isActive = activeItem?._id === item._id;
   const token = localStorage.getItem('girderToken') || '';
-  const thumbUrl = `${GIRDER_BASE}/item/${item._id}/tiles/thumbnail?width=128&height=96&token=${token}`;
+  const thumbUrl = getThumbnailUrl(item._id, token, 160, 100);
 
   return (
     <div
       className={`tree-item pl-8 pr-2 py-1 ${isActive ? 'selected' : ''}`}
       onClick={() => setActiveItem(item)}
     >
-      <div className="w-10 h-8 rounded overflow-hidden flex-shrink-0 bg-gray-900">
+      <div className="w-10 h-8 rounded overflow-hidden flex-shrink-0" style={{ background: 'var(--bg-viewer)' }}>
         <img
           src={thumbUrl}
           alt=""
           className="w-full h-full object-cover"
+          loading="lazy"
+          decoding="async"
           onError={(e) => { e.target.style.display = 'none'; }}
         />
       </div>
@@ -139,7 +143,7 @@ function CollectionNode({ collection }) {
     <div>
       <div
         className="tree-item font-medium"
-        style={{ paddingLeft: '8px', color: '#cdd3e0' }}
+        style={{ paddingLeft: '8px', color: 'var(--text)' }}
         onClick={() => { setOpen(!open); setActiveCollection(collection); }}
       >
         <ChevronRight open={open} />
@@ -161,7 +165,33 @@ function CollectionNode({ collection }) {
 
 // ─── Case images panel (shown when a Second Opinion case is open) ─────────────
 function CaseItemsPanel({ caseContext }) {
-  const { activeItem, openCaseItem, setPage, clearCaseContext } = useStore();
+  const { activeItem, openCaseItem, setPage, clearCaseContext, setCompareItems } = useStore();
+  const [compareSelection, setCompareSelection] = useState([]);
+
+  useEffect(() => {
+    setCompareSelection([]);
+  }, [caseContext?.caseId]);
+
+  const toggleCompareSelect = (item) => {
+    setCompareSelection((prev) => {
+      const exists = prev.find((i) => i._id === item._id);
+      if (exists) return prev.filter((i) => i._id !== item._id);
+      if (prev.length >= 4) return prev;
+      return [...prev, item];
+    });
+  };
+
+  const openCompareWindow = () => {
+    if (compareSelection.length < 2) return;
+    setCompareItems(compareSelection);
+    const compareUrl = `${window.location.origin}${window.location.pathname}?compare=1`;
+    const compareWindow = window.open(compareUrl, 'pathassist-compare', 'popup=yes,width=1680,height=1080,resizable=yes,scrollbars=yes');
+    if (compareWindow) {
+      compareWindow.focus();
+      return;
+    }
+    setPage('compare');
+  };
 
   return (
     <div className="flex flex-col shrink-0 overflow-hidden h-full"
@@ -190,10 +220,25 @@ function CaseItemsPanel({ caseContext }) {
         </span>
       </div>
 
+      <div className="viewer-case-toolbar">
+        <span className="viewer-case-toolbar-copy">{compareSelection.length}/4 compare</span>
+        {compareSelection.length >= 2 && (
+          <button type="button" className="viewer-case-compare-btn" onClick={openCompareWindow}>
+            Compare
+          </button>
+        )}
+        {compareSelection.length > 0 && (
+          <button type="button" className="viewer-case-clear-btn" onClick={() => setCompareSelection([])}>
+            Clear
+          </button>
+        )}
+      </div>
+
       {/* Items list */}
       <div className="flex-1 overflow-y-auto py-1">
         {caseContext.items.map((item, idx) => {
           const isActive = activeItem?._id === item._id;
+          const isSelected = !!compareSelection.find((i) => i._id === item._id);
           return (
             <div
               key={item._id}
@@ -201,11 +246,25 @@ function CaseItemsPanel({ caseContext }) {
               onClick={() => openCaseItem(item, caseContext)}
               style={{ cursor: 'pointer' }}
             >
-              <div className="w-9 h-7 rounded overflow-hidden shrink-0" style={{ background: 'var(--bg)' }}>
+              <button
+                type="button"
+                className={`viewer-compare-check ${isSelected ? 'active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); toggleCompareSelect(item); }}
+                title={isSelected ? 'Remove from compare' : 'Add to compare'}
+              >
+                {isSelected ? (
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                    <polyline points="2 6 5 9 10 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                ) : null}
+              </button>
+              <div className="w-9 h-7 rounded overflow-hidden shrink-0" style={{ background: 'var(--bg-viewer)' }}>
                 <img
-                  src={`${GIRDER_BASE}/item/${item._id}/tiles/thumbnail?width=128&height=96&token=${localStorage.getItem('girderToken') || ''}`}
+                  src={getThumbnailUrl(item._id, localStorage.getItem('girderToken') || '', 160, 100)}
                   alt=""
                   className="w-full h-full object-cover"
+                  loading="lazy"
+                  decoding="async"
                   onError={(e) => { e.target.style.display = 'none'; }}
                 />
               </div>
@@ -217,6 +276,7 @@ function CaseItemsPanel({ caseContext }) {
                   Slide {idx + 1}
                 </div>
               </div>
+              {isSelected && <span className="viewer-compare-chip">Compare</span>}
             </div>
           );
         })}
@@ -227,8 +287,9 @@ function CaseItemsPanel({ caseContext }) {
 
 // ─── Main sidebar ─────────────────────────────────────────────────────────────
 export default function LeftSidebar() {
-  const { leftPanelOpen, caseContext } = useStore();
+  const { leftPanelOpen, leftPanelTab, setLeftPanelTab, caseContext, hasRole } = useStore();
   const [search, setSearch] = useState('');
+  const canAnnotate = hasRole('annotation-users');
 
   const { data: collections, isLoading, error } = useQuery({
     queryKey: ['collections'],
@@ -248,6 +309,48 @@ export default function LeftSidebar() {
 
   if (!leftPanelOpen) return null;
 
+  if (leftPanelTab === 'annotations' && canAnnotate) {
+    return (
+      <div className="app-sidepanel app-sidepanel-left" style={{ width: 'var(--left-w)' }}>
+        <div className="viewer-panel-topbar viewer-panel-topbar-left">
+          <div>
+            <div className="viewer-panel-eyebrow">Slide Tools</div>
+            <div className="viewer-panel-title">Annotations</div>
+          </div>
+        </div>
+        <div className="viewer-inline-tabbar">
+          <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('slides')}>Slides</button>
+          <button type="button" className="viewer-inline-tab active">Annotations</button>
+          <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('layers')}>Layers</button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <AnnotationsPanel />
+        </div>
+      </div>
+    );
+  }
+
+  if (leftPanelTab === 'layers' && canAnnotate) {
+    return (
+      <div className="app-sidepanel app-sidepanel-left" style={{ width: 'var(--left-w)' }}>
+        <div className="viewer-panel-topbar viewer-panel-topbar-left">
+          <div>
+            <div className="viewer-panel-eyebrow">Slide Tools</div>
+            <div className="viewer-panel-title">Layers</div>
+          </div>
+        </div>
+        <div className="viewer-inline-tabbar">
+          <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('slides')}>Slides</button>
+          <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('annotations')}>Annotations</button>
+          <button type="button" className="viewer-inline-tab active">Layers</button>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <LayersPanel />
+        </div>
+      </div>
+    );
+  }
+
   // When a Second Opinion case is open, show only its selected images
   if (caseContext) return <CaseItemsPanel caseContext={caseContext} />;
 
@@ -256,12 +359,21 @@ export default function LeftSidebar() {
       className="app-sidepanel app-sidepanel-left"
       style={{ width: 'var(--left-w)' }}
     >
-      <div className="panel-header">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z" />
-        </svg>
-        Collections
+      <div className="viewer-panel-topbar viewer-panel-topbar-left">
+        <div>
+          <div className="viewer-panel-eyebrow">Navigation</div>
+          <div className="viewer-panel-title">Collections</div>
+        </div>
+        <div className="viewer-panel-count">{filtered?.length || 0}</div>
       </div>
+
+      {canAnnotate && (
+        <div className="viewer-inline-tabbar">
+          <button type="button" className="viewer-inline-tab active">Slides</button>
+          <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('annotations')}>Annotations</button>
+          <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('layers')}>Layers</button>
+        </div>
+      )}
 
       <div className="panel-search-wrap">
         <div className="relative">

@@ -1,6 +1,6 @@
 // src/components/dashboard/ImportModal.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { getFolders, createFolder, importFromAssetstore, getCollection } from '../../api/index.js';
+import { getFolders, createFolder, importFromAssetstore, getCollection, getCollectionAccess, setFolderAccess, prewarmThumbnails } from '../../api/index.js';
 import { useStore } from '../../store/index.js';
 
 const JOB_STATUS_LABEL = { 0: 'inactive', 1: 'queued', 2: 'running', 3: 'success', 4: 'error', 5: 'cancelled' };
@@ -19,6 +19,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
   const [error, setError]                 = useState('');
   const pollRef                           = useRef(null);
   const [destFolderId, setDestFolderId]   = useState(null);  // resolved folder id after import
+  const [prewarm, setPrewarm]             = useState({ done: 0, total: 0 }); // thumbnail pre-gen progress
 
   // Load assetstore from collection metadata (non-admin safe)
   useEffect(() => {
@@ -75,11 +76,26 @@ export default function ImportModal({ collections, onClose, onImported }) {
       });
 
       if (result?.success === true || result?.success === 'true') {
+        // After import: copy collection group ACL to the dest folder + all subfolders
+        try {
+          const acl = await getCollectionAccess(collectionId);
+          if (acl?.groups?.length) {
+            await setFolderAccess(destId, { groups: acl.groups, users: acl.users ?? [] });
+          }
+        } catch (_) { /* non-fatal */ }
+
+        // Pre-generate thumbnails so worklist browsing is instant (no on-demand JP2 decode)
+        setStatus('prewarm');
+        try {
+          await prewarmThumbnails(destId, {
+            onProgress: (done, total) => setPrewarm({ done, total }),
+          });
+        } catch (_) { /* non-fatal — thumbnails will generate on first access */ }
+
         setDestFolderId(destId);
         setStatus('done');
         if (onImported) onImported();
       } else {
-        // success=false means the import ran but found nothing or failed
         const msg = result?.log?.slice(-1)[0] || result?.message || 'Import completed but no files were found at that path.';
         setError(msg);
         setStatus('error');
@@ -236,6 +252,24 @@ export default function ImportModal({ collections, onClose, onImported }) {
         ) : (
           /* Progress */
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '12px 0' }}>
+            {status === 'prewarm' && (
+              <>
+                <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, borderTopColor: '#4caf82' }} />
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>Pre-generating thumbnails…</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                    {prewarm.total > 0 ? `${prewarm.done} / ${prewarm.total} slides` : 'Starting…'}
+                  </p>
+                  {prewarm.total > 0 && (
+                    <div style={{ width: 220, height: 4, background: 'var(--border)', borderRadius: 2, marginTop: 10 }}>
+                      <div style={{ height: '100%', borderRadius: 2, background: '#4caf82', width: `${Math.round((prewarm.done / prewarm.total) * 100)}%`, transition: 'width 0.3s' }} />
+                    </div>
+                  )}
+                  <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>This makes worklist browsing instant. You can close and it will continue in the background.</p>
+                </div>
+                <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setStatus('done'); if (onImported) onImported(); }}>Skip & Close</button>
+              </>
+            )}
             {status === 'importing' && (
               <>
                 <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3 }} />

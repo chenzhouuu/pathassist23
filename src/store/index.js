@@ -82,7 +82,7 @@ export const useStore = create((set, get) => ({
   clearActiveNavigation: () =>
     set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [] }),
   setActiveItem: (item) => {
-    const { breadcrumb } = get();
+    const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
     set({
       activeItem: item,
@@ -93,6 +93,8 @@ export const useStore = create((set, get) => ({
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
+      leftPanelOpen: autoCollapseViewerPanels ? false : get().leftPanelOpen,
+      rightPanelOpen: autoCollapseViewerPanels ? false : get().rightPanelOpen,
     });
   },
 
@@ -104,7 +106,7 @@ export const useStore = create((set, get) => ({
 
   // Open a case: sets both caseContext and activeItem without clearing caseContext.
   openCaseItem: (item, ctx) => {
-    const { breadcrumb } = get();
+    const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
     set({
       activeItem: item,
@@ -115,6 +117,8 @@ export const useStore = create((set, get) => ({
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
+      leftPanelOpen: autoCollapseViewerPanels ? false : get().leftPanelOpen,
+      rightPanelOpen: autoCollapseViewerPanels ? false : get().rightPanelOpen,
     });
   },
 
@@ -174,9 +178,18 @@ export const useStore = create((set, get) => ({
   setActiveProject: (project) => set({ activeProject: project }),
 
   // ── Compare ───────────────────────────────────────────────────────────────
-  compareItems: [],
-  setCompareItems: (items) => set({ compareItems: items, currentPage: 'compare' }),
-  clearCompare: () => set({ compareItems: [], currentPage: 'worklist' }),
+  compareItems: (() => {
+    try { return JSON.parse(localStorage.getItem('pathassist_compare_items') || '[]'); }
+    catch { return []; }
+  })(),
+  setCompareItems: (items) => {
+    localStorage.setItem('pathassist_compare_items', JSON.stringify(items));
+    set({ compareItems: items });
+  },
+  clearCompare: () => {
+    localStorage.removeItem('pathassist_compare_items');
+    set({ compareItems: [] });
+  },
 
   // ── AI / Ki67 ─────────────────────────────────────────────────────────────
   // Each entry: { id, timestamp, roi, thumbnailUrl, result, usage, itemId, itemName, modelLabel }
@@ -252,12 +265,22 @@ export const useStore = create((set, get) => ({
   },
 
   // ── Viewer UI ────────────────────────────────────────────────────────────
-  leftPanelOpen: true,
-  rightPanelOpen: true,
-  rightPanelTab: 'ai',
+  leftPanelOpen: false,
+  rightPanelOpen: false,
+  leftPanelTab: 'slides',
+  rightPanelTab: 'metadata',
+  autoCollapseViewerPanels: (() => {
+    const raw = localStorage.getItem('pathassist_auto_collapse_panels');
+    return raw == null ? true : raw === 'true';
+  })(),
   setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+  setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+  setAutoCollapseViewerPanels: (enabled) => {
+    localStorage.setItem('pathassist_auto_collapse_panels', String(enabled));
+    set({ autoCollapseViewerPanels: enabled });
+  },
 }));
