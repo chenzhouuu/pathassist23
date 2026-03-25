@@ -73,10 +73,12 @@ export default function App() {
 
   if (!token) return <LoginModal />;
   if (isCompareWindow) return <CompareViewer />;
-  // Role-isolated portals — only for non-admin users.
-  // Girder admins (user.admin) bypass hasRole(), so we must guard explicitly.
-  if (!user?.admin && hasRole('patient-portal-users'))   return <PatientPortalPage />;
-  if (!user?.admin && hasRole('referring-portal-users')) return <ReferringPortalPage />;
+  // Role-isolated portals — only for non-admin users who have NO clinical roles.
+  // A user with both 'patient' and 'pathologist' groups is a clinical user
+  // who was accidentally placed in a portal group; treat them as clinical staff.
+  const hasClinicalRole = hasRole('annotation-users') || hasRole('worklist-users') || hasRole('import-users');
+  if (!user?.admin && !hasClinicalRole && hasRole('patient-portal-users'))   return <PatientPortalPage />;
+  if (!user?.admin && !hasClinicalRole && hasRole('referring-portal-users')) return <ReferringPortalPage />;
   // All internal roles use page-based routing.
   if (currentPage === 'dashboard')       return <Dashboard />;
   if (currentPage === 'projects')        return <ProjectsPage />;
