@@ -16,11 +16,13 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle 401 — clear token and redirect to login
+// Handle 401 — clear token and redirect to login only if a session was active.
+// Do NOT reload during login attempts (no token yet) so the login form can
+// show the server error message instead of silently refreshing the page.
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && localStorage.getItem('girderToken')) {
       localStorage.removeItem('girderToken');
       localStorage.removeItem('girderUser');
       window.location.reload();
