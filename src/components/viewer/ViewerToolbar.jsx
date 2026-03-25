@@ -32,7 +32,7 @@ export default function ViewerToolbar({ viewer }) {
     setLeftPanelTab, setLeftPanelOpen,
     activeItem, user, addPanel, hasRole,
   } = useStore();
-  const canAnnotate = hasRole('annotation-users');
+  const canAnnotate = !!user && hasRole('annotation-users');
   const [savingCapture, setSavingCapture] = useState(false);
   const [toast, showToast] = useToast();
 
@@ -190,7 +190,7 @@ export default function ViewerToolbar({ viewer }) {
 
       <div className="divider"/>
 
-      {/* Image filters */}
+      {/* Image filters + Annotation tools side by side */}
       <ImageFilters viewer={viewer}/>
 
       {canAnnotate && <>
@@ -220,16 +220,12 @@ export default function ViewerToolbar({ viewer }) {
             <ellipse cx="12" cy="12" rx="10" ry="6"/>
           </svg>
         </ToolBtn>
-
-        {/* Color preview dot */}
-        {drawingMode && drawingMode !== 'measure' && (
-          <div className="w-4 h-4 rounded-full ml-1 ring-1 ring-white/20 shrink-0"
-            style={{ background: activeColor }}/>
-        )}
-
-        <div className="divider"/>
-
-        {/* Measure tool */}
+        <ToolBtn title="Arrow / pointer (drag)" active={drawingMode === 'arrow'} color={activeColor} onClick={() => toggleDraw('arrow')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="5" y1="19" x2="19" y2="5"/>
+            <polyline points="9 5 19 5 19 15"/>
+          </svg>
+        </ToolBtn>
         <ToolBtn title="Measure distance [M]" active={drawingMode === 'measure'} onClick={() => toggleDraw('measure')}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="2" y1="12" x2="22" y2="12"/>
@@ -239,6 +235,12 @@ export default function ViewerToolbar({ viewer }) {
             <line x1="14" y1="10" x2="14" y2="14"/>
           </svg>
         </ToolBtn>
+
+        {/* Color preview dot */}
+        {drawingMode && drawingMode !== 'measure' && (
+          <div className="w-4 h-4 rounded-full ml-1 ring-1 ring-white/20 shrink-0"
+            style={{ background: activeColor }}/>
+        )}
 
         <div className="divider"/>
       </>}

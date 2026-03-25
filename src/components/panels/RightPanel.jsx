@@ -24,7 +24,7 @@ export default function RightPanel() {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/>
       </svg> },
-    { id:'panels',      label:'Panels', show: rightPanelTab === 'panels' && hasRole('ai-users'), badge: panels.length || null, icon:
+    { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
         <circle cx="12" cy="13" r="4"/>

@@ -95,6 +95,17 @@ export function makePolyline(points, closed, { lineColor, fillColor, label, grou
   };
 }
 
+export function makeArrow(x0, y0, x1, y1, { lineColor, label, group, lineWidth } = {}) {
+  return {
+    type: 'arrow',
+    points: [[x0, y0, 0], [x1, y1, 0]],
+    lineColor: lineColor || '#4da6ff',
+    lineWidth: lineWidth || 2,
+    ...(label ? { label: { value: label } } : {}),
+    ...(group ? { group } : {}),
+  };
+}
+
 export function makeEllipse(x1, y1, x2, y2, { lineColor, fillColor, label, group, lineWidth } = {}) {
   const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
   const w  = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
@@ -442,6 +453,24 @@ export function renderDrawingPreview(ctx, mode, ds, osd, color) {
       ctx.beginPath();
       ctx.ellipse(cx, cy, Math.max(rx, 1), Math.max(ry, 1), 0, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
+
+    } else if (mode === 'arrow' && ds.start && ds.cursor) {
+      const from = imgToViewer(osd, ds.start[0], ds.start[1]);
+      const to   = imgToViewer(osd, ds.cursor[0], ds.cursor[1]);
+      const angle   = Math.atan2(to.y - from.y, to.x - from.x);
+      const headLen = 14;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(to.x, to.y);
+      ctx.lineTo(to.x - headLen * Math.cos(angle - Math.PI/6), to.y - headLen * Math.sin(angle - Math.PI/6));
+      ctx.lineTo(to.x - headLen * Math.cos(angle + Math.PI/6), to.y - headLen * Math.sin(angle + Math.PI/6));
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
 
     } else if ((mode === 'polygon' || mode === 'polyline') && ds.points?.length > 0) {
       const pts = ds.points.map(([x, y]) => imgToViewer(osd, x, y));

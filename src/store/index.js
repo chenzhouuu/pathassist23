@@ -19,7 +19,7 @@ export const useStore = create((set, get) => ({
   // Girder site admins (user.admin) bypass all checks automatically.
   ROLE_MAP: {
     'worklist-users':          ['lab-manager', 'pathologist', 'fellow', 'researcher', 'lab-technician'],
-    'annotation-users':        ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer'],
+    'annotation-users':        ['lab-manager', 'pathologist', 'fellow', 'researcher', 'second-opinion-reviewer', 'individual', 'lab-technician', 'lab-admin'],
     'ai-users':                ['lab-manager', 'pathologist', 'fellow', 'researcher'],
     'import-users':            ['lab-manager'],
     'case-create-users':       ['lab-manager', 'pathologist'],

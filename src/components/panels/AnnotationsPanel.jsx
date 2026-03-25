@@ -20,6 +20,7 @@ function ElementIcon({ type }) {
   if (type === 'rectangle') return <svg {...props}><rect x="3" y="3" width="18" height="18" rx="2"/></svg>;
   if (type === 'ellipse')   return <svg {...props}><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>;
   if (type === 'polyline')  return <svg {...props}><polyline points="3 17 9 11 13 15 21 7"/></svg>;
+  if (type === 'arrow')     return <svg {...props}><line x1="4" y1="20" x2="20" y2="4"/><polyline points="9 4 20 4 20 15"/></svg>;
   return <svg {...props}><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"/></svg>;
 }
 

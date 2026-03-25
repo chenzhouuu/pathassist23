@@ -8,7 +8,7 @@ import { analyzeKi67WithGemini, GEMINI_MODEL_LABEL } from '../../api/geminiApi.j
 import { analyzeWholeSlide, analyzeRoiGrid } from '../../api/wsiAnalysis.js';
 import {
   ANN_COLORS, hexToRgba, viewerToImg,
-  makePoint, makeRectangle, makePolyline, makeEllipse,
+  makePoint, makeRectangle, makePolyline, makeEllipse, makeArrow,
   renderElementOnCanvas, renderDrawingPreview,
   findAnnotationAtViewer,
 } from './annotationUtils.js';
@@ -456,7 +456,7 @@ export default function AnnotationCanvas({ viewer }) {
     if (!xy) return;
     const d = ds.current;
 
-    if (drawingMode === 'rectangle' || drawingMode === 'ellipse' || drawingMode === 'roi-select') {
+    if (drawingMode === 'rectangle' || drawingMode === 'ellipse' || drawingMode === 'roi-select' || drawingMode === 'arrow') {
       d.active = true;
       d.start  = xy;
       d.cursor = xy;
@@ -515,6 +515,13 @@ export default function AnnotationCanvas({ viewer }) {
       d.active = false; d.start = null; d.cursor = null;
       if (Math.abs(ex - sx) < 5 && Math.abs(ey - sy) < 5) { render(); return; }
       await save(makeEllipse(sx, sy, ex, ey, opts));
+
+    } else if (drawingMode === 'arrow' && d.active && d.start) {
+      const [sx, sy] = d.start;
+      const [ex, ey] = xy;
+      d.active = false; d.start = null; d.cursor = null;
+      if (Math.hypot(ex - sx, ey - sy) < 5) { render(); return; }
+      await save(makeArrow(sx, sy, ex, ey, opts));
 
     } else if (drawingMode === 'roi-select' && d.active && d.start) {
       // ROI selection — store coordinates, don't create an annotation
