@@ -6,7 +6,9 @@
       "Bash(docker *)",
       "Bash(ls *)",
       "Bash(grep *)",
-      "Bash(cat *)"
+      "Bash(cat *)",
+      "Bash(gh api:*)",
+      "Bash(gh release:*)"
     ]
   }
 }
