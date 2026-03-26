@@ -12,3 +12,7 @@ dist/
 # Local env overrides (contain secrets)
 .env.local
 .env.*.local
+
+# Python
+__pycache__/
+*.pyc
