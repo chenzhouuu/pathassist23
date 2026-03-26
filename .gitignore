@@ -4,8 +4,10 @@ dist/
 .vscode/
 
 # Claude Code
-.claude/worktrees/          # temporary git worktrees, auto-created
-.claude/settings.local.json # contains server IPs / personal paths
+# temporary git worktrees, auto-created
+.claude/worktrees/
+# contains server IPs / personal paths
+.claude/settings.local.json
 
 # Local env overrides (contain secrets)
 .env.local
