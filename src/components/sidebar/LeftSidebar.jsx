@@ -143,7 +143,7 @@ function CollectionNode({ collection }) {
     <div>
       <div
         className="tree-item font-medium"
-        style={{ paddingLeft: '8px', color: 'var(--text)' }}
+        style={{ paddingLeft: '8px' }}
         onClick={() => { setOpen(!open); setActiveCollection(collection); }}
       >
         <ChevronRight open={open} />
