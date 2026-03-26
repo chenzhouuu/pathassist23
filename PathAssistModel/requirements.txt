@@ -1,0 +1,15 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+celery==5.5.3
+redis==6.4.0
+girder-client==3.2.11
+boto3==1.40.33
+pydantic==2.11.7
+pydantic-settings==2.10.1
+python-multipart==0.0.20
+numpy==1.26.4
+joblib==1.5.2
+tiatoolbox==1.6.0
+openslide-python==1.4.2
+shapely==2.1.1
+opencv-python-headless==4.11.0.86
