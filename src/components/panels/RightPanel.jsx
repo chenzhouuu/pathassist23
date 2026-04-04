@@ -5,6 +5,7 @@ import MetadataPanel from './MetadataPanel.jsx';
 import AIPanel from './AIPanel.jsx';
 import PanelsPanel from './PanelsPanel.jsx';
 import AnalysisPanel from './AnalysisPanel.jsx';
+import PathChatPanel from './PathChatPanel.jsx';
 
 export default function RightPanel() {
   const { rightPanelOpen, rightPanelTab, setRightPanelTab, panels, hasRole } = useStore();
@@ -23,6 +24,10 @@ export default function RightPanel() {
     { id:'analysis',    label:'Analysis', show: hasRole('ai-users'), icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/>
+      </svg> },
+    { id:'chat',        label:'AskPA', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
       </svg> },
     { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -63,6 +68,7 @@ export default function RightPanel() {
         {rightPanelTab === 'panels'      && <PanelsPanel/>}
         {rightPanelTab === 'ai'          && <AIPanel/>}
         {rightPanelTab === 'analysis'    && <AnalysisPanel/>}
+        {rightPanelTab === 'chat'        && <PathChatPanel/>}
       </div>
     </div>
   );

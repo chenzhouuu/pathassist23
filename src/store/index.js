@@ -90,6 +90,8 @@ export const useStore = create((set, get) => ({
       visibleAnnotations: {},
       selectedAnnotation: null,
       drawingMode: null,
+      chatMessages: [],          // clear AskPA conversation when slide changes
+      chatPendingAttachment: null,
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -212,6 +214,23 @@ export const useStore = create((set, get) => ({
     localStorage.removeItem('pathassist_ki67_results');
     set({ aiResults: [] });
   },
+
+  // ── AskPA (PathChat) ──────────────────────────────────────────────────────────
+  // Multi-turn Claude vision chat — NOT persisted (base64 images too large for localStorage)
+  // Each message: { role: 'user'|'assistant', content: Array<{type,text}|{type,source}>, _usage?, _error? }
+  chatMessages: [],
+  chatLoading: false,
+  chatError: null,
+  chatModel: (() => { try { return localStorage.getItem('pathassist_chat_model') || 'claude-sonnet-4-6'; } catch { return 'claude-sonnet-4-6'; } })(),
+  chatPendingAttachment: null, // base64 JPEG (no data: prefix) waiting to attach to next message
+
+  addChatMessage:           (msg)   => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
+  setChatLoading:           (v)     => set({ chatLoading: v }),
+  setChatError:             (v)     => set({ chatError: v }),
+  setChatModel:             (model) => { try { localStorage.setItem('pathassist_chat_model', model); } catch { /* */ } set({ chatModel: model }); },
+  setChatPendingAttachment: (b64)   => set({ chatPendingAttachment: b64 }),
+  clearChatPendingAttachment: ()    => set({ chatPendingAttachment: null }),
+  clearChat:                ()      => set({ chatMessages: [], chatLoading: false, chatError: null, chatPendingAttachment: null }),
 
   // 'claude' | 'gemini' — which model to run when ROI is drawn
   ki67PendingModel: 'claude',
