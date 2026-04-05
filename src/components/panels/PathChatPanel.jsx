@@ -28,7 +28,6 @@ function ModelSelector() {
           {m.label}
         </button>
       ))}
-      <span style={{ fontSize: 9, color: 'var(--muted)', opacity: 0.55 }}>MedGemma (soon)</span>
     </div>
   );
 }
@@ -36,7 +35,7 @@ function ModelSelector() {
 // ── Usage footer ──────────────────────────────────────────────────────────────
 function UsageFooter({ usage, modelId }) {
   if (!usage) return null;
-  const modelLabel = CHAT_MODELS[modelId]?.label || 'Sonnet';
+  const modelLabel = CHAT_MODELS[modelId]?.label || modelId;
   const cost = usage.cost_usd ?? calcChatCost(modelId, usage.input_tokens, usage.output_tokens);
   return (
     <div style={{

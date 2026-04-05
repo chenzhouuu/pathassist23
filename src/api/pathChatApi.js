@@ -1,17 +1,21 @@
 // src/api/pathChatApi.js
-// AskPA — multi-turn Claude vision chat for pathology case consultation.
-// Runs entirely in the browser — requires VITE_ANTHROPIC_API_KEY in .env.local.
+// AskPA — multi-turn vision chat for pathology case consultation.
+// Claude: requires VITE_ANTHROPIC_API_KEY in .env.local.
+// MedGemma: requires VITE_GEMINI_API_KEY in .env.local.
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // ── Model config ──────────────────────────────────────────────────────────────
 export const CHAT_MODELS = {
-  'claude-sonnet-4-6': { label: 'Sonnet', maxTokens: 2048 },
-  'claude-opus-4-6':   { label: 'Opus',   maxTokens: 2048 },
+  'claude-sonnet-4-6': { label: 'Sonnet',   maxTokens: 2048, provider: 'anthropic' },
+  'claude-opus-4-6':   { label: 'Opus',     maxTokens: 2048, provider: 'anthropic' },
+  'medgemma-4b-it':    { label: 'MedGemma', maxTokens: 2048, provider: 'google' },
 };
 
 const PRICE = {
-  'claude-sonnet-4-6': { in: 3.00 / 1_000_000, out: 15.00 / 1_000_000 },
+  'claude-sonnet-4-6': { in: 3.00  / 1_000_000, out: 15.00 / 1_000_000 },
   'claude-opus-4-6':   { in: 15.00 / 1_000_000, out: 75.00 / 1_000_000 },
+  'medgemma-4b-it':    { in: 0,                  out: 0 },                // free via AI Studio
 };
 
 export function calcChatCost(modelId, inputTok, outputTok) {
@@ -102,14 +106,61 @@ export function serializeMessages(messages) {
   return messages.map((m) => ({ role: m.role, content: m.content }));
 }
 
-// ── Core chat call ────────────────────────────────────────────────────────────
+// ── MedGemma chat (Google AI) ─────────────────────────────────────────────────
+// Converts Anthropic-format messages to Google parts format for multi-turn chat.
+function toGoogleParts(contentBlocks) {
+  return contentBlocks.map((block) => {
+    if (block.type === 'text') return { text: block.text };
+    if (block.type === 'image') return { inlineData: { mimeType: block.source.media_type, data: block.source.data } };
+    return { text: '' };
+  });
+}
+
+async function sendMedGemmaChat(systemPrompt, messages) {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error('VITE_GEMINI_API_KEY is not set. Add it to .env.local and restart the dev server.');
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: 'medgemma-4b-it',
+    systemInstruction: systemPrompt,
+  });
+
+  // All but the last message go into history; last message is sent via sendMessage
+  const history = messages.slice(0, -1).map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: toGoogleParts(m.content),
+  }));
+
+  const lastMsg = messages[messages.length - 1];
+  const lastParts = toGoogleParts(lastMsg.content);
+
+  const chat = model.startChat({ history });
+  const response = await chat.sendMessage(lastParts);
+
+  const text      = response.response.text();
+  const meta      = response.response.usageMetadata ?? {};
+  const inputTok  = meta.promptTokenCount     ?? 0;
+  const outputTok = meta.candidatesTokenCount ?? 0;
+  return {
+    text,
+    usage: { input_tokens: inputTok, output_tokens: outputTok, cost_usd: 0 },
+  };
+}
+
+// ── Core chat call (routes by provider) ──────────────────────────────────────
 export async function sendPathChat(modelId, systemPrompt, messages) {
+  const cfg = CHAT_MODELS[modelId] || CHAT_MODELS['claude-sonnet-4-6'];
+
+  if (cfg.provider === 'google') {
+    return sendMedGemmaChat(systemPrompt, messages);
+  }
+
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error('VITE_ANTHROPIC_API_KEY is not set. Add it to .env.local and restart the dev server.');
   }
   const anthropic = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-  const cfg = CHAT_MODELS[modelId] || CHAT_MODELS['claude-sonnet-4-6'];
 
   const res = await anthropic.messages.create({
     model:      modelId,
