@@ -1,5 +1,5 @@
 // src/components/panels/RightPanel.jsx
-import React from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import MetadataPanel from './MetadataPanel.jsx';
 import AIPanel from './AIPanel.jsx';
@@ -7,8 +7,36 @@ import PanelsPanel from './PanelsPanel.jsx';
 import AnalysisPanel from './AnalysisPanel.jsx';
 import PathChatPanel from './PathChatPanel.jsx';
 
+const MIN_W = 248;
+const MAX_W = 780;
+const DEFAULT_W = 248;
+
 export default function RightPanel() {
   const { rightPanelOpen, rightPanelTab, setRightPanelTab, panels, hasRole } = useStore();
+  const [panelW, setPanelW] = useState(DEFAULT_W);
+  const dragRef = useRef(null);
+
+  const onDragStart = useCallback((e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelW;
+    const onMove = (ev) => {
+      const newW = Math.min(MAX_W, Math.max(MIN_W, startW - (ev.clientX - startX)));
+      setPanelW(newW);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [panelW]);
+
   if (!rightPanelOpen) return null;
 
   const allTabs = [
@@ -38,7 +66,22 @@ export default function RightPanel() {
   const tabs = allTabs.filter((t) => t.show);
 
   return (
-    <div className="app-sidepanel app-sidepanel-right" style={{ width:'var(--right-w)' }}>
+    <div className="app-sidepanel app-sidepanel-right" style={{ width: panelW, position: 'relative' }}>
+      {/* Left-edge drag handle */}
+      <div
+        ref={dragRef}
+        onMouseDown={onDragStart}
+        title="Drag to resize panel"
+        style={{
+          position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+          cursor: 'ew-resize', zIndex: 10,
+          background: 'transparent',
+          borderLeft: '2px solid transparent',
+          transition: 'border-color 0.15s',
+        }}
+        onMouseEnter={e => e.currentTarget.style.borderLeftColor = 'rgba(124,58,237,0.5)'}
+        onMouseLeave={e => e.currentTarget.style.borderLeftColor = 'transparent'}
+      />
       <div className="viewer-panel-topbar">
         <div>
           <div className="viewer-panel-eyebrow">Workspace Panel</div>

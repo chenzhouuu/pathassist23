@@ -1,21 +1,39 @@
 // src/api/pathChatApi.js
 // AskPA — multi-turn vision chat for pathology case consultation.
-// Claude: requires VITE_ANTHROPIC_API_KEY in .env.local.
+// Claude:   requires VITE_ANTHROPIC_API_KEY in .env.local.
 // MedGemma: requires VITE_GEMINI_API_KEY in .env.local.
+// Gemma4:   requires DCPenn server running at VITE_DCPENN_LLM_URL (default http://dcpenn:11500)
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// ── Model config ──────────────────────────────────────────────────────────────
-export const CHAT_MODELS = {
-  'claude-sonnet-4-6': { label: 'Sonnet',   maxTokens: 2048, provider: 'anthropic' },
-  'claude-opus-4-6':   { label: 'Opus',     maxTokens: 2048, provider: 'anthropic' },
-  'medgemma-4b-it':    { label: 'MedGemma', maxTokens: 2048, provider: 'google' },
+// DCPenn local Gemma server — override via VITE_DCPENN_LLM_URL in .env.local
+// Routes proxied through nginx on port 9090 — no direct port exposure needed
+const DCPENN_LLM_URL  = import.meta.env.VITE_DCPENN_LLM_URL  || '/api/llm';
+const DCPENN_BRCA_URL = import.meta.env.VITE_DCPENN_BRCA_URL || '/api/brca';
+
+// ── All available models ──────────────────────────────────────────────────────
+const ALL_CHAT_MODELS = {
+  'claude-sonnet-4-6': { label: 'Sonnet',     maxTokens: 2048, provider: 'anthropic' },
+  'claude-opus-4-6':   { label: 'Opus',       maxTokens: 2048, provider: 'anthropic' },
+  'medgemma-4b-it':    { label: 'MedGemma',   maxTokens: 2048, provider: 'google' },
+  'gemma4':            { label: 'Gemma 4',    maxTokens: 2048, provider: 'dcpenn' },
 };
+
+// Filter by VITE_ENABLED_CHAT_MODELS if set (comma-separated list of model IDs)
+// e.g. VITE_ENABLED_CHAT_MODELS=claude-sonnet-4-6,gemma3:27b
+const _enabledEnv = import.meta.env.VITE_ENABLED_CHAT_MODELS;
+export const CHAT_MODELS = _enabledEnv
+  ? Object.fromEntries(
+      _enabledEnv.split(',').map((id) => id.trim()).filter((id) => ALL_CHAT_MODELS[id])
+        .map((id) => [id, ALL_CHAT_MODELS[id]])
+    )
+  : ALL_CHAT_MODELS;
 
 const PRICE = {
   'claude-sonnet-4-6': { in: 3.00  / 1_000_000, out: 15.00 / 1_000_000 },
   'claude-opus-4-6':   { in: 15.00 / 1_000_000, out: 75.00 / 1_000_000 },
-  'medgemma-4b-it':    { in: 0,                  out: 0 },                // free via AI Studio
+  'medgemma-4b-it':    { in: 0, out: 0 },   // free via AI Studio
+  'gemma4':            { in: 0, out: 0 },   // free — runs locally on DCPenn via Ollama
 };
 
 export function calcChatCost(modelId, inputTok, outputTok) {
@@ -148,9 +166,36 @@ async function sendMedGemmaChat(systemPrompt, messages) {
   };
 }
 
+// ── DCPenn Gemma chat (local Ollama via FastAPI) ──────────────────────────────
+async function sendDcpennChat(systemPrompt, messages) {
+  const res = await fetch(`${DCPENN_LLM_URL}/chat`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model:    'gemma4',
+      system:   systemPrompt,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      max_tokens: 2048,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`DCPenn Gemma server error ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  return {
+    text:  data.text ?? '',
+    usage: { ...data.usage, cost_usd: 0 },
+  };
+}
+
 // ── Core chat call (routes by provider) ──────────────────────────────────────
 export async function sendPathChat(modelId, systemPrompt, messages) {
   const cfg = CHAT_MODELS[modelId] || CHAT_MODELS['claude-sonnet-4-6'];
+
+  if (cfg.provider === 'dcpenn') {
+    return sendDcpennChat(systemPrompt, messages);
+  }
 
   if (cfg.provider === 'google') {
     return sendMedGemmaChat(systemPrompt, messages);
@@ -180,6 +225,22 @@ export async function sendPathChat(modelId, systemPrompt, messages) {
       cost_usd:      calcChatCost(modelId, inputTok, outputTok),
     },
   };
+}
+
+// ── BRCA ABMIL inference ──────────────────────────────────────────────────────
+export async function predictBRCA(slideId) {
+  const res = await fetch(`${DCPENN_BRCA_URL}/predict`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slide_id: slideId }),
+  });
+  if (!res.ok) throw new Error(`BRCA server error ${res.status}`);
+  return res.json();
+}
+
+export async function getBRCAHealth() {
+  const res = await fetch(`${DCPENN_BRCA_URL}/health`);
+  return res.json();
 }
 
 // ── Report generation ─────────────────────────────────────────────────────────

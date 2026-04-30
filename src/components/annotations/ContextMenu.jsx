@@ -37,15 +37,21 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
   const qc = useQueryClient();
   const { activeItem, setSelectedAnnotation, annotations } = useStore();
 
-  // Reposition if near viewport edge
+  // Reposition if near viewport edge — use the OSD viewer container right edge
+  // so the menu never overlaps the right panel when it's expanded.
   useEffect(() => {
     const el = menuRef.current;
     if (!el) return;
-    const vw = window.innerWidth, vh = window.innerHeight;
+    const vh = window.innerHeight;
+    // Clamp right edge to the viewer container (not window) to respect the right panel
+    const viewerEl = document.getElementById('osd-viewer') || document.querySelector('.osd-viewer-container');
+    const maxRight = viewerEl ? viewerEl.getBoundingClientRect().right : window.innerWidth;
     const rect = el.getBoundingClientRect();
     let left = x, top = y;
-    if (left + rect.width > vw - 8) left = vw - rect.width - 8;
+    if (left + rect.width > maxRight - 8) left = maxRight - rect.width - 8;
+    if (left < 8) left = 8;
     if (top + rect.height > vh - 8) top = vh - rect.height - 8;
+    if (top < 8) top = 8;
     el.style.left = `${left}px`;
     el.style.top  = `${top}px`;
   }, [x, y]);

@@ -5,29 +5,41 @@ import { useStore } from '../../store/index.js';
 import {
   sendPathChat, generateReport, buildSystemPrompt, buildContextSuffix,
   captureViewport, computeZoomString, serializeMessages, CHAT_MODELS, calcChatCost,
+  predictBRCA,
 } from '../../api/pathChatApi.js';
 
 // ── Model selector ────────────────────────────────────────────────────────────
 function ModelSelector() {
   const { chatModel, setChatModel } = useStore();
-  const models = Object.entries(CHAT_MODELS).map(([id, cfg]) => ({ id, label: cfg.label }));
+  const models = Object.entries(CHAT_MODELS).map(([id, cfg]) => ({ id, label: cfg.label, provider: cfg.provider }));
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-      {models.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => setChatModel(m.id)}
-          style={{
-            fontSize: 9, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
-            background: chatModel === m.id ? 'rgba(124,58,237,0.22)' : 'transparent',
-            color:      chatModel === m.id ? '#a78bfa' : 'var(--muted)',
-            border:     chatModel === m.id ? '1px solid rgba(124,58,237,0.45)' : '1px solid var(--border)',
-            transition: 'all 0.15s',
-          }}
-        >
-          {m.label}
-        </button>
-      ))}
+      {models.map((m) => {
+        const isLocal   = m.provider === 'dcpenn';
+        const isActive  = chatModel === m.id;
+        return (
+          <button
+            key={m.id}
+            onClick={() => setChatModel(m.id)}
+            title={isLocal ? 'Runs locally on DCPenn — free, private, no data leaves the server' : ''}
+            style={{
+              fontSize: 9, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
+              background: isActive
+                ? (isLocal ? 'rgba(16,185,129,0.18)' : 'rgba(124,58,237,0.22)')
+                : 'transparent',
+              color: isActive
+                ? (isLocal ? '#34d399' : '#a78bfa')
+                : 'var(--muted)',
+              border: isActive
+                ? (isLocal ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(124,58,237,0.45)')
+                : '1px solid var(--border)',
+              transition: 'all 0.15s',
+            }}
+          >
+            {isLocal && '⚡ '}{m.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -288,6 +300,7 @@ export default function PathChatPanel() {
   const [input, setInput] = useState('');
   const [reportText, setReportText] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [brcaLoading, setBrcaLoading] = useState(false);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -368,6 +381,45 @@ export default function PathChatPanel() {
     if (b64) setChatPendingAttachment(b64);
   };
 
+  const handleBrcaPredict = async () => {
+    if (brcaLoading) return;
+    const slideId = activeItem?.name || activeItem?._id || '';
+    setBrcaLoading(true);
+    try {
+      const r = await predictBRCA(slideId);
+      if (r.error) {
+        const isWrongTissue = r.error.includes('outside the BRCA cohort') || r.error.includes('not a breast cancer');
+        const cleanId = slideId.replace(/\.(svs|ndpi|tiff|tif|scn)$/i, '');
+        const text = isWrongTissue
+          ? `**Not a breast tissue slide**\n\n` +
+            `This slide does not appear to be breast tissue. The BRCA subtype classifier (IDC vs ILC) only works on breast cancer whole-slide images.\n\n` +
+            `**What you can do instead:**\n` +
+            `- Attach a viewport snapshot (📷 button) and ask: *"What tissue type is this? What is the diagnosis?"*\n` +
+            `- Or type: *"What organ/tissue is visible in this slide?"*\n\n` +
+            `*Slide: ${cleanId}*`
+          : `**Slide not indexed**\n\n` +
+            `Slide \`${cleanId}\` was not found in the 942-slide TCGA BRCA index.\n\n` +
+            `Only TCGA breast cancer slides with pre-extracted UNI features are currently supported.`;
+        addChatMessage({ role: 'assistant', content: [{ type: 'text', text }] });
+      } else {
+        const bar = (pct) => '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
+        const gt = r.ground_truth ? `\nGround truth: **${r.ground_truth}** ${r.correct ? '✓ correct' : '✗ incorrect'}` : '';
+        const text =
+          `**BRCA Subtype Prediction** *(ABMIL 5-fold ensemble, AUC 0.9624)*\n\n` +
+          `Prediction: **${r.prediction}** — ${r.confidence}% confidence\n\n` +
+          `IDC ${bar(r.idc_prob)} ${r.idc_prob}%\n` +
+          `ILC ${bar(r.ilc_prob)} ${r.ilc_prob}%\n\n` +
+          `Patches analysed: ${r.num_patches}  ·  Top-attention patches: ${r.top_patches.slice(0,5).join(', ')}…` +
+          gt;
+        addChatMessage({ role: 'assistant', content: [{ type: 'text', text }] });
+      }
+    } catch (err) {
+      addChatMessage({ role: 'assistant', content: [{ type: 'text', text: `BRCA server error: ${err.message}` }], _error: true });
+    } finally {
+      setBrcaLoading(false);
+    }
+  };
+
   const handleGenerateReport = async () => {
     if (chatMessages.length === 0 || reportLoading) return;
     setReportLoading(true);
@@ -409,7 +461,19 @@ export default function PathChatPanel() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap',
       }}>
         <ModelSelector />
-        <div style={{ display: 'flex', gap: 5 }}>
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+          <button
+            onClick={handleBrcaPredict}
+            disabled={brcaLoading}
+            title="Run BRCA subtype prediction (IDC vs ILC) on this slide"
+            style={{
+              fontSize: 9, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
+              background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)',
+              color: '#34d399', opacity: brcaLoading ? 0.5 : 1,
+            }}
+          >
+            {brcaLoading ? 'Predicting…' : '🔬 BRCA'}
+          </button>
           {chatMessages.length > 0 && (
             <button
               onClick={handleGenerateReport}
