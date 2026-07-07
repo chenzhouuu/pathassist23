@@ -4,6 +4,7 @@ import pytest
 
 
 def _valid_manifest():
+    from pathagent.common.cache_keys import PIPELINE_VERSION
     from pathagent.common.schemas import FeatureSpec, Manifest
 
     return Manifest(
@@ -19,7 +20,7 @@ def _valid_manifest():
         target_magnification=20.0,
         patch_size_level0=512,
         overlap=0,
-        pipeline_version="2",
+        pipeline_version=PIPELINE_VERSION,
         artifacts={"features": "features_conch_v1.h5"},
     )
 

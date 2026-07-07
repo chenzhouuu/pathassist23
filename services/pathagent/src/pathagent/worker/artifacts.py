@@ -9,6 +9,16 @@ from ..common.schemas import FeatureSpec, Manifest
 
 logger = logging.getLogger(__name__)
 
+# coords.attrs keys required to build a Manifest; a partial Trident run may omit them.
+_REQUIRED_ATTRS = (
+    "level0_width",
+    "level0_height",
+    "level0_magnification",
+    "target_magnification",
+    "patch_size_level0",
+    "overlap",
+)
+
 
 def _trident_subdir(job_dir: Path, spec: FeatureSpec, overlap: int) -> Path:
     return job_dir / f"{spec.mag}x_{spec.patch_size}px_{overlap}px_overlap"
@@ -25,9 +35,15 @@ def normalize_and_manifest(job_dir: Path, slide_stem: str, item_id: str, cache_k
 
     paths.root.mkdir(parents=True, exist_ok=True)
     with h5py.File(feat_src, "r") as f:
-        feats = f["features"]
-        patch_count, feature_dim = int(feats.shape[0]), int(feats.shape[1])
-        a = dict(f["coords"].attrs)
+        try:
+            feats = f["features"]
+            patch_count, feature_dim = int(feats.shape[0]), int(feats.shape[1])
+            a = dict(f["coords"].attrs)
+        except KeyError as exc:
+            raise KeyError(f"malformed trident h5 {feat_src}: missing {exc}") from exc
+    missing = [k for k in _REQUIRED_ATTRS if k not in a]
+    if missing:
+        raise KeyError(f"malformed trident h5 {feat_src}: missing coords attrs {missing}")
 
     shutil.copy2(feat_src, paths.features(spec.patch_encoder))
     artifacts = {"features": paths.features(spec.patch_encoder).name}

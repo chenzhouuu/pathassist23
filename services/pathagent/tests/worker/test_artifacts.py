@@ -90,3 +90,48 @@ def test_normalize_and_manifest_missing_features_raises(tmp_cache, tmp_path):
 
     with pytest.raises(FileNotFoundError):
         normalize_and_manifest(job_dir, STEM, "item-1", "case-x", spec, OVERLAP, paths)
+
+
+def test_normalize_and_manifest_missing_features_dataset_raises(tmp_cache, tmp_path):
+    """A features h5 that exists but has no `features` dataset must fail with a named error."""
+    from pathagent.common.cache_keys import cache_paths
+    from pathagent.common.schemas import FeatureSpec
+    from pathagent.worker.artifacts import normalize_and_manifest
+
+    job_dir = tmp_path / "trident"
+    sub = job_dir / f"{MAG}x_{PATCH}px_{OVERLAP}px_overlap"
+    feat_path = sub / f"features_{ENCODER}" / f"{STEM}.h5"
+    _write_h5_with_coords(feat_path, features=False)  # no `features` dataset
+    paths = cache_paths("case-x")
+    spec = FeatureSpec(patch_encoder=ENCODER)
+
+    with pytest.raises(KeyError) as exc:
+        normalize_and_manifest(job_dir, STEM, "item-1", "case-x", spec, OVERLAP, paths)
+    assert str(feat_path) in str(exc.value)
+
+
+def test_normalize_and_manifest_missing_coords_attr_raises(tmp_cache, tmp_path):
+    """A features h5 missing a required coords attr must fail with a clear, named error."""
+    from pathagent.common.cache_keys import cache_paths
+    from pathagent.common.schemas import FeatureSpec
+    from pathagent.worker.artifacts import normalize_and_manifest
+
+    job_dir = tmp_path / "trident"
+    sub = job_dir / f"{MAG}x_{PATCH}px_{OVERLAP}px_overlap"
+    feat_path = sub / f"features_{ENCODER}" / f"{STEM}.h5"
+    feat_path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(feat_path, "w") as f:
+        f.create_dataset("features", data=np.random.rand(7, 512).astype("float32"))
+        coords = f.create_dataset("coords", data=np.zeros((7, 2), dtype="int64"))
+        for k, v in ATTRS.items():
+            if k == "level0_width":  # omit a required attr
+                continue
+            coords.attrs[k] = v
+    paths = cache_paths("case-x")
+    spec = FeatureSpec(patch_encoder=ENCODER)
+
+    with pytest.raises(KeyError) as exc:
+        normalize_and_manifest(job_dir, STEM, "item-1", "case-x", spec, OVERLAP, paths)
+    msg = str(exc.value)
+    assert str(feat_path) in msg
+    assert "level0_width" in msg
