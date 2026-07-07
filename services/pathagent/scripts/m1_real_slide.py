@@ -25,6 +25,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--slide-id", default="BRACS_1648.svs", help="filename under --slides-root")
     ap.add_argument("--slides-root", default="/home/chen/data2/BRCA-TEST")
+    ap.add_argument(
+        "--girder-item",
+        default=None,
+        help="Girder item id to fetch via the download resolver (bypasses --slides-root)",
+    )
+    ap.add_argument("--girder-base", default=None, help="Girder API base, e.g. http://host:9080/api/v1")
     ap.add_argument("--encoder", default="conch_v1")
     ap.add_argument("--mag", type=int, default=20)
     ap.add_argument("--patch-size", type=int, default=256)
@@ -32,8 +38,14 @@ def main() -> int:
     args = ap.parse_args()
 
     cache_dir = args.cache_dir or tempfile.mkdtemp(prefix="pathagent-m1-")
-    os.environ["PATHAGENT_SLIDES_ROOT"] = args.slides_root
     os.environ["PATHAGENT_CACHE_DIR"] = cache_dir
+    if args.girder_item:
+        # Exercise the Girder-download resolver branch (no local slides_root).
+        os.environ.pop("PATHAGENT_SLIDES_ROOT", None)
+        if args.girder_base:
+            os.environ["PATHAGENT_GIRDER_BASE"] = args.girder_base
+    else:
+        os.environ["PATHAGENT_SLIDES_ROOT"] = args.slides_root
 
     import fakeredis
     import h5py
@@ -53,7 +65,7 @@ def main() -> int:
     req = PreprocessRequest(
         backbone=FeatureSpec(patch_encoder=args.encoder, mag=args.mag, patch_size=args.patch_size)
     )
-    item_id = args.slide_id
+    item_id = args.girder_item or args.slide_id
     key = compute_cache_key(item_id, req)
     print(f"[m1] slide={item_id}  cache_key={key}")
     print(f"[m1] cache_dir={cache_dir}")
