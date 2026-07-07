@@ -110,6 +110,37 @@ def test_normalize_and_manifest_missing_features_dataset_raises(tmp_cache, tmp_p
     assert str(feat_path) in str(exc.value)
 
 
+def test_copy_features_copies_consensus_h5(tmp_cache, tmp_path):
+    from pathagent.common.cache_keys import cache_paths
+    from pathagent.common.schemas import FeatureSpec
+    from pathagent.worker.artifacts import copy_features
+
+    job_dir = tmp_path / "job"
+    sub = job_dir / f"{MAG}x_{PATCH}px_{OVERLAP}px_overlap"
+    _write_h5_with_coords(sub / "features_uni_v1" / f"{STEM}.h5", features=True)
+    paths = cache_paths("case-x")
+    spec = FeatureSpec(patch_encoder="uni_v1", mag=MAG, patch_size=PATCH)
+
+    dest = copy_features(job_dir, STEM, spec, OVERLAP, paths)
+
+    assert dest == paths.features("uni_v1")
+    assert dest.is_file()
+
+
+def test_copy_features_missing_src_raises(tmp_cache, tmp_path):
+    from pathagent.common.cache_keys import cache_paths
+    from pathagent.common.schemas import FeatureSpec
+    from pathagent.worker.artifacts import copy_features
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    paths = cache_paths("case-x")
+    spec = FeatureSpec(patch_encoder="uni_v1", mag=MAG, patch_size=PATCH)
+
+    with pytest.raises(FileNotFoundError):
+        copy_features(job_dir, STEM, spec, OVERLAP, paths)
+
+
 def test_normalize_and_manifest_missing_coords_attr_raises(tmp_cache, tmp_path):
     """A features h5 missing a required coords attr must fail with a clear, named error."""
     from pathagent.common.cache_keys import cache_paths

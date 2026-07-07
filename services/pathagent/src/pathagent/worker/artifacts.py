@@ -24,6 +24,19 @@ def _trident_subdir(job_dir: Path, spec: FeatureSpec, overlap: int) -> Path:
     return job_dir / f"{spec.mag}x_{spec.patch_size}px_{overlap}px_overlap"
 
 
+def copy_features(job_dir: Path, slide_stem: str, spec: FeatureSpec, overlap: int,
+                  paths: CachePaths) -> Path:
+    """Copy a consensus encoder's Trident features h5 into the flat cache; return dest."""
+    sub = _trident_subdir(job_dir, spec, overlap)
+    src = sub / f"features_{spec.patch_encoder}" / f"{slide_stem}.h5"
+    if not src.is_file():
+        raise FileNotFoundError(f"trident features missing: {src}")
+    paths.root.mkdir(parents=True, exist_ok=True)
+    dest = paths.features(spec.patch_encoder)
+    shutil.copy2(src, dest)
+    return dest
+
+
 def normalize_and_manifest(job_dir: Path, slide_stem: str, item_id: str, cache_key: str,
                            spec: FeatureSpec, overlap: int, paths: CachePaths) -> Manifest:
     """Locate Trident outputs, copy into flat CachePaths, read attrs, write + return manifest."""
