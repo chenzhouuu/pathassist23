@@ -18,7 +18,10 @@ def client(redis_conn, job_redis, tmp_cache):
 def test_preprocess_to_ready(client, tmp_cache):
     from pathagent.common.cache_keys import cache_paths
 
-    body = {"backbone": {"patchEncoder": "conch_v1", "mag": 20, "patchSize": 256}, "slidechat": True}
+    body = {
+        "backbone": {"patchEncoder": "conch_v1", "mag": 20, "patchSize": 256},
+        "slidechat": True,
+    }
     resp = client.post("/api/agent/cases/item77/preprocess", json=body)
     cache_key = resp.json()["cacheKey"]
 

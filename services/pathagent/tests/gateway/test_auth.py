@@ -40,9 +40,7 @@ async def test_require_user_handles_girder_unreachable(monkeypatch):
 
     monkeypatch.setenv("PATHAGENT_GIRDER_BASE", "https://girder.test/api/v1")
     get_settings.cache_clear()
-    respx.get("https://girder.test/api/v1/user/me").mock(
-        side_effect=httpx.ConnectError("down")
-    )
+    respx.get("https://girder.test/api/v1/user/me").mock(side_effect=httpx.ConnectError("down"))
     with pytest.raises(HTTPException) as exc:
         await require_user(girder_token="tok")
     assert exc.value.status_code == 503

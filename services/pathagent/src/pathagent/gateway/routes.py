@@ -20,15 +20,17 @@ router = APIRouter(prefix=API_PREFIX)
 async def preprocess(
     item_id: str,
     request: PreprocessRequest,
-    user: dict = Depends(require_user),
-    registry: Registry = Depends(get_registry),
-    queue: PreprocessQueue = Depends(get_queue),
+    user: dict = Depends(require_user),  # noqa: B008 - FastAPI DI idiom
+    registry: Registry = Depends(get_registry),  # noqa: B008 - FastAPI DI idiom
+    queue: PreprocessQueue = Depends(get_queue),  # noqa: B008 - FastAPI DI idiom
 ) -> PreprocessResponse:
     """Enqueue preprocessing for a case; short-circuit if already cached and ready."""
     try:
         cache_key = compute_cache_key(item_id, request)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid itemId")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid itemId"
+        ) from exc
     existing = registry.get_status(cache_key)
     if existing and existing.status == JobStatus.ready:
         return PreprocessResponse(job_id="cached", cache_key=cache_key, status=JobStatus.ready)
@@ -41,8 +43,8 @@ async def preprocess(
 async def get_status(
     item_id: str,
     cacheKey: str,  # noqa: N803 - camelCase query param matches the wire contract
-    user: dict = Depends(require_user),
-    registry: Registry = Depends(get_registry),
+    user: dict = Depends(require_user),  # noqa: B008 - FastAPI DI idiom
+    registry: Registry = Depends(get_registry),  # noqa: B008 - FastAPI DI idiom
 ) -> StatusResponse:
     """Return the current job status for a cache key, or an error status if unknown."""
     found = registry.get_status(cacheKey)

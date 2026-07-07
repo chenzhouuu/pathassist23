@@ -10,7 +10,7 @@ class CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
-class JobStatus(str, Enum):
+class JobStatus(str, Enum):  # noqa: UP042 - pydantic v2 needs a str-mixin Enum, not StrEnum
     queued = "queued"
     running = "running"
     ready = "ready"

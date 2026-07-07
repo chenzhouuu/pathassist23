@@ -7,7 +7,10 @@ def test_fake_preprocess_sets_ready_and_writes_manifest(job_redis, tmp_cache):
     from pathagent.common.schemas import JobStatus
     from pathagent.worker.fake_preprocess import run_fake_preprocess
 
-    payload = {"backbone": {"patchEncoder": "conch_v1", "mag": 20, "patchSize": 256}, "slidechat": True}
+    payload = {
+        "backbone": {"patchEncoder": "conch_v1", "mag": 20, "patchSize": 256},
+        "slidechat": True,
+    }
     run_fake_preprocess("item9-abc", "item9", payload)
 
     st = Registry(job_redis).get_status("item9-abc")

@@ -19,6 +19,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "respx>=0.21",
     "fakeredis>=2.23",
+    "ruff>=0.6",
 ]
 
 [build-system]
@@ -29,3 +30,10 @@ build-backend = "hatchling.build"
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "BLE"]

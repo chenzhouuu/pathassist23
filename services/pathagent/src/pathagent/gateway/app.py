@@ -37,14 +37,27 @@ def _add_stubs(app: FastAPI) -> None:
     """
 
     @app.post(f"{API_PREFIX}/query")
-    async def query_stub(payload: dict, user: dict = Depends(require_user)) -> StreamingResponse:
+    async def query_stub(
+        payload: dict,
+        user: dict = Depends(require_user),  # noqa: B008 - FastAPI DI idiom
+    ) -> StreamingResponse:
         events = [
             {"type": "route", "task": "Diagnosis", "tools": ["navigate", "verify"]},
             {"type": "triage", "risk": "unknown", "depth": 3},
-            {"type": "navigate", "region": {"x": 0, "y": 0, "width": 1024, "height": 1024},
-             "zoom": 20, "rationale": "stub region"},
-            {"type": "final", "answer": "stub answer", "confidence": 0.0,
-             "heatmapTaskId": "stub", "trail": [], "annotations": []},
+            {
+                "type": "navigate",
+                "region": {"x": 0, "y": 0, "width": 1024, "height": 1024},
+                "zoom": 20,
+                "rationale": "stub region",
+            },
+            {
+                "type": "final",
+                "answer": "stub answer",
+                "confidence": 0.0,
+                "heatmapTaskId": "stub",
+                "trail": [],
+                "annotations": [],
+            },
         ]
 
         def gen():
@@ -55,6 +68,8 @@ def _add_stubs(app: FastAPI) -> None:
 
     @app.get(f"{API_PREFIX}/cases/{{item_id}}/heatmap/{{task_id}}")
     async def heatmap_stub(
-        item_id: str, task_id: str, user: dict = Depends(require_user)
+        item_id: str,
+        task_id: str,
+        user: dict = Depends(require_user),  # noqa: B008 - FastAPI DI idiom
     ) -> dict:
         return {"stub": True, "itemId": item_id, "taskId": task_id}

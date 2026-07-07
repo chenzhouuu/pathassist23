@@ -20,7 +20,10 @@ def client(redis_conn, monkeypatch):
 
 
 def _body():
-    return {"backbone": {"patchEncoder": "conch_v1", "mag": 20, "patchSize": 256}, "slidechat": True}
+    return {
+        "backbone": {"patchEncoder": "conch_v1", "mag": 20, "patchSize": 256},
+        "slidechat": True,
+    }
 
 
 def test_preprocess_enqueues_and_returns_cache_key(client):
@@ -34,7 +37,7 @@ def test_preprocess_enqueues_and_returns_cache_key(client):
 def test_status_reflects_registry(client):
     resp = client.post("/api/agent/cases/item42/preprocess", json=_body())
     cache_key = resp.json()["cacheKey"]
-    st = client.get(f"/api/agent/cases/item42/status", params={"cacheKey": cache_key})
+    st = client.get("/api/agent/cases/item42/status", params={"cacheKey": cache_key})
     assert st.status_code == 200
     assert st.json()["status"] == "queued"
 

@@ -4,9 +4,7 @@ def test_enqueue_runs_job_inline(redis_conn, monkeypatch):
     from pathagent.worker import fake_preprocess
 
     calls = []
-    monkeypatch.setattr(
-        fake_preprocess, "run_fake_preprocess", lambda *a: calls.append(a)
-    )
+    monkeypatch.setattr(fake_preprocess, "run_fake_preprocess", lambda *a: calls.append(a))
 
     q = PreprocessQueue(redis_conn, is_async=False)  # is_async=False runs the job inline
     req = PreprocessRequest(backbone=FeatureSpec(patchEncoder="conch_v1"))
