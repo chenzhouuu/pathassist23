@@ -20,3 +20,23 @@ def test_env_override(monkeypatch):
     assert s.redis_url == "redis://example:6379/2"
     assert s.cache_dir == Path("/tmp/pa-cache")
     get_settings.cache_clear()
+
+
+def test_m1_defaults():
+    from pathagent.common.config import Settings
+
+    s = Settings()
+    assert s.trident_repo.name == "trident"
+    assert s.trident_gpu == 0
+    assert s.slides_root is None
+    assert s.default_overlap == 0
+
+
+def test_m1_env_override(monkeypatch):
+    from pathagent.common.config import Settings
+
+    monkeypatch.setenv("PATHAGENT_TRIDENT_GPU", "1")
+    monkeypatch.setenv("PATHAGENT_SLIDES_ROOT", "/tmp/x")
+    s = Settings()
+    assert s.trident_gpu == 1
+    assert s.slides_root == Path("/tmp/x")

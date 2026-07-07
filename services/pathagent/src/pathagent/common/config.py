@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     default_mag: int = 20
     default_patch_size: int = 256
 
+    trident_python: Path = Path("/home/chen/miniconda3/envs/pathology/bin/python")
+    trident_repo: Path = Path("/home/chen/MIL-Lab/trident")
+    trident_gpu: int = 0
+    seg_conf_thresh: float = 0.5
+    default_overlap: int = 0
+    slides_root: Path | None = None
+    subprocess_timeout_s: int = 3600
+
 
 @lru_cache
 def get_settings() -> Settings:
