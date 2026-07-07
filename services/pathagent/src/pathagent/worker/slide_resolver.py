@@ -1,18 +1,29 @@
+import glob
 import logging
 from pathlib import Path
 
+from ..common.cache_keys import _validate_segment
 from ..common.config import Settings
 from .girder_download import WSI_EXTS, download_item_slide
 
 logger = logging.getLogger(__name__)
 
+# Glob wildcards must never appear in an item_id: an unescaped "*"/"?"/"[" would
+# match unrelated slides (cross-case disclosure). A legitimate slide id/stem has none.
+_GLOB_METACHARS = ("*", "?", "[", "]")
+
 
 def _local_candidate(item_id: str, slides_root: Path) -> Path | None:
+    # Reject path traversal / absolute ids and glob wildcards before touching the FS.
+    _validate_segment(item_id)
+    if any(ch in item_id for ch in _GLOB_METACHARS):
+        raise ValueError(f"unsafe path segment: {item_id!r}")
     direct = slides_root / item_id
     if direct.is_file():
         return direct
+    escaped = glob.escape(item_id)
     for ext in ("",) + WSI_EXTS:
-        for hit in slides_root.glob(f"**/{item_id}{ext}"):
+        for hit in slides_root.glob(f"**/{escaped}{ext}"):
             if hit.is_file():
                 return hit
     return None

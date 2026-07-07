@@ -34,20 +34,36 @@ def _subprocess_env() -> dict[str, str]:
     return env
 
 
+def _as_text(data: str | bytes | None) -> str:
+    if data is None:
+        return ""
+    if isinstance(data, bytes):
+        return data.decode(errors="replace")
+    return data
+
+
+def _write_log(job_dir: Path, stdout: str | bytes | None, stderr: str | bytes | None) -> Path:
+    log = job_dir / "trident.log"
+    log.write_text(_as_text(stdout) + "\n--- STDERR ---\n" + _as_text(stderr))
+    return log
+
+
 def run_trident(slide_path: Path, job_dir: Path, spec: FeatureSpec, settings: Settings) -> None:
     """Run Trident's single-slide pipeline as a subprocess; raise on failure.
 
-    Logs stdout/stderr to job_dir/trident.log.
+    Logs stdout/stderr to job_dir/trident.log (including on timeout).
     """
     job_dir.mkdir(parents=True, exist_ok=True)
     cmd = build_command(slide_path, job_dir, spec, settings)
     logger.info("running trident: %s", " ".join(cmd))
-    proc = subprocess.run(
-        cmd, cwd=str(settings.trident_repo), env=_subprocess_env(),
-        capture_output=True, text=True, timeout=settings.subprocess_timeout_s,
-    )
-    (job_dir / "trident.log").write_text(
-        (proc.stdout or "") + "\n--- STDERR ---\n" + (proc.stderr or "")
-    )
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(settings.trident_repo), env=_subprocess_env(),
+            capture_output=True, text=True, timeout=settings.subprocess_timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        _write_log(job_dir, exc.stdout, exc.stderr)
+        raise
+    _write_log(job_dir, proc.stdout, proc.stderr)
     if proc.returncode != 0:
         raise RuntimeError(f"trident failed (rc={proc.returncode}); see {job_dir / 'trident.log'}")

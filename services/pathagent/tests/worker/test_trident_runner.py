@@ -69,6 +69,30 @@ def test_run_trident_failure_raises_and_logs(tmp_path, monkeypatch):
     assert "boom" in log.read_text()
 
 
+def test_run_trident_timeout_writes_log_and_raises(tmp_path, monkeypatch):
+    from pathagent.common.config import Settings
+    from pathagent.common.schemas import FeatureSpec
+    from pathagent.worker import trident_runner
+
+    def fake_run(*_a, **_k):
+        raise subprocess.TimeoutExpired(
+            cmd=["trident"], timeout=1, output="partial-out", stderr="partial-err"
+        )
+
+    monkeypatch.setattr(trident_runner.subprocess, "run", fake_run)
+
+    job_dir = tmp_path / "job"
+    spec = FeatureSpec(patch_encoder="conch_v1")
+    with pytest.raises(subprocess.TimeoutExpired):
+        trident_runner.run_trident(Path("/slides/s.svs"), job_dir, spec, Settings())
+
+    log = job_dir / "trident.log"
+    assert log.exists()
+    text = log.read_text()
+    assert "partial-out" in text
+    assert "partial-err" in text
+
+
 def test_subprocess_env_propagates_hf_token(monkeypatch):
     from pathagent.worker.trident_runner import _subprocess_env
 
