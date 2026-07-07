@@ -37,6 +37,7 @@ class CachePaths:
     manifest: Path
     coords: Path
     thumbnail: Path
+    classifier: Path
 
     def features(self, encoder: str) -> Path:
         """Path to the patch-feature h5 for a given encoder."""
@@ -53,4 +54,5 @@ def cache_paths(cache_key: str) -> CachePaths:
         manifest=root / "manifest.json",
         coords=root / "coords.h5",
         thumbnail=root / "thumbnail.jpg",
+        classifier=root / "classifier.json",
     )

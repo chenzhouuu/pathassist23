@@ -28,6 +28,14 @@ def test_cache_paths(tmp_cache):
     assert paths.features("conch_v1").name == "features_conch_v1.h5"
 
 
+def test_classifier_path(tmp_cache):
+    from pathagent.common.cache_keys import cache_paths
+
+    paths = cache_paths("k")
+    assert paths.classifier.name == "classifier.json"
+    assert paths.classifier.parent == cache_paths("k").root
+
+
 def test_rejects_unsafe_ids():
     import pytest
 
