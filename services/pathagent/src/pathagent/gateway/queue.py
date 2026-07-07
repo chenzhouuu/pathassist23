@@ -2,7 +2,7 @@ from redis import Redis
 from rq import Queue
 
 from ..common.schemas import PreprocessRequest
-from ..worker.fake_preprocess import run_fake_preprocess
+from ..worker.trident_preprocess import run_trident_preprocess
 
 QUEUE_NAME = "pathagent"
 
@@ -16,6 +16,6 @@ class PreprocessQueue:
     def enqueue_preprocess(self, cache_key: str, item_id: str, request: PreprocessRequest) -> str:
         """Enqueue a preprocessing job and return its RQ job id."""
         job = self.queue.enqueue(
-            run_fake_preprocess, cache_key, item_id, request.model_dump(by_alias=True)
+            run_trident_preprocess, cache_key, item_id, request.model_dump(by_alias=True)
         )
         return job.id

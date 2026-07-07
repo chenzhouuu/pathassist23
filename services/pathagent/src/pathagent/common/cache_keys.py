@@ -7,7 +7,7 @@ from .config import get_settings
 from .schemas import PreprocessRequest
 
 # Bump when the preprocessing pipeline changes in a way that invalidates cached artifacts.
-PIPELINE_VERSION = "1"
+PIPELINE_VERSION = "2"
 
 
 def _validate_segment(name: str) -> None:
