@@ -59,6 +59,22 @@ class StatusResponse(CamelModel):
     error: str | None = None
 
 
+class ClassifierResult(CamelModel):
+    """Slide-level classifier output (BRCA ABMIL: IDC vs ILC + attention)."""
+
+    model: str
+    prediction: str
+    confidence: float
+    idc_prob: float
+    ilc_prob: float
+    num_patches: int
+    auc: float | None = None
+    patch_size_px: int | None = None
+    extract_mpp: float | None = None
+    top_coords: list[list[int]] = Field(default_factory=list)
+    top_scores: list[float] = Field(default_factory=list)
+
+
 class Manifest(CamelModel):
     """Typed description of a preprocessed case's cached artifacts."""
 

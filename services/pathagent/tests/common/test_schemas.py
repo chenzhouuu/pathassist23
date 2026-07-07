@@ -40,6 +40,40 @@ def test_status_response_defaults():
     assert dumped["ready"] == {"features": False, "slidechat": False, "classifiers": False}
 
 
+BRCA_SAMPLE = {
+    "prediction": "IDC",
+    "confidence": 90.1,
+    "idc_prob": 90.1,
+    "ilc_prob": 9.9,
+    "top_patches": [2814, 2862],
+    "top_coords": [[95744, 34304], [97280, 30720]],
+    "top_scores": [0.91, 0.82],
+    "patch_size_px": 256,
+    "extract_mpp": 0.5,
+    "num_patches": 4260,
+    "model": "ABMIL-BRCA-5fold-ensemble",
+    "auc": 0.9624,
+}
+
+
+def test_classifier_result_parses_brca_sample():
+    from pathagent.common.schemas import ClassifierResult
+
+    result = ClassifierResult.model_validate(BRCA_SAMPLE)
+    assert result.prediction == "IDC"
+    assert result.idc_prob == 90.1
+    assert result.num_patches == 4260
+    assert len(result.top_coords) == 2
+
+
+def test_classifier_result_dumps_camelcase():
+    from pathagent.common.schemas import ClassifierResult
+
+    dumped = ClassifierResult.model_validate(BRCA_SAMPLE).model_dump(by_alias=True)
+    for key in ("idcProb", "ilcProb", "topCoords", "numPatches", "patchSizePx", "extractMpp"):
+        assert key in dumped
+
+
 def test_manifest_dumps_camelcase_and_round_trips():
     from pathagent.common.schemas import FeatureSpec, Manifest
 
