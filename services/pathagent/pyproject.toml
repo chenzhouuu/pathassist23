@@ -12,6 +12,10 @@ dependencies = [
     "rq>=1.16",
     "httpx>=0.27",
     "h5py>=3.10",
+    "langgraph>=1.2.8",
+    "sse-starlette>=3.4.5",
+    "numpy>=2.4.6",
+    "pillow>=12.3.0",
 ]
 
 [dependency-groups]

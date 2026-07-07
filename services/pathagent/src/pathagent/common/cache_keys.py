@@ -44,6 +44,16 @@ class CachePaths:
         _validate_segment(encoder)
         return self.root / f"features_{encoder}.h5"
 
+    def heatmap(self, task_id: str) -> Path:
+        """Path to the rendered importance heatmap PNG for a given task."""
+        _validate_segment(task_id)
+        return self.root / "heatmaps" / f"{task_id}.png"
+
+    def heatmap_meta(self, task_id: str) -> Path:
+        """Path to the heatmap metadata JSON for a given task."""
+        _validate_segment(task_id)
+        return self.root / "heatmaps" / f"{task_id}.json"
+
 
 def cache_paths(cache_key: str) -> CachePaths:
     """Resolve the on-disk artifact paths for a cache key under the configured cache dir."""

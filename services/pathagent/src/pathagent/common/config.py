@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     classifier_timeout_s: float = 120.0
     default_consensus_encoder: str = "uni_v1"
 
+    # ── M3 orchestrator ──────────────────────────────────────────────
+    agent_enabled: bool = True
+    agent_llm_url: str = "http://192.168.191.109:11500"
+    agent_llm_model: str = "gemma4"          # local Ollama; "medgemma" = pathology-tuned swap
+    agent_llm_timeout_s: float = 120.0
+    agent_llm_max_tokens: int = 1024
+    agent_max_regions: int = 8               # hard cap on navigate cycles (budget/termination)
+    nav_top_k: int = 6                       # hotspot regions before coverage sampling
+    kb_top_k: int = 4                        # seed-KB chunks retrieved
+    phi_weights: tuple[float, float, float] = (0.34, 0.33, 0.33)  # (w_l, w_k, w_c) → φ_total
+    navigation_encoder: str = "conch_v1"     # importance map lattice
+
 
 @lru_cache
 def get_settings() -> Settings:

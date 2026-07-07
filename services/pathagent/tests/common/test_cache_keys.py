@@ -57,3 +57,25 @@ def test_features_rejects_unsafe_encoder(tmp_cache):
     with pytest.raises(ValueError):
         paths.features("../evil")
     assert paths.features("conch_v1").name == "features_conch_v1.h5"
+
+
+def test_heatmap_paths(tmp_cache):
+    from pathagent.common.cache_keys import cache_paths
+
+    paths = cache_paths("item123-abc")
+    assert paths.heatmap("t1") == tmp_cache / "item123-abc" / "heatmaps" / "t1.png"
+    assert paths.heatmap_meta("t1") == tmp_cache / "item123-abc" / "heatmaps" / "t1.json"
+    assert str(paths.heatmap_meta("t1")).endswith("heatmaps/t1.json")
+
+
+def test_heatmap_rejects_unsafe_task_id(tmp_cache):
+    import pytest
+
+    from pathagent.common.cache_keys import cache_paths
+
+    paths = cache_paths("item-abc")
+    for bad in ("../x", "a/b", ""):
+        with pytest.raises(ValueError):
+            paths.heatmap(bad)
+        with pytest.raises(ValueError):
+            paths.heatmap_meta(bad)

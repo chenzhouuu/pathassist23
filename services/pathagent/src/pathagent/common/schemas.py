@@ -76,6 +76,49 @@ class ClassifierResult(CamelModel):
     top_scores: list[float] = Field(default_factory=list)
 
 
+class ROI(CamelModel):
+    """A rectangular region of interest in level-0 slide coordinates."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class AgentQueryRequest(CamelModel):
+    """Client request to the M3 orchestrator for a case question."""
+
+    item_id: str
+    cache_key: str
+    question: str
+    task: str = "auto"  # "auto" | "Diagnosis"
+    roi: ROI | None = None
+
+
+class Candidate(CamelModel):
+    """A candidate answer from a single source (classifier or LLM)."""
+
+    source: str  # "classifier" | "llm"
+    answer: str
+    detail: str = ""
+
+
+class Citation(CamelModel):
+    """A supporting citation snippet with its source."""
+
+    text: str
+    source: str
+
+
+class VerifyScores(CamelModel):
+    """Verification scores: per-signal φ components and the combined φ_total."""
+
+    phi_l: float
+    phi_k: float
+    phi_c: float
+    phi_total: float
+
+
 class Manifest(CamelModel):
     """Typed description of a preprocessed case's cached artifacts."""
 
