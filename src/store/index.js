@@ -92,6 +92,8 @@ export const useStore = create((set, get) => ({
       drawingMode: null,
       chatMessages: [],          // clear AskPA conversation when slide changes
       chatPendingAttachment: null,
+      agentTrace: [], agentNavTrail: [], agentFinal: null, agentHeatmap: null,
+      agentStatus: null, agentCacheKey: null, agentRunning: false, agentError: null,
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -231,6 +233,30 @@ export const useStore = create((set, get) => ({
   setChatPendingAttachment: (b64)   => set({ chatPendingAttachment: b64 }),
   clearChatPendingAttachment: ()    => set({ chatPendingAttachment: null }),
   clearChat:                ()      => set({ chatMessages: [], chatLoading: false, chatError: null, chatPendingAttachment: null }),
+
+  // ── PathAgent (M4) ────────────────────────────────────────────────────────────
+  // Streaming agent run over the M3 gateway — NOT persisted.
+  agentTrace: [],              // ordered stream events [{type, ...}]
+  agentStatus: null,           // { status, stage, progress, ready } from pollStatus
+  agentCacheKey: null,
+  agentRunning: false,
+  agentNavTrail: [],           // [{x,y,width,height, rationale?}] visited regions (level-0 px)
+  agentHeatmap: null,          // { taskId, visible }
+  agentFinal: null,            // the final event payload
+  agentFollow: true,           // co-navigation on/off (pause = false)
+  agentError: null,
+
+  addAgentEvent:    (evt)    => set((s) => ({ agentTrace: [...s.agentTrace, evt] })),
+  pushNavRegion:    (region) => set((s) => ({ agentNavTrail: [...s.agentNavTrail, region] })),
+  setAgentStatus:   (st)     => set({ agentStatus: st }),
+  setAgentCacheKey: (k)      => set({ agentCacheKey: k }),
+  setAgentRunning:  (v)      => set({ agentRunning: v }),
+  setAgentHeatmap:  (h)      => set({ agentHeatmap: h }),
+  setAgentFinal:    (f)      => set({ agentFinal: f }),
+  setAgentFollow:   (v)      => set({ agentFollow: v }),
+  setAgentError:    (e)      => set({ agentError: e }),
+  resetAgentRun:    ()       => set({ agentTrace: [], agentNavTrail: [], agentFinal: null,
+                                      agentHeatmap: null, agentRunning: false, agentError: null }),
 
   // 'claude' | 'gemini' — which model to run when ROI is drawn
   ki67PendingModel: 'claude',
