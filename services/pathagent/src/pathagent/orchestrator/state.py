@@ -6,8 +6,9 @@ receives. Thin event-builder helpers keep the node functions terse and give the
 streamed events a single, consistent shape.
 """
 
+import operator
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 from ..common.config import Settings
 from .llm_client import LLMClient
@@ -17,10 +18,13 @@ from .perception import PerceptionRunner
 class AgentState(TypedDict, total=False):
     """Shared state threaded through the reasoning graph.
 
-    List-valued keys (``events``, ``visited``, ``descriptions``, ``candidates``)
-    are merged by append-reducers, so nodes return only the *new* items to
-    append. Scalar keys (``task``, ``budget``, ``nav``, ``prelim`` ...) are
-    replaced with the returned value.
+    List-valued keys (``events``, ``visited``, ``descriptions``, ``candidates``,
+    ``citations``) carry ``Annotated[..., operator.add]`` append-reducers, so a
+    node returns only the *new* items to append and LangGraph merges them across
+    the navigate<->describe loop and the parallel verifier fan-out. This is what
+    makes ``visited`` grow one region per loop iteration (navigate keys off its
+    length). Scalar keys (``task``, ``budget``, ``nav``, ``prelim``, the ``phi_*``
+    branch scores, ...) are plain and replaced last-write-wins.
     """
 
     question: str
@@ -31,14 +35,18 @@ class AgentState(TypedDict, total=False):
     roi: dict | None
     budget: dict  # {"max_regions": int, "spent": int}
     nav: dict | None  # NavResult as a dict, or {"regions": [], ...} on failure
-    visited: list[dict]  # regions visited (append)
-    descriptions: list[dict]  # {region, findings} (append)
-    candidates: list[dict]  # {source, answer, detail} (append)
+    visited: Annotated[list[dict], operator.add]  # regions visited (append)
+    descriptions: Annotated[list[dict], operator.add]  # {region, findings} (append)
+    candidates: Annotated[list[dict], operator.add]  # {source, answer, detail} (append)
     prelim: str
-    scores: dict  # filled in Task 6
-    citations: list[dict]  # filled in Task 6
-    final: dict  # filled in Task 6
-    events: list[dict]  # streamed events (append)
+    phi_l: float  # internal-consistency branch score (Task 6)
+    phi_k: float  # factual-alignment branch score (Task 6)
+    phi_c: float  # classifier-consensus branch score (Task 6)
+    consensus_note: str  # note emitted by the consensus branch (Task 6)
+    scores: dict  # composed display scores (Task 6)
+    citations: Annotated[list[dict], operator.add]  # KB citations (append, Task 6)
+    final: dict  # final answer payload (Task 6)
+    events: Annotated[list[dict], operator.add]  # streamed events (append)
 
 
 @dataclass(frozen=True)
