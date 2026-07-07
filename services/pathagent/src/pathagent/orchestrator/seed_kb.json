@@ -1,0 +1,32 @@
+[
+  {
+    "id": "idc-nst-01",
+    "text": "Invasive breast carcinoma of no special type (invasive ductal carcinoma) shows malignant epithelial cells infiltrating the stroma in nests, cords, and tubules, and is the most common invasive breast cancer.",
+    "source": "WHO Breast Tumours, 5th ed. (seed excerpt)"
+  },
+  {
+    "id": "ilc-single-file-01",
+    "text": "Invasive lobular carcinoma classically grows as single-file cords of small, discohesive cells infiltrating the stroma, often in a targetoid pattern around residual ducts.",
+    "source": "PathologyOutlines - Invasive lobular carcinoma (seed)"
+  },
+  {
+    "id": "ilc-ecadherin-01",
+    "text": "Loss of membranous E-cadherin expression is characteristic of invasive lobular carcinoma and reflects the discohesive growth caused by CDH1 inactivation, distinguishing it from ductal carcinoma.",
+    "source": "WHO Breast Tumours, 5th ed. (seed excerpt)"
+  },
+  {
+    "id": "dcis-01",
+    "text": "Ductal carcinoma in situ is a non-invasive proliferation of malignant epithelial cells confined within the ductal-lobular system by an intact myoepithelial layer and basement membrane.",
+    "source": "WHO Breast Tumours, 5th ed. (seed excerpt)"
+  },
+  {
+    "id": "grade-nottingham-01",
+    "text": "Invasive breast carcinomas are graded by the Nottingham system, summing scores for tubule formation, nuclear pleomorphism, and mitotic count; high nuclear grade tumours show marked pleomorphism and brisk mitoses.",
+    "source": "PathologyOutlines - Nottingham grading (seed)"
+  },
+  {
+    "id": "benign-01",
+    "text": "Benign breast tissue and fibrocystic change retain organised ducts and lobules with a preserved two-cell layer (epithelial plus outer myoepithelial cells) and no stromal invasion.",
+    "source": "PathologyOutlines - Fibrocystic change (seed)"
+  }
+]
