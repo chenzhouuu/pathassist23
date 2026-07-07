@@ -329,3 +329,7 @@ export const useStore = create((set, get) => ({
     set({ autoCollapseViewerPanels: enabled });
   },
 }));
+
+// Dev-only test handle (guarded by import.meta.env.DEV; stripped from prod builds).
+// Lets an E2E harness open a slide deterministically without navigating the sidebar UI.
+if (typeof window !== 'undefined' && import.meta.env?.DEV) window.__pathStore = useStore;
