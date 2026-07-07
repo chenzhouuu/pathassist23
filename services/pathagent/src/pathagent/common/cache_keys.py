@@ -39,6 +39,8 @@ class CachePaths:
     thumbnail: Path
 
     def features(self, encoder: str) -> Path:
+        """Path to the patch-feature h5 for a given encoder."""
+        _validate_segment(encoder)
         return self.root / f"features_{encoder}.h5"
 
 

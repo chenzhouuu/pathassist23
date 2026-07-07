@@ -38,3 +38,14 @@ def test_rejects_unsafe_ids():
             compute_cache_key(bad, _req())
         with pytest.raises(ValueError):
             cache_paths(bad)
+
+
+def test_features_rejects_unsafe_encoder(tmp_cache):
+    import pytest
+
+    from pathagent.common.cache_keys import cache_paths
+
+    paths = cache_paths("item-abc")
+    with pytest.raises(ValueError):
+        paths.features("../evil")
+    assert paths.features("conch_v1").name == "features_conch_v1.h5"
