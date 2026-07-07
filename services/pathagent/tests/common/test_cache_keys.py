@@ -26,3 +26,15 @@ def test_cache_paths(tmp_cache):
     assert paths.root == tmp_cache / "item123-abc"
     assert paths.manifest.name == "manifest.json"
     assert paths.features("conch_v1").name == "features_conch_v1.h5"
+
+
+def test_rejects_unsafe_ids():
+    import pytest
+
+    from pathagent.common.cache_keys import cache_paths, compute_cache_key
+
+    for bad in ("../etc", "a/b", ""):
+        with pytest.raises(ValueError):
+            compute_cache_key(bad, _req())
+        with pytest.raises(ValueError):
+            cache_paths(bad)

@@ -21,6 +21,16 @@ def test_feature_spec_defaults():
     assert spec.mag == 20 and spec.patch_size == 256
 
 
+def test_preprocess_response_dumps_camelcase():
+    from pathagent.common.schemas import JobStatus, PreprocessResponse
+
+    resp = PreprocessResponse(job_id="j1", cache_key="item1-abc", status=JobStatus.queued)
+    dumped = resp.model_dump(by_alias=True)
+    assert dumped["jobId"] == "j1"
+    assert dumped["cacheKey"] == "item1-abc"
+    assert dumped["status"] == "queued"
+
+
 def test_status_response_defaults():
     from pathagent.common.schemas import JobStatus, StatusResponse
 

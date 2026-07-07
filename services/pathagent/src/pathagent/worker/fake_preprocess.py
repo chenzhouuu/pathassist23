@@ -1,5 +1,7 @@
 import json
 import logging
+from pathlib import Path
+from typing import Any
 
 from ..common import connection
 from ..common.cache_keys import cache_paths
@@ -9,7 +11,7 @@ from ..common.schemas import JobStatus, ReadyFlags, StatusResponse
 logger = logging.getLogger(__name__)
 
 
-def run_fake_preprocess(cache_key: str, item_id: str, request_payload: dict) -> None:
+def run_fake_preprocess(cache_key: str, item_id: str, request_payload: dict[str, Any]) -> None:
     """M0 stand-in for the Trident worker: simulate stages, write a stub manifest, mark ready.
 
     Plan 2 (M1) replaces this with the real seg -> coords -> CONCH feature pipeline.
@@ -42,7 +44,9 @@ def run_fake_preprocess(cache_key: str, item_id: str, request_payload: dict) -> 
         raise
 
 
-def _write_stub_manifest(path, cache_key: str, item_id: str, request_payload: dict) -> None:
+def _write_stub_manifest(
+    path: Path, cache_key: str, item_id: str, request_payload: dict[str, Any]
+) -> None:
     path.write_text(
         json.dumps(
             {"cacheKey": cache_key, "itemId": item_id, "request": request_payload, "stub": True},

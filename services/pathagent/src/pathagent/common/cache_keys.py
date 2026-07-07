@@ -10,7 +10,15 @@ from .schemas import PreprocessRequest
 PIPELINE_VERSION = "1"
 
 
+def _validate_segment(name: str) -> None:
+    """Reject values unsafe to use as a filesystem path segment (traversal guard)."""
+    if not name or "/" in name or "\\" in name or ".." in name:
+        raise ValueError(f"unsafe path segment: {name!r}")
+
+
 def compute_cache_key(item_id: str, request: PreprocessRequest) -> str:
+    """Compute a deterministic cache key from an item id and preprocessing params."""
+    _validate_segment(item_id)
     payload = {
         "v": PIPELINE_VERSION,
         "item": item_id,
@@ -35,6 +43,8 @@ class CachePaths:
 
 
 def cache_paths(cache_key: str) -> CachePaths:
+    """Resolve the on-disk artifact paths for a cache key under the configured cache dir."""
+    _validate_segment(cache_key)
     root = get_settings().cache_dir / cache_key
     return CachePaths(
         root=root,
