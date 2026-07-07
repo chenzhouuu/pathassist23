@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 
 from ..common.cache_keys import cache_paths, compute_cache_key
 from ..common.registry import Registry
@@ -76,4 +77,10 @@ async def get_classifier(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="classifier result not available"
         )
-    return ClassifierResult.model_validate_json(paths.classifier.read_text())
+    try:
+        return ClassifierResult.model_validate_json(paths.classifier.read_text())
+    except (ValidationError, ValueError) as exc:
+        # A corrupt/truncated cache file is treated as "not available", not a 500.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="classifier result not available"
+        ) from exc

@@ -93,3 +93,15 @@ def test_get_classifier_missing_file(client, tmp_cache):
 def test_get_classifier_rejects_unsafe_cache_key(client, tmp_cache):
     resp = client.get("/api/agent/cases/item42/classifier", params={"cacheKey": "../x"})
     assert resp.status_code == 400
+
+
+def test_get_classifier_corrupt_file(client, tmp_cache):
+    from pathagent.common.cache_keys import cache_paths
+
+    key = "item42-corrupt00"
+    paths = cache_paths(key)
+    paths.root.mkdir(parents=True, exist_ok=True)
+    paths.classifier.write_text("{")
+
+    resp = client.get("/api/agent/cases/item42/classifier", params={"cacheKey": key})
+    assert resp.status_code == 404

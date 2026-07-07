@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,7 @@ def run_trident_preprocess(cache_key: str, item_id: str, request_payload: dict[s
         run_trident(Path(slide_path), job_dir, spec, settings)
         registry.set_status(
             cache_key,
-            StatusResponse(status=JobStatus.running, stage="manifest", progress=0.9),
+            StatusResponse(status=JobStatus.running, stage="manifest", progress=0.5),
         )
         normalize_and_manifest(
             job_dir, Path(slide_path).stem, item_id, cache_key, spec,
@@ -46,6 +47,9 @@ def run_trident_preprocess(cache_key: str, item_id: str, request_payload: dict[s
         consensus = request.consensus
         if settings.classifier_enabled and consensus is not None:
             try:
+                # Drop any stale result up front: a False classifiers flag must never
+                # coexist with a readable classifier.json from a prior run.
+                paths.classifier.unlink(missing_ok=True)
                 registry.set_status(cache_key, StatusResponse(
                     status=JobStatus.running, stage="consensus", progress=0.6))
                 run_trident(Path(slide_path), job_dir, consensus, settings)
@@ -54,7 +58,11 @@ def run_trident_preprocess(cache_key: str, item_id: str, request_payload: dict[s
                 registry.set_status(cache_key, StatusResponse(
                     status=JobStatus.running, stage="classifier", progress=0.85))
                 result = ClassifierClient(settings).predict(str(feat_path))
-                paths.classifier.write_text(result.model_dump_json(by_alias=True, indent=2))
+                # Write atomically so a concurrent /classifier read never sees a
+                # truncated file (temp file + os.replace is an atomic rename).
+                tmp_path = paths.classifier.with_suffix(".json.part")
+                tmp_path.write_text(result.model_dump_json(by_alias=True, indent=2))
+                os.replace(tmp_path, paths.classifier)
                 classifiers_ok = True
             except Exception:  # noqa: BLE001 - classifier is best-effort; features stay ready
                 logger.exception("classifier pass failed (non-fatal): %s", cache_key)

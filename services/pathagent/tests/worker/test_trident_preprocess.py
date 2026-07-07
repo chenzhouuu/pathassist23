@@ -208,3 +208,115 @@ def test_run_trident_preprocess_skips_classifier_without_consensus(
     assert status.status == JobStatus.ready
     assert status.ready.classifiers is False
     assert len(calls) == 1
+
+
+def test_run_trident_preprocess_progress_monotonic(job_redis, tmp_cache, monkeypatch):
+    from pathagent.common.cache_keys import cache_paths
+    from pathagent.common.registry import Registry
+    from pathagent.worker import trident_preprocess
+
+    progresses = []
+    orig_set_status = Registry.set_status
+
+    def spy_set_status(self, cache_key, status):
+        progresses.append(status.progress)
+        return orig_set_status(self, cache_key, status)
+
+    class FakeClassifierClient:
+        def __init__(self, settings):
+            pass
+
+        def predict(self, feature_path):
+            return _classifier_result()
+
+    paths = cache_paths("case-1")
+    paths.root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(Registry, "set_status", spy_set_status)
+    monkeypatch.setattr(
+        trident_preprocess, "resolve_slide", lambda *a, **k: Path("/x/BRACS_1648.svs")
+    )
+    monkeypatch.setattr(trident_preprocess, "run_trident", lambda *a, **k: None)
+    monkeypatch.setattr(
+        trident_preprocess, "normalize_and_manifest", lambda *a, **k: _valid_manifest()
+    )
+    monkeypatch.setattr(
+        trident_preprocess, "copy_features", lambda *a, **k: paths.features("uni_v1")
+    )
+    monkeypatch.setattr(trident_preprocess, "ClassifierClient", FakeClassifierClient)
+
+    trident_preprocess.run_trident_preprocess("case-1", "BRACS_1648.svs", _consensus_payload())
+
+    assert progresses == sorted(progresses)
+    assert progresses[-1] == 1.0
+
+
+def test_run_trident_preprocess_removes_stale_classifier_on_failure(
+    job_redis, tmp_cache, monkeypatch
+):
+    from pathagent.common.cache_keys import cache_paths
+    from pathagent.common.registry import Registry
+    from pathagent.common.schemas import JobStatus
+    from pathagent.worker import trident_preprocess
+    from pathagent.worker.classifier_client import ClassifierError
+
+    class FailingClassifierClient:
+        def __init__(self, settings):
+            pass
+
+        def predict(self, feature_path):
+            raise ClassifierError("service down")
+
+    paths = cache_paths("case-1")
+    paths.root.mkdir(parents=True, exist_ok=True)
+    paths.classifier.write_text('{"stale": true}')
+
+    monkeypatch.setattr(
+        trident_preprocess, "resolve_slide", lambda *a, **k: Path("/x/BRACS_1648.svs")
+    )
+    monkeypatch.setattr(trident_preprocess, "run_trident", lambda *a, **k: None)
+    monkeypatch.setattr(
+        trident_preprocess, "normalize_and_manifest", lambda *a, **k: _valid_manifest()
+    )
+    monkeypatch.setattr(
+        trident_preprocess, "copy_features", lambda *a, **k: paths.features("uni_v1")
+    )
+    monkeypatch.setattr(trident_preprocess, "ClassifierClient", FailingClassifierClient)
+
+    trident_preprocess.run_trident_preprocess("case-1", "BRACS_1648.svs", _consensus_payload())
+
+    status = Registry(job_redis).get_status("case-1")
+    assert status.status == JobStatus.ready
+    assert status.ready.classifiers is False
+    assert not paths.classifier.is_file()
+
+
+def test_run_trident_preprocess_consensus_subprocess_failure_non_fatal(
+    job_redis, tmp_cache, monkeypatch
+):
+    from pathagent.common.registry import Registry
+    from pathagent.common.schemas import JobStatus
+    from pathagent.worker import trident_preprocess
+
+    calls = []
+
+    def flaky_run_trident(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:  # the consensus pass
+            raise RuntimeError("trident subprocess crashed")
+
+    monkeypatch.setattr(
+        trident_preprocess, "resolve_slide", lambda *a, **k: Path("/x/BRACS_1648.svs")
+    )
+    monkeypatch.setattr(trident_preprocess, "run_trident", flaky_run_trident)
+    monkeypatch.setattr(
+        trident_preprocess, "normalize_and_manifest", lambda *a, **k: _valid_manifest()
+    )
+
+    trident_preprocess.run_trident_preprocess("case-1", "BRACS_1648.svs", _consensus_payload())
+
+    status = Registry(job_redis).get_status("case-1")
+    assert status.status == JobStatus.ready
+    assert status.ready.features is True
+    assert status.ready.classifiers is False
+    assert len(calls) == 2
