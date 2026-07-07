@@ -40,3 +40,21 @@ def test_m1_env_override(monkeypatch):
     s = Settings()
     assert s.trident_gpu == 1
     assert s.slides_root == Path("/tmp/x")
+
+
+def test_m2_classifier_defaults():
+    from pathagent.common.config import Settings
+
+    s = Settings()
+    assert s.brca_service_url.endswith(":11501")
+    assert s.classifier_enabled is True
+    assert s.classifier_timeout_s == 120.0
+    assert s.default_consensus_encoder == "uni_v1"
+
+
+def test_m2_classifier_enabled_env_override(monkeypatch):
+    from pathagent.common.config import Settings
+
+    monkeypatch.setenv("PATHAGENT_CLASSIFIER_ENABLED", "false")
+    s = Settings()
+    assert s.classifier_enabled is False

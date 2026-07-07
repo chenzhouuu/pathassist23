@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     slides_root: Path | None = None
     subprocess_timeout_s: int = 3600
 
+    brca_service_url: str = "http://192.168.191.109:11501"
+    classifier_enabled: bool = True
+    classifier_timeout_s: float = 120.0
+    default_consensus_encoder: str = "uni_v1"
+
 
 @lru_cache
 def get_settings() -> Settings:
