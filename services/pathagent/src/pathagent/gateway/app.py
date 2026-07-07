@@ -1,17 +1,19 @@
 import json
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from redis import Redis
 
 from ..common.config import get_settings
 from ..common.registry import Registry
+from .auth import require_user
 from .queue import PreprocessQueue
-from .routes import router
+from .routes import API_PREFIX, router
 
 
 def create_app(redis_conn: Redis | None = None, queue: PreprocessQueue | None = None) -> FastAPI:
+    """Build and configure the PathAgent FastAPI app (routes, stubs, shared state)."""
     settings = get_settings()
     conn = redis_conn or Redis.from_url(settings.redis_url)
 
@@ -34,8 +36,8 @@ def _add_stubs(app: FastAPI) -> None:
     Plan 4 (M3) replaces /query with the LangGraph orchestrator and adds the real heatmap tiles.
     """
 
-    @app.post("/api/agent/query")
-    async def query_stub(payload: dict) -> StreamingResponse:
+    @app.post(f"{API_PREFIX}/query")
+    async def query_stub(payload: dict, user: dict = Depends(require_user)) -> StreamingResponse:
         events = [
             {"type": "route", "task": "Diagnosis", "tools": ["navigate", "verify"]},
             {"type": "triage", "risk": "unknown", "depth": 3},
@@ -51,6 +53,8 @@ def _add_stubs(app: FastAPI) -> None:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    @app.get("/api/agent/cases/{item_id}/heatmap/{task_id}")
-    async def heatmap_stub(item_id: str, task_id: str) -> dict:
+    @app.get(f"{API_PREFIX}/cases/{{item_id}}/heatmap/{{task_id}}")
+    async def heatmap_stub(
+        item_id: str, task_id: str, user: dict = Depends(require_user)
+    ) -> dict:
         return {"stub": True, "itemId": item_id, "taskId": task_id}

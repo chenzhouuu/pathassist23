@@ -14,6 +14,7 @@ class PreprocessQueue:
         self.queue = Queue(QUEUE_NAME, connection=conn, is_async=is_async)
 
     def enqueue_preprocess(self, cache_key: str, item_id: str, request: PreprocessRequest) -> str:
+        """Enqueue a preprocessing job and return its RQ job id."""
         job = self.queue.enqueue(
             run_fake_preprocess, cache_key, item_id, request.model_dump(by_alias=True)
         )

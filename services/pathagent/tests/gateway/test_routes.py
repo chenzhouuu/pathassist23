@@ -36,7 +36,7 @@ def test_status_reflects_registry(client):
     cache_key = resp.json()["cacheKey"]
     st = client.get(f"/api/agent/cases/item42/status", params={"cacheKey": cache_key})
     assert st.status_code == 200
-    assert st.json()["status"] in ("queued", "running", "ready")
+    assert st.json()["status"] == "queued"
 
 
 def test_status_unknown_key(client):

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..common.cache_keys import compute_cache_key
 from ..common.registry import Registry
@@ -7,10 +7,16 @@ from .auth import require_user
 from .deps import get_queue, get_registry
 from .queue import PreprocessQueue
 
-router = APIRouter(prefix="/api/agent")
+API_PREFIX = "/api/agent"
+
+router = APIRouter(prefix=API_PREFIX)
 
 
-@router.post("/cases/{item_id}/preprocess", response_model=PreprocessResponse, status_code=202)
+@router.post(
+    "/cases/{item_id}/preprocess",
+    response_model=PreprocessResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def preprocess(
     item_id: str,
     request: PreprocessRequest,
@@ -18,10 +24,11 @@ async def preprocess(
     registry: Registry = Depends(get_registry),
     queue: PreprocessQueue = Depends(get_queue),
 ) -> PreprocessResponse:
+    """Enqueue preprocessing for a case; short-circuit if already cached and ready."""
     try:
         cache_key = compute_cache_key(item_id, request)
     except ValueError:
-        raise HTTPException(status_code=400, detail="invalid itemId")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid itemId")
     existing = registry.get_status(cache_key)
     if existing and existing.status == JobStatus.ready:
         return PreprocessResponse(job_id="cached", cache_key=cache_key, status=JobStatus.ready)
@@ -37,6 +44,7 @@ async def get_status(
     user: dict = Depends(require_user),
     registry: Registry = Depends(get_registry),
 ) -> StatusResponse:
+    """Return the current job status for a cache key, or an error status if unknown."""
     found = registry.get_status(cacheKey)
     if found is None:
         return StatusResponse(status=JobStatus.error, stage="unknown", error="no such cacheKey")
