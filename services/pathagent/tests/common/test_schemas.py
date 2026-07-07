@@ -38,3 +38,33 @@ def test_status_response_defaults():
     dumped = st.model_dump(by_alias=True)
     assert dumped["status"] == "queued"
     assert dumped["ready"] == {"features": False, "slidechat": False, "classifiers": False}
+
+
+def test_manifest_dumps_camelcase_and_round_trips():
+    from pathagent.common.schemas import FeatureSpec, Manifest
+
+    manifest = Manifest(
+        cache_key="item9-abc",
+        item_id="item9",
+        slide_name="slide.svs",
+        backbone=FeatureSpec(patch_encoder="conch_v1", mag=20, patch_size=256),
+        patch_count=1234,
+        feature_dim=512,
+        level0_width=100000,
+        level0_height=80000,
+        level0_magnification=40.0,
+        target_magnification=20.0,
+        patch_size_level0=512,
+        overlap=0,
+        pipeline_version="m1",
+        artifacts={"features": "features.h5"},
+    )
+
+    dumped = manifest.model_dump(by_alias=True)
+    assert dumped["patchCount"] == 1234
+    assert dumped["featureDim"] == 512
+    assert dumped["level0Width"] == 100000
+    assert dumped["targetMagnification"] == 20.0
+    assert dumped["patchSizeLevel0"] == 512
+
+    assert Manifest.model_validate(dumped) == manifest

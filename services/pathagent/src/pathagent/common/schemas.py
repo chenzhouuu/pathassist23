@@ -57,3 +57,22 @@ class StatusResponse(CamelModel):
     progress: float = 0.0
     ready: ReadyFlags = Field(default_factory=ReadyFlags)
     error: str | None = None
+
+
+class Manifest(CamelModel):
+    """Typed description of a preprocessed case's cached artifacts."""
+
+    cache_key: str
+    item_id: str
+    slide_name: str
+    backbone: FeatureSpec
+    patch_count: int
+    feature_dim: int
+    level0_width: int
+    level0_height: int
+    level0_magnification: float
+    target_magnification: float
+    patch_size_level0: int
+    overlap: int
+    pipeline_version: str
+    artifacts: dict[str, str] = Field(default_factory=dict)
