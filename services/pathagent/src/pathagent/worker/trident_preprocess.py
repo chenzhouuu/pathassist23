@@ -7,7 +7,8 @@ from ..common.cache_keys import cache_paths
 from ..common.config import get_settings
 from ..common.registry import Registry
 from ..common.schemas import FeatureSpec, JobStatus, PreprocessRequest, ReadyFlags, StatusResponse
-from .artifacts import normalize_and_manifest
+from .artifacts import copy_features, normalize_and_manifest
+from .classifier_client import ClassifierClient
 from .slide_resolver import resolve_slide
 from .trident_runner import run_trident
 
@@ -41,13 +42,29 @@ def run_trident_preprocess(cache_key: str, item_id: str, request_payload: dict[s
             job_dir, Path(slide_path).stem, item_id, cache_key, spec,
             settings.default_overlap, paths,
         )
+        classifiers_ok = False
+        consensus = request.consensus
+        if settings.classifier_enabled and consensus is not None:
+            try:
+                registry.set_status(cache_key, StatusResponse(
+                    status=JobStatus.running, stage="consensus", progress=0.6))
+                run_trident(Path(slide_path), job_dir, consensus, settings)
+                feat_path = copy_features(
+                    job_dir, Path(slide_path).stem, consensus, settings.default_overlap, paths)
+                registry.set_status(cache_key, StatusResponse(
+                    status=JobStatus.running, stage="classifier", progress=0.85))
+                result = ClassifierClient(settings).predict(str(feat_path))
+                paths.classifier.write_text(result.model_dump_json(by_alias=True, indent=2))
+                classifiers_ok = True
+            except Exception:  # noqa: BLE001 - classifier is best-effort; features stay ready
+                logger.exception("classifier pass failed (non-fatal): %s", cache_key)
         registry.set_status(
             cache_key,
             StatusResponse(
                 status=JobStatus.ready,
                 stage="done",
                 progress=1.0,
-                ready=ReadyFlags(features=True, slidechat=False, classifiers=False),
+                ready=ReadyFlags(features=True, slidechat=False, classifiers=classifiers_ok),
             ),
         )
         logger.info("trident preprocess complete: %s", cache_key)
