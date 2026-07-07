@@ -74,6 +74,26 @@ def test_classifier_result_dumps_camelcase():
         assert key in dumped
 
 
+def test_classifier_result_minimal_payload_defaults():
+    from pathagent.common.schemas import ClassifierResult
+
+    result = ClassifierResult.model_validate(
+        {
+            "model": "ABMIL-BRCA",
+            "prediction": "ILC",
+            "confidence": 55.0,
+            "idc_prob": 45.0,
+            "ilc_prob": 55.0,
+            "num_patches": 100,
+        }
+    )
+    assert result.auc is None
+    assert result.patch_size_px is None
+    assert result.extract_mpp is None
+    assert result.top_coords == []
+    assert result.top_scores == []
+
+
 def test_manifest_dumps_camelcase_and_round_trips():
     from pathagent.common.schemas import FeatureSpec, Manifest
 

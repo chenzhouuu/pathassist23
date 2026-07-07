@@ -1,6 +1,7 @@
 import logging
 
 import httpx
+from pydantic import ValidationError
 
 from ..common.config import Settings
 from ..common.schemas import ClassifierResult
@@ -16,7 +17,7 @@ class ClassifierClient:
     """Pluggable slide-level classifier backend (BRCA ABMIL /predict)."""
 
     def __init__(self, settings: Settings) -> None:
-        self.base_url = settings.brca_service_url
+        self.base_url = settings.brca_service_url.rstrip("/")
         self.timeout = settings.classifier_timeout_s
 
     def predict(self, feature_path: str) -> ClassifierResult:
@@ -28,9 +29,15 @@ class ClassifierClient:
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            body = resp.json()
         except httpx.HTTPError as exc:
             raise ClassifierError(f"classifier request failed: {exc}") from exc
+        try:
+            body = resp.json()
+        except ValueError as exc:
+            raise ClassifierError(f"classifier returned non-JSON body: {exc}") from exc
         if isinstance(body, dict) and body.get("error"):
             raise ClassifierError(f"classifier error: {body['error']}")
-        return ClassifierResult.model_validate(body)
+        try:
+            return ClassifierResult.model_validate(body)
+        except ValidationError as exc:
+            raise ClassifierError(f"classifier returned unexpected body: {exc}") from exc

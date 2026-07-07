@@ -65,3 +65,41 @@ def test_predict_http_500_raises():
 
     with pytest.raises(ClassifierError):
         _client().predict("/cache/features_uni_v1.h5")
+
+
+@respx.mock
+def test_predict_non_json_body_raises():
+    from pathagent.worker.classifier_client import ClassifierError
+
+    respx.post("http://svc/predict").mock(
+        return_value=httpx.Response(200, content=b"<html>502</html>")
+    )
+
+    with pytest.raises(ClassifierError):
+        _client().predict("/cache/features_uni_v1.h5")
+
+
+@respx.mock
+def test_predict_schema_invalid_body_raises():
+    from pathagent.worker.classifier_client import ClassifierError
+
+    respx.post("http://svc/predict").mock(
+        return_value=httpx.Response(200, json={"foo": "bar"})
+    )
+
+    with pytest.raises(ClassifierError):
+        _client().predict("/cache/features_uni_v1.h5")
+
+
+@respx.mock
+def test_predict_strips_trailing_slash_from_base_url():
+    from pathagent.common.config import Settings
+    from pathagent.worker.classifier_client import ClassifierClient
+
+    route = respx.post("http://svc/predict").mock(
+        return_value=httpx.Response(200, json=BRCA_SAMPLE)
+    )
+    client = ClassifierClient(Settings(brca_service_url="http://svc/"))
+    client.predict("/cache/features_uni_v1.h5")
+
+    assert route.called

@@ -62,6 +62,7 @@ class StatusResponse(CamelModel):
 class ClassifierResult(CamelModel):
     """Slide-level classifier output (BRCA ABMIL: IDC vs ILC + attention)."""
 
+    # The service also emits `top_patches` (attention indices); intentionally ignored here.
     model: str
     prediction: str
     confidence: float
