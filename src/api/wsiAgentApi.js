@@ -45,7 +45,9 @@ export async function streamAgentQuery({ itemId, cacheKey, question, task = 'Dia
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    buf += dec.decode(value, { stream: true });
+    // Strip CR so the blank-line frame delimiter matches regardless of the server's
+    // line endings (sse-starlette emits \r\n\r\n between events, not \n\n).
+    buf += dec.decode(value, { stream: true }).replace(/\r/g, '');
     let idx;
     while ((idx = buf.indexOf('\n\n')) !== -1) {
       const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
