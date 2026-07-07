@@ -14,12 +14,14 @@ output into the flat cache layout, and writes a typed manifest read from the rea
 attributes. The gateway/queue/registry contract from M0 is unchanged — only the worker function
 behind `enqueue_preprocess` was swapped.
 
-Two real slides were processed through two independent runtime paths; **all checks passed**:
+Three real slides were processed through three independent runtime paths — including a **live
+pull from the Girder server** — and **all checks passed**:
 
 | Path exercised | Slide | Patches × dim | Level-0 geometry | Outcome |
 |---|---|---|---|---|
-| Inline real worker (`scripts/m1_real_slide.py`) | BRACS_1648.svs | **6290 × 512** | 83664 × 64892 (base 40× → 20×) | ✅ all 9 checks |
-| Real Redis + RQ worker + real Trident (async) | BRACS_1652.svs | **11455 × 512** | 67728 × 63004 | ✅ all 7 checks |
+| Inline real worker, local resolver (`scripts/m1_real_slide.py`) | BRACS_1648.svs | **6290 × 512** | 83664 × 64892 (base 40× → 20×) | ✅ all 9 checks |
+| Real Redis + RQ worker + real Trident (async), local resolver | BRACS_1652.svs | **11455 × 512** | 67728 × 63004 | ✅ all 7 checks |
+| **Live Girder download** → real Trident (`--girder-item`) | BRACS_1654.svs (item `6a3efdac…`) | **9694 × 512** | 89640 × 70592 | ✅ all 9 checks |
 
 Unit suite: **54 passing, ruff clean.** Final holistic review: **APPROVED (merge-ready).**
 
@@ -28,12 +30,13 @@ Unit suite: **54 passing, ruff clean.** Final holistic review: **APPROVED (merge
 ## 2. Scope & honest boundaries
 
 - **In scope and verified with real pixels:** the full worker pipeline — slide resolution
-  (local-first), Trident subprocess (seg + coords + CONCH), artifact normalization, manifest,
-  registry `ready` — plus the real Redis + RQ async path.
-- **Implemented and unit-tested (respx-mocked) but not run against a live private item:** the
-  **Girder download** resolver branch. The verified runs used the local `slides_root` resolver on
-  on-disk slides. Running the remote path against a private Girder item additionally requires
-  threading the caller's Girder token into the job (see §8 / M2).
+  (local `slides_root` **and** live Girder download), Trident subprocess (seg + coords + CONCH),
+  artifact normalization, manifest, registry `ready` — plus the real Redis + RQ async path.
+- **Verified end-to-end against the live Girder server (public collection, anonymous):** item
+  `6a3efdac…` from the public `BRCA-DEMO` collection was pulled over the network (1.3 GB, atomic
+  `.part`→`os.replace`) and run through Trident to a correct manifest and `ready`. **Not yet
+  exercised for a *private* item:** that additionally requires threading the caller's Girder token
+  into the job (unit-tested via respx; see §8 / M2).
 - **Deliberately deferred to later milestones:** SlideChat / classifier passes (`ready.slidechat`,
   `ready.classifiers` remain `false`), query-conditioned navigation, the React panel, and the
   LangGraph orchestrator. `ReadyFlags(features=True, …)` reflects that only the feature pass exists.
@@ -88,6 +91,14 @@ under ~2 min on the A6000.
 `BRACS_1652.svs-36a538b6d07a`; observed `queued → running/segmentation → ready`; features
 `11455×512`; manifest level0 `67728×63004`. This proves an RQ worker **child process** can drive
 the real GPU Trident subprocess — the one integration M0 had exercised only with the fake worker.
+
+**Live Girder-download run** (`scripts/m1_real_slide.py --girder-item …`, real Trident): passed a
+Girder **item id** (`6a3efdac9cb269b0b0bb6168`) with `slides_root` unset, so `resolve_slide` took
+the Girder branch and `download_item_slide` streamed `BRACS_1654.svs` (1.3 GB) from the live server
+(`192.168.191.109:9080`, public `BRCA-DEMO` collection, anonymous) into the cache before Trident
+ran. Result: features `9694×512`; manifest `patchCount=9694, featureDim=512, level0=89640×70592`;
+status `ready`; all 9 checks passed. This exercises the real network path itemId → download →
+Trident → CONCH end-to-end.
 
 ---
 
