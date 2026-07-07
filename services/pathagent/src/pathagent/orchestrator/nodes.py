@@ -143,10 +143,11 @@ def diagnose(state: AgentState, deps: Deps) -> dict:
         candidates.append(
             {
                 "source": "classifier",
-                "answer": classifier["prediction"],
+                "answer": classifier.get("prediction", "uncertain"),
                 "detail": (
-                    f"IDC {classifier['idc_prob']}% / ILC {classifier['ilc_prob']}% "
-                    f"(confidence {classifier['confidence']}%)"
+                    f"IDC {classifier.get('idc_prob', '?')}% / "
+                    f"ILC {classifier.get('ilc_prob', '?')}% "
+                    f"(confidence {classifier.get('confidence', '?')}%)"
                 ),
             }
         )
@@ -157,11 +158,11 @@ def diagnose(state: AgentState, deps: Deps) -> dict:
         reasoning = str(obj.get("reasoning", ""))
     except LLMError:
         logger.warning("diagnose LLM failed; using fallback candidate", exc_info=True)
-        llm_answer = classifier["prediction"] if classifier is not None else "uncertain"
+        llm_answer = (classifier or {}).get("prediction", "uncertain")
         reasoning = "LLM unavailable"
     candidates.append({"source": "llm", "answer": llm_answer, "detail": reasoning})
 
-    prelim = classifier["prediction"] if classifier is not None else llm_answer
+    prelim = classifier.get("prediction", "uncertain") if classifier is not None else llm_answer
     return {
         "candidates": candidates,
         "prelim": prelim,

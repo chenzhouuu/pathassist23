@@ -152,7 +152,10 @@ def consensus(state: AgentState, deps: Deps) -> dict:
 
     conf01 = 0.5
     if deps.classifier:
-        conf01 = clamp01(float(deps.classifier.get("confidence", 50)) / 100.0)
+        try:
+            conf01 = clamp01(float(deps.classifier.get("confidence", 50)) / 100.0)
+        except (TypeError, ValueError):
+            conf01 = 0.5
 
     if agree:
         return {"phi_c": conf01, "consensus_note": ""}

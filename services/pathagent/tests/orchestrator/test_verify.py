@@ -209,3 +209,11 @@ def test_summary_renormalizes_over_present_branches():
     assert abs(out["scores"]["phi_total"] - expected) < 1e-3
     # missing component still gets a neutral display default
     assert out["scores"]["phi_k"] == 0.5
+
+
+def test_consensus_survives_non_numeric_confidence():
+    # A malformed classifier confidence must not raise (structural never-raise guarantee).
+    state = {"candidates": [{"source": "classifier", "answer": "ILC"}], "prelim": "ILC"}
+    out = verify.consensus(state, _deps(classifier={"prediction": "ILC", "confidence": "bad"}))
+
+    assert 0.0 <= out["phi_c"] <= 1.0  # degraded to neutral, no exception

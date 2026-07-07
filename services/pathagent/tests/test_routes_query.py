@@ -190,3 +190,15 @@ def test_query_requires_auth(redis_conn, tmp_cache):
         json={"itemId": _ITEM_ID, "cacheKey": _CACHE_KEY, "question": "?"},
     )
     assert resp.status_code in (401, 422)
+
+
+def test_cors_exposes_heatmap_extent_headers(client):
+    # The M4 OSD overlay reads the level-0 extent from X-Level0-* headers cross-origin;
+    # they are only visible to browser JS when CORS explicitly exposes them.
+    resp = client.get(
+        f"/api/agent/cases/{_ITEM_ID}/heatmap/deadbeef?cacheKey={_CACHE_KEY}",
+        headers={"Origin": "http://example.com"},
+    )
+    exposed = resp.headers.get("access-control-expose-headers", "")
+    assert "X-Level0-Width" in exposed
+    assert "X-Level0-X" in exposed

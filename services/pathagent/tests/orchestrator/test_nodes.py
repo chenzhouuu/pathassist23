@@ -307,3 +307,14 @@ def test_diagnose_no_classifier_llm_error_is_uncertain():
     assert [c["source"] for c in out["candidates"]] == ["llm"]
     assert out["candidates"][0]["answer"] == "uncertain"
     assert out["prelim"] == "uncertain"
+
+
+def test_diagnose_survives_malformed_classifier():
+    # A classifier dict missing prob keys must not raise (defensive .get access).
+    llm = FakeLLM(json_obj={"answer": "ILC", "reasoning": "x"})
+    out = nodes.diagnose({"descriptions": []}, _deps(llm=llm, classifier={"prediction": "ILC"}))
+
+    clf = next(c for c in out["candidates"] if c["source"] == "classifier")
+    assert clf["answer"] == "ILC"
+    assert "?" in clf["detail"]  # missing probs render as '?', not a KeyError
+    assert out["prelim"] == "ILC"

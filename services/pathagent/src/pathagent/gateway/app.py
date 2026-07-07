@@ -15,7 +15,13 @@ def create_app(redis_conn: Redis | None = None, queue: PreprocessQueue | None = 
 
     app = FastAPI(title="PathAgent Gateway", version="0.1.0")
     app.add_middleware(
-        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        # The heatmap endpoint returns its level-0 extent via custom headers; browsers only
+        # surface these to JS cross-origin when explicitly exposed (the M4 OSD overlay reads them).
+        expose_headers=["X-Level0-X", "X-Level0-Y", "X-Level0-Width", "X-Level0-Height"],
     )
     app.state.settings = settings
     app.state.redis = conn
