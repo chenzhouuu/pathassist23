@@ -1,0 +1,1803 @@
+<title>PathAgent — In-Viewer AI Copilot for Whole-Slide Pathology</title>
+<style>
+/* ============================================================= TOKENS */
+:root{
+  /* neutrals — cool violet-biased ink, not pure grey */
+  --bg:#0d0f16; --bg-2:#12141d; --surface:#191c27; --surface-2:#1f2330;
+  --border:#2a2f3e; --border-2:#363c4e;
+  --text:#eaecf3; --text-2:#aab0c0; --text-3:#7b8296;
+  /* accents — H&E histology palette */
+  --violet:#8a7cf8;      /* hematoxylin — primary structural accent */
+  --violet-soft:#b3a9fb;
+  --rose:#ec5e86;        /* eosin — restrained secondary */
+  --teal:#3fc5c9;        /* specimen / data */
+  --amber:#f5b454;
+  /* semantic (separate from accent) */
+  --ok:#43d18f; --warn:#f5b454; --err:#f2665e; --info:#5aa8f5;
+  /* fx */
+  --glow:0 0 0 1px rgba(138,124,248,.0);
+  --shadow:0 18px 48px -20px rgba(0,0,0,.7);
+  --shadow-sm:0 6px 20px -12px rgba(0,0,0,.6);
+  --radius:14px; --radius-sm:9px;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono","Roboto Mono",Menlo,Consolas,monospace;
+  --maxw:1180px;
+}
+@media (prefers-color-scheme:light){
+  :root{
+    --bg:#f4f3f9; --bg-2:#eceaf4; --surface:#ffffff; --surface-2:#f7f6fb;
+    --border:#e2dfed; --border-2:#d3cfe2;
+    --text:#191b24; --text-2:#565c6e; --text-3:#828aa0;
+    --violet:#6b58e6; --violet-soft:#8a7cf8; --rose:#d63b69; --teal:#128a91;
+    --ok:#1f9e6a; --warn:#c98410; --err:#d64b43; --info:#2f7fd6;
+    --shadow:0 18px 48px -22px rgba(60,50,110,.28);
+    --shadow-sm:0 6px 20px -12px rgba(60,50,110,.2);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d0f16; --bg-2:#12141d; --surface:#191c27; --surface-2:#1f2330;
+  --border:#2a2f3e; --border-2:#363c4e; --text:#eaecf3; --text-2:#aab0c0; --text-3:#7b8296;
+  --violet:#8a7cf8; --violet-soft:#b3a9fb; --rose:#ec5e86; --teal:#3fc5c9;
+  --ok:#43d18f; --warn:#f5b454; --err:#f2665e; --info:#5aa8f5;
+  --shadow:0 18px 48px -20px rgba(0,0,0,.7); --shadow-sm:0 6px 20px -12px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#f4f3f9; --bg-2:#eceaf4; --surface:#ffffff; --surface-2:#f7f6fb;
+  --border:#e2dfed; --border-2:#d3cfe2; --text:#191b24; --text-2:#565c6e; --text-3:#828aa0;
+  --violet:#6b58e6; --violet-soft:#8a7cf8; --rose:#d63b69; --teal:#128a91;
+  --ok:#1f9e6a; --warn:#c98410; --err:#d64b43; --info:#2f7fd6;
+  --shadow:0 18px 48px -22px rgba(60,50,110,.28); --shadow-sm:0 6px 20px -12px rgba(60,50,110,.2);
+}
+
+/* ============================================================= BASE */
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.deck{scroll-snap-type:y mandatory;height:100vh;overflow-y:auto;overflow-x:hidden;scroll-padding-top:0}
+.deck::-webkit-scrollbar{width:0;height:0}
+
+/* ============================================================= SLIDE FRAME */
+.slide{scroll-snap-align:start;min-height:100vh;width:100%;display:flex;flex-direction:column;
+  justify-content:center;position:relative;padding:clamp(2.2rem,5vh,4rem) clamp(1.4rem,5vw,4.5rem);
+  border-bottom:1px solid var(--border)}
+.slide__inner{width:100%;max-width:var(--maxw);margin:0 auto;position:relative;z-index:2}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--violet);display:flex;align-items:center;gap:.6rem;margin:0 0 1rem}
+.eyebrow::before{content:"";width:26px;height:2px;background:var(--violet);border-radius:2px;flex:none}
+.eyebrow .em{color:var(--text-3)}
+.slide-title{font-size:clamp(1.7rem,3.9vw,3rem);line-height:1.05;font-weight:800;letter-spacing:-.02em;
+  margin:0 0 1rem;text-wrap:balance;max-width:20ch}
+.slide-title .hl{color:var(--violet)}
+.slide-title .hl2{color:var(--rose)}
+.lead{font-size:clamp(1rem,1.55vw,1.22rem);color:var(--text-2);line-height:1.55;max-width:62ch;margin:0 0 1.6rem;text-wrap:pretty}
+.lead strong{color:var(--text);font-weight:650}
+p{text-wrap:pretty}
+
+/* ============================================================= LAYOUT HELPERS */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:clamp(1.4rem,3vw,2.6rem);align-items:center}
+.two-col.narrow-left{grid-template-columns:.85fr 1.15fr}
+.two-col.narrow-right{grid-template-columns:1.15fr .85fr}
+.grid{display:grid;gap:1rem}
+.grid--2{grid-template-columns:repeat(2,1fr)}
+.grid--3{grid-template-columns:repeat(3,1fr)}
+.grid--4{grid-template-columns:repeat(4,1fr)}
+.stack{display:flex;flex-direction:column;gap:1rem}
+.stack--sm{gap:.55rem}
+.row{display:flex;gap:.7rem;flex-wrap:wrap;align-items:center}
+@media (max-width:860px){
+  .two-col,.two-col.narrow-left,.two-col.narrow-right{grid-template-columns:1fr}
+  .grid--2,.grid--3,.grid--4{grid-template-columns:1fr}
+  .slide{min-height:auto;padding-top:4.5rem;padding-bottom:3rem}
+  .deck{scroll-snap-type:none}
+}
+
+/* ============================================================= TEXT UTILITIES */
+.mono{font-family:var(--mono)}
+.muted{color:var(--text-2)}
+.dim{color:var(--text-3)}
+.small{font-size:.86rem}
+.section-label{font-family:var(--mono);font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--text-3);margin:0 0 .55rem}
+.hl{color:var(--violet)} .hl2{color:var(--rose)} .hl3{color:var(--teal)}
+.big-num{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}
+
+/* ============================================================= CARD */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:1.1rem 1.2rem;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+.card--pad{padding:1.35rem 1.45rem}
+.card--accent{border-color:var(--border-2)}
+.card--accent::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--violet)}
+.card--rose::before{background:var(--rose)} .card--teal::before{background:var(--teal)}
+.card--accent{padding-left:1.5rem}
+.card__title{font-size:1rem;font-weight:700;margin:0 0 .4rem;letter-spacing:-.01em}
+.card__body{color:var(--text-2);font-size:.92rem;line-height:1.5;margin:0}
+.card__ico{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;margin-bottom:.7rem;
+  background:color-mix(in srgb,var(--violet) 16%,transparent);color:var(--violet)}
+
+/* ============================================================= STAT */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1rem}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1rem 1.1rem}
+.stat__num{font-family:var(--mono);font-size:clamp(1.6rem,3vw,2.3rem);font-weight:600;font-variant-numeric:tabular-nums;
+  letter-spacing:-.03em;line-height:1;color:var(--text)}
+.stat__num.violet{color:var(--violet)} .stat__num.teal{color:var(--teal)} .stat__num.ok{color:var(--ok)} .stat__num.rose{color:var(--rose)}
+.stat__label{font-size:.78rem;color:var(--text-2);margin-top:.45rem;line-height:1.35}
+.stat__sub{font-family:var(--mono);font-size:.68rem;color:var(--text-3);margin-top:.2rem}
+
+/* ============================================================= PILL / TAG / BADGE */
+.pill{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);font-size:.72rem;font-weight:600;
+  letter-spacing:.02em;padding:.24rem .6rem;border-radius:999px;border:1px solid var(--border-2);
+  background:var(--surface-2);color:var(--text-2);white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--text-3);flex:none}
+.pill--ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)} .pill--ok::before{background:var(--ok)}
+.pill--warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)} .pill--warn::before{background:var(--warn)}
+.pill--err{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,transparent)} .pill--err::before{background:var(--err)}
+.pill--info{color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,transparent)} .pill--info::before{background:var(--info)}
+.pill--violet{color:var(--violet);border-color:color-mix(in srgb,var(--violet) 40%,transparent)} .pill--violet::before{background:var(--violet)}
+.pill.plain::before{display:none}
+.tag{display:inline-block;font-family:var(--mono);font-size:.72rem;padding:.2rem .55rem;border-radius:6px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text-2)}
+
+/* ============================================================= KEY-VALUE */
+.kv{display:flex;flex-direction:column;gap:0}
+.kv__row{display:grid;grid-template-columns:minmax(120px,auto) 1fr;gap:1rem;padding:.6rem 0;border-bottom:1px solid var(--border)}
+.kv__row:last-child{border-bottom:0}
+.kv__k{font-family:var(--mono);font-size:.78rem;color:var(--text-3);letter-spacing:.02em}
+.kv__v{font-size:.9rem;color:var(--text);line-height:1.45}
+
+/* ============================================================= CALLOUT */
+.callout{background:color-mix(in srgb,var(--violet) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--violet) 28%,var(--border));
+  border-radius:var(--radius);padding:1rem 1.2rem;display:flex;gap:.85rem;align-items:flex-start}
+.callout--ok{background:color-mix(in srgb,var(--ok) 9%,var(--surface));border-color:color-mix(in srgb,var(--ok) 30%,var(--border))}
+.callout--warn{background:color-mix(in srgb,var(--warn) 9%,var(--surface));border-color:color-mix(in srgb,var(--warn) 30%,var(--border))}
+.callout--rose{background:color-mix(in srgb,var(--rose) 9%,var(--surface));border-color:color-mix(in srgb,var(--rose) 28%,var(--border))}
+.callout__ico{flex:none;color:var(--violet);margin-top:.1rem}
+.callout--ok .callout__ico{color:var(--ok)} .callout--warn .callout__ico{color:var(--warn)} .callout--rose .callout__ico{color:var(--rose)}
+.callout__title{font-weight:700;font-size:.92rem;margin:0 0 .25rem}
+.callout__body{color:var(--text-2);font-size:.88rem;line-height:1.5;margin:0}
+
+/* ============================================================= LIST */
+.ticks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.7rem}
+.ticks li{position:relative;padding-left:1.7rem;color:var(--text-2);font-size:.94rem;line-height:1.5}
+.ticks li::before{content:"";position:absolute;left:0;top:.36em;width:11px;height:11px;border-radius:3px;
+  border:2px solid var(--violet);background:color-mix(in srgb,var(--violet) 25%,transparent)}
+.ticks li strong{color:var(--text);font-weight:650}
+.ticks.rose li::before{border-color:var(--rose);background:color-mix(in srgb,var(--rose) 25%,transparent)}
+.ticks.teal li::before{border-color:var(--teal);background:color-mix(in srgb,var(--teal) 25%,transparent)}
+
+/* ============================================================= TABLE */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+table.data{width:100%;border-collapse:collapse;font-size:.86rem;min-width:520px}
+table.data th{text-align:left;font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-3);font-weight:600;padding:.7rem .9rem;border-bottom:1px solid var(--border-2);background:var(--surface-2)}
+table.data td{padding:.65rem .9rem;border-bottom:1px solid var(--border);color:var(--text-2);vertical-align:top}
+table.data tr:last-child td{border-bottom:0}
+table.data td strong{color:var(--text);font-weight:650}
+table.data .mono,table.data td.mono{font-family:var(--mono);font-size:.8rem;color:var(--text)}
+table.data tr:hover td{background:color-mix(in srgb,var(--violet) 5%,transparent)}
+
+/* ============================================================= FIGURE */
+.figure{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:1.1rem;box-shadow:var(--shadow-sm);position:relative}
+.figure svg{width:100%;height:auto;display:block}
+.figure__cap{font-family:var(--mono);font-size:.72rem;color:var(--text-3);margin-top:.7rem;line-height:1.45;letter-spacing:.01em}
+.figure__cap b{color:var(--text-2);font-weight:600}
+.fig-legend{display:flex;flex-wrap:wrap;gap:.5rem 1.1rem;margin-top:.6rem}
+.legend-item{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);font-size:.72rem;color:var(--text-2)}
+.swatch{width:11px;height:11px;border-radius:3px;flex:none}
+
+/* figure SVG shared vocab (agents reference these) */
+.f-box{fill:var(--surface-2);stroke:var(--border-2);stroke-width:1.5}
+.f-box-accent{fill:color-mix(in srgb,var(--violet) 12%,var(--surface));stroke:var(--violet);stroke-width:1.5}
+.f-label{fill:var(--text);font-family:var(--mono);font-size:12px}
+.f-sub{fill:var(--text-3);font-family:var(--mono);font-size:10px}
+.f-flow{stroke:var(--text-3);stroke-width:1.6;fill:none}
+.f-flow-accent{stroke:var(--violet);stroke-width:1.8;fill:none}
+
+/* ============================================================= MILESTONE TIMELINE */
+.mstone{display:grid;grid-template-columns:64px 1fr auto;gap:1rem;align-items:center;padding:.7rem .9rem;
+  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+.mstone__code{font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--violet)}
+.mstone__name{font-weight:650;font-size:.94rem}
+.mstone__desc{color:var(--text-3);font-size:.82rem;margin-top:.15rem}
+.mstone.done{border-color:color-mix(in srgb,var(--ok) 35%,var(--border))}
+.mstone.done .mstone__code{color:var(--ok)}
+.mstone.next .mstone__code{color:var(--amber)}
+
+/* ============================================================= MISC */
+.divider{height:1px;background:var(--border);border:0;margin:1.3rem 0}
+.footnote{font-family:var(--mono);font-size:.72rem;color:var(--text-3);margin-top:1.1rem;line-height:1.5}
+.quote{font-size:1.15rem;line-height:1.5;color:var(--text);border-left:3px solid var(--rose);padding-left:1.1rem;font-style:italic}
+.credit{font-family:var(--mono);font-size:.72rem;color:var(--text-3)}
+.chips{display:flex;flex-wrap:wrap;gap:.5rem}
+
+/* ============================================================= CHROME (fixed UI) */
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--violet),var(--rose));
+  z-index:50;width:0;transition:width .2s ease}
+.brand{position:fixed;top:14px;left:18px;z-index:40;display:flex;align-items:center;gap:.55rem;
+  font-family:var(--mono);font-size:.74rem;letter-spacing:.04em;color:var(--text-2);
+  background:color-mix(in srgb,var(--bg) 72%,transparent);backdrop-filter:blur(8px);
+  padding:.35rem .6rem;border:1px solid var(--border);border-radius:8px}
+.brand__dot{width:9px;height:9px;border-radius:2px;background:var(--violet);flex:none;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--violet) 20%,transparent)}
+.brand b{color:var(--text);font-weight:700}
+.hud{position:fixed;bottom:14px;right:18px;z-index:40;display:flex;align-items:center;gap:.7rem;
+  font-family:var(--mono);font-size:.72rem;color:var(--text-2);
+  background:color-mix(in srgb,var(--bg) 72%,transparent);backdrop-filter:blur(8px);
+  padding:.35rem .7rem;border:1px solid var(--border);border-radius:8px}
+.hud__part{color:var(--violet)} .hud__count{color:var(--text)}
+.dots{position:fixed;top:50%;right:14px;transform:translateY(-50%);z-index:40;display:flex;flex-direction:column;gap:9px}
+.dots button{width:9px;height:9px;padding:0;border-radius:50%;border:1.5px solid var(--border-2);background:transparent;cursor:pointer;transition:all .2s}
+.dots button:hover{border-color:var(--violet)}
+.dots button.active{background:var(--violet);border-color:var(--violet);transform:scale(1.25)}
+.dots button:focus-visible,.dots button:focus{outline:2px solid var(--violet);outline-offset:2px}
+.navhint{position:fixed;bottom:14px;left:18px;z-index:40;font-family:var(--mono);font-size:.7rem;color:var(--text-3);
+  background:color-mix(in srgb,var(--bg) 72%,transparent);backdrop-filter:blur(8px);padding:.35rem .6rem;
+  border:1px solid var(--border);border-radius:8px}
+kbd{font-family:var(--mono);font-size:.68rem;background:var(--surface-2);border:1px solid var(--border-2);
+  border-radius:4px;padding:.05rem .35rem;color:var(--text-2)}
+@media (max-width:860px){.dots,.navhint{display:none}}
+
+/* ============================================================= PRINT */
+@media print{
+  .deck{height:auto;overflow:visible;scroll-snap-type:none}
+  .slide{min-height:auto;page-break-after:always;border-bottom:0;padding:1.4cm}
+  .brand,.hud,.dots,.navhint,#progress{display:none}
+  body{background:#fff}
+}
+</style>
+
+<div id="progress"></div>
+<div class="brand"><span class="brand__dot"></span><span><b>PathAssist</b> · PathAgent</span></div>
+<div class="hud"><span class="hud__part" id="hudPart">The Brief</span><span class="hud__count"><span id="hudNum">01</span> / <span id="hudTot">22</span></span></div>
+<div class="navhint"><kbd>↓</kbd> <kbd>↑</kbd> or <kbd>Space</kbd> to navigate · <kbd>P</kbd> print</div>
+<nav class="dots" id="dots" aria-label="Slide navigation"></nav>
+
+<main class="deck" id="deck">
+<section class="slide" data-part="The Brief" id="s-title">
+  <div class="slide__inner">
+    <div class="two-col narrow-right">
+      <div class="stack">
+        <p class="eyebrow">PART A · <span class="em">01 / 25</span> · The Brief</p>
+        <h2 class="slide-title"><span class="hl">PathAgent</span> — an in-viewer AI copilot that reads whole-slide pathology <span class="hl2">with</span> you.</h2>
+        <p class="lead">A new multi-agent LLM copilot inside the PathAssist / Impart DX platform that <strong>navigates the slide, shows its evidence, and verifies itself</strong> — not just a chatbot.</p>
+        <div class="row">
+          <span class="pill pill--violet plain">Implementation Report</span>
+          <span class="pill pill--ok">Milestones M0–M4 shipped</span>
+          <span class="pill pill--ok">Live in-browser E2E</span>
+        </div>
+        <div class="row">
+          <span class="tag">Branch: chen</span>
+          <span class="tag">2026-07-08</span>
+          <span class="tag">Audience: technical + clinical + leadership</span>
+        </div>
+        <p class="credit">PathAssist × Trident × WSI-Agents · SlideChat · PathFinder</p>
+      </div>
+
+      <figure class="figure">
+        <svg viewBox="0 0 600 460" role="img" aria-label="A whole-slide image thumbnail with a dashed agent navigation trail across three numbered waypoints, a region-of-interest box, and a verified-confidence badge">
+          <defs>
+            <marker id="ah-hero" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 Z" fill="var(--violet)"></path>
+            </marker>
+            <pattern id="grid-hero" width="46" height="46" patternUnits="userSpaceOnUse">
+              <path d="M46 0 H0 V46" fill="none" stroke="var(--border-2)" stroke-opacity="0.45" stroke-width="1"></path>
+            </pattern>
+          </defs>
+          <rect x="16" y="16" width="568" height="428" rx="14" class="f-box"></rect>
+          <rect x="16" y="16" width="568" height="428" rx="14" fill="url(#grid-hero)"></rect>
+          <path d="M150 235 C140 165 235 132 305 162 C355 183 405 155 432 214 C458 268 420 335 338 344 C250 353 168 322 150 262 Z" fill="var(--violet)" fill-opacity="0.30"></path>
+          <path d="M320 205 C378 178 452 188 474 238 C492 282 464 342 398 347 C348 350 316 306 320 260 C322 232 306 218 320 205 Z" fill="var(--rose)" fill-opacity="0.28"></path>
+          <g fill="var(--violet)" fill-opacity="0.55">
+            <circle cx="205" cy="240" r="5"></circle>
+            <circle cx="240" cy="278" r="4"></circle>
+            <circle cx="285" cy="235" r="5"></circle>
+            <circle cx="262" cy="205" r="3.5"></circle>
+            <circle cx="330" cy="300" r="4"></circle>
+            <circle cx="360" cy="255" r="5"></circle>
+            <circle cx="405" cy="285" r="4"></circle>
+            <circle cx="430" cy="250" r="3.5"></circle>
+            <circle cx="190" cy="290" r="3.5"></circle>
+          </g>
+          <rect x="348" y="222" width="120" height="104" rx="6" fill="none" stroke="var(--violet)" stroke-width="2" stroke-dasharray="7 5"></rect>
+          <text x="352" y="214" class="f-sub" fill="var(--violet)">ROI</text>
+          <path d="M168 322 C212 288 244 262 282 250 C338 232 378 256 408 278" fill="none" stroke="var(--violet)" stroke-width="2.4" stroke-dasharray="2 9" stroke-linecap="round" marker-end="url(#ah-hero)"></path>
+          <g>
+            <circle cx="168" cy="322" r="16" fill="var(--surface)" stroke="var(--violet)" stroke-width="2.4"></circle>
+            <text x="168" y="327" text-anchor="middle" fill="var(--violet)" style="font-family:var(--mono);font-size:13px;font-weight:700">1</text>
+            <circle cx="282" cy="250" r="16" fill="var(--surface)" stroke="var(--violet)" stroke-width="2.4"></circle>
+            <text x="282" y="255" text-anchor="middle" fill="var(--violet)" style="font-family:var(--mono);font-size:13px;font-weight:700">2</text>
+            <circle cx="408" cy="278" r="16" fill="var(--surface)" stroke="var(--violet)" stroke-width="2.4"></circle>
+            <text x="408" y="283" text-anchor="middle" fill="var(--violet)" style="font-family:var(--mono);font-size:13px;font-weight:700">3</text>
+          </g>
+          <text x="150" y="362" class="f-sub">low-mag survey</text>
+          <text x="392" y="318" class="f-sub" fill="var(--rose)">high-mag dive</text>
+          <g>
+            <rect x="372" y="40" width="196" height="46" rx="10" fill="var(--surface)" stroke="var(--border-2)" stroke-width="1.5"></rect>
+            <circle cx="392" cy="63" r="6" fill="var(--ok)"></circle>
+            <text x="406" y="58" fill="var(--ok)" style="font-family:var(--mono);font-size:10px;letter-spacing:.08em">VERIFIED</text>
+            <text x="406" y="75" class="f-label">φ_total  0.86</text>
+          </g>
+          <g>
+            <rect x="32" y="40" width="152" height="30" rx="8" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1"></rect>
+            <text x="44" y="60" class="f-sub">WSI · ~100k² px</text>
+          </g>
+        </svg>
+        <figcaption class="figure__cap"><b>The whole thesis in one picture</b> — the agent surveys a gigapixel slide, dives into an ROI, and returns a verified answer.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="The Brief" id="s-problem">
+  <div class="slide__inner">
+    <p class="eyebrow">PART A · <span class="em">02 / 25</span> · Why this is hard</p>
+    <h2 class="slide-title">A single slide is a <span class="hl">gigapixel</span> haystack.</h2>
+    <div class="two-col narrow-left">
+      <div class="stack">
+        <p class="lead">Pathologists sign out diagnoses by scanning enormous digitized glass slides. A WSI is often <strong>100,000 × 100,000 px+</strong> — the equivalent of thousands of high-res photos — yet the diagnostic clue may be a few cells. A general chatbot can't "see" a gigapixel image; it needs help knowing <strong>where</strong> to look.</p>
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat__num violet">~100k²</div>
+            <div class="stat__label">pixels per slide</div>
+            <div class="stat__sub">base-level scan</div>
+          </div>
+          <div class="stat">
+            <div class="stat__num">6k–11k</div>
+            <div class="stat__label">patches per slide</div>
+            <div class="stat__sub">real M1 runs</div>
+          </div>
+          <div class="stat">
+            <div class="stat__num teal">1–2 min</div>
+            <div class="stat__label">to feature-extract one slide</div>
+            <div class="stat__sub">on a 48 GB GPU</div>
+          </div>
+        </div>
+        <div class="callout callout--rose">
+          <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></span>
+          <div>
+            <p class="callout__title">The clinical need isn't just an answer.</p>
+            <p class="callout__body">It's a <strong>trustworthy, evidence-backed</strong> one — a finding you can point to on the slide.</p>
+          </div>
+        </div>
+      </div>
+
+      <figure class="figure">
+        <svg viewBox="0 0 800 400" role="img" aria-label="Scale comparison: a single screen versus a gigapixel whole-slide image tiled into a patch grid with one diagnostic patch highlighted">
+          <defs>
+            <marker id="ah-scale" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 Z" fill="var(--text-3)"></path>
+            </marker>
+            <pattern id="grid-slide" width="34" height="34" patternUnits="userSpaceOnUse">
+              <path d="M34 0 H0 V34" fill="none" stroke="var(--border-2)" stroke-opacity="0.6" stroke-width="1"></path>
+            </pattern>
+          </defs>
+          <rect x="40" y="150" width="180" height="120" rx="9" class="f-box"></rect>
+          <rect x="54" y="163" width="152" height="80" rx="4" fill="var(--surface)" stroke="var(--border)" stroke-width="1"></rect>
+          <path d="M110 243 h40 l10 24 h-60 z" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.2"></path>
+          <ellipse cx="130" cy="203" rx="22" ry="15" fill="var(--violet)" fill-opacity="0.30"></ellipse>
+          <text x="130" y="302" text-anchor="middle" class="f-sub">one screen</text>
+          <text x="130" y="316" text-anchor="middle" class="f-sub">≈ a few megapixels</text>
+          <rect x="330" y="30" width="430" height="340" rx="9" class="f-box"></rect>
+          <rect x="330" y="30" width="430" height="340" rx="9" fill="url(#grid-slide)"></rect>
+          <path d="M420 120 C470 90 560 100 600 150 C640 200 620 280 540 300 C450 320 380 270 380 200 C380 160 390 135 420 120 Z" fill="var(--rose)" fill-opacity="0.14"></path>
+          <rect x="352" y="52" width="40" height="26" rx="2" fill="none" stroke="var(--teal)" stroke-width="2"></rect>
+          <text x="400" y="66" class="f-sub" fill="var(--teal)">= 1 screenful</text>
+          <rect x="534" y="200" width="34" height="34" fill="var(--violet)" fill-opacity="0.55" stroke="var(--violet)" stroke-width="2"></rect>
+          <path d="M602 176 C588 183 578 191 570 204" fill="none" stroke="var(--text-3)" stroke-width="1.6" marker-end="url(#ah-scale)"></path>
+          <text x="606" y="172" fill="var(--rose)" style="font-family:var(--mono);font-size:11px">diagnostic clue</text>
+          <text x="606" y="187" class="f-sub">≈ a few cells</text>
+          <path d="M224 188 C278 148 312 96 348 70" fill="none" stroke="var(--text-3)" stroke-width="1.6" stroke-dasharray="5 5" marker-end="url(#ah-scale)"></path>
+          <text x="238" y="126" class="f-sub">your whole screen →</text>
+          <text x="545" y="392" text-anchor="middle" class="f-label" style="font-size:11px">1 WSI ≈ 100,000 × 100,000 px · 6k–11k patches</text>
+        </svg>
+        <figcaption class="figure__cap"><b>Needle in a gigapixel haystack</b> — a full screen at native resolution covers one tile; the answer can hide in a single patch.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="The Brief" id="s-platform">
+  <div class="slide__inner">
+    <p class="eyebrow">PART A · <span class="em">03 / 25</span> · The platform</p>
+    <h2 class="slide-title">A white-label platform that puts <span class="hl">AI beside the microscope</span>.</h2>
+    <p class="lead">PathAssist (Impart DX) is a browser WSI viewer built on the open-source <strong>Digital Slide Archive / Girder 5</strong>, with an embedded AI layer — multi-tenant and white-label (one backend, many branded labs), lymphoma/DLBCL-first with broader oncology ambitions.</p>
+    <div class="grid grid--3">
+      <div class="card card--pad">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg></div>
+        <p class="card__title">Viewer &amp; platform</p>
+        <p class="card__body">React 18 + Vite + Zustand + TanStack Query + Tailwind. <strong>OpenSeadragon</strong> slide viewer over a <strong>Girder 5 / DSA</strong> backend.</p>
+      </div>
+      <div class="card card--pad">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7Z"/></svg></div>
+        <p class="card__title">Existing AI suite</p>
+        <p class="card__body"><strong>AskPA</strong> copilot · <strong>Pragna</strong> (Ki67 / tissue) · <strong>MIL classifiers</strong> (BRCA AUC 0.947, NSCLC 0.976) · <strong>HoVer-Net</strong> nuclei.</p>
+      </div>
+      <div class="card card--pad">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></div>
+        <p class="card__title">Positioning</p>
+        <p class="card__body"><strong>Multi-tenant, white-label</strong> — one backend, many branded labs. <strong>Lymphoma-first</strong>, broadening to wider oncology.</p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:1.4rem">
+      <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg></span>
+      <div>
+        <p class="callout__title">PathAgent is the next-generation copilot layered on top of this platform.</p>
+        <p class="callout__body">It's the subject of this report — an advanced, right-panel AI feature that builds on everything above.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="The Brief" id="s-idea">
+  <div class="slide__inner">
+    <p class="eyebrow">PART A · <span class="em">04 / 25</span> · The idea</p>
+    <h2 class="slide-title">An agent that <span class="hl">co-navigates</span> the slide — and <span class="hl2">shows its work</span>.</h2>
+    <p class="lead">Instead of a single black-box answer, PathAgent works like a pathologist at the scope: it <strong>triages</strong> the slide, moves the viewport to the regions that matter, <strong>describes</strong> what it sees, proposes a diagnosis, then <strong>verifies itself</strong> against medical knowledge and independent classifiers before committing — streaming every step into the viewer.</p>
+    <div class="grid grid--3">
+      <div class="card card--accent card--pad">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-2 5-4 1 2-5Z"/></svg></div>
+        <p class="card__title">Navigates</p>
+        <p class="card__body">Drives the live OpenSeadragon viewer to the evidence — low-mag survey, then high-mag dives.</p>
+      </div>
+      <div class="card card--rose card--pad">
+        <div class="card__ico" style="background:color-mix(in srgb,var(--rose) 16%,transparent);color:var(--rose)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></div>
+        <p class="card__title">Verifies</p>
+        <p class="card__body">Dual verification → a <strong>calibrated confidence</strong> badge with citations, not a vibe.</p>
+      </div>
+      <div class="card card--teal card--pad">
+        <div class="card__ico" style="background:color-mix(in srgb,var(--teal) 16%,transparent);color:var(--teal)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <p class="card__title">Grounded</p>
+        <p class="card__body">Every claim tied to a visible region + source; each run <strong>auto-saves a provenance annotation</strong>.</p>
+      </div>
+    </div>
+    <blockquote class="quote" style="margin-top:1.5rem">It doesn't just answer — it co-navigates the slide with the pathologist and shows its evidence in the viewer.</blockquote>
+  </div>
+</section>
+
+<section class="slide" data-part="The Brief" id="s-market">
+  <div class="slide__inner">
+    <p class="eyebrow">PART A · <span class="em">05 / 25</span> · Landscape</p>
+    <h2 class="slide-title">A crowded market — with a <span class="hl">real white space</span>.</h2>
+    <p class="lead">The space spans image-management platforms, AI diagnostic apps, and AI copilots. The <strong>copilot layer</strong> is the newest and most contested — and it's where PathAgent competes.</p>
+    <div class="two-col">
+      <div class="stack">
+        <div class="card card--pad">
+          <p class="section-label">Who's out there</p>
+          <p class="card__body"><strong>Copilots:</strong> Modella / <strong>PathChat</strong> — <em>Nature</em>'24, FDA Breakthrough Jan'25, acquired by AstraZeneca Jan'26.</p>
+          <p class="card__body" style="margin-top:.5rem"><strong>Platforms + AI dx:</strong> PathAI AISight Dx (FDA-cleared Jun'25) · Paige.AI · Proscia · Indica Labs.</p>
+          <p class="card__body" style="margin-top:.5rem"><strong>Foundation models:</strong> UNI · Virchow · H-optimus.</p>
+        </div>
+        <div class="card card--pad">
+          <p class="section-label">Agentic frontier</p>
+          <div class="chips">
+            <span class="tag">SlideSeek</span>
+            <span class="tag">SlideChat</span>
+            <span class="tag">WSI-Agents</span>
+            <span class="tag">GIANT</span>
+          </div>
+          <p class="card__body" style="margin-top:.7rem">LLM agents that navigate a WSI "like a pathologist" — the frontier PathAgent joins.</p>
+        </div>
+      </div>
+      <div class="stack">
+        <p class="section-label">White space — our wedge</p>
+        <ul class="ticks">
+          <li><strong>In-viewer co-navigation</strong> — no released system drives a live viewer.</li>
+          <li><strong>Built-in verification / trust</strong> layer with calibrated confidence.</li>
+          <li><strong>Lymphoma-first</strong> — a commercially under-served focus.</li>
+          <li><strong>Privacy / local $0-egress</strong> option (HIPAA-friendly).</li>
+          <li><strong>White-label multi-tenant</strong> — one backend, many branded labs.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="footnote">Naming-collision caveat: PathAI already ships "PathAssist Derm" (FDA Breakthrough) — a branding risk to resolve.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="How It Works" id="s-compose">
+  <div class="slide__inner">
+    <p class="eyebrow">PART B · <span class="em">06 / 25</span> · Architecture · composition</p>
+    <h2 class="slide-title">Three systems, each doing what it's <span class="hl">best at</span></h2>
+    <p class="lead">PathAgent invents no new backbone. It <strong>composes three mature systems</strong> — a live viewer, a cached feature backbone, and a verification layer — then adds the one thing none of them had alone: an agent that drives the actual microscope.</p>
+    <div class="stack">
+      <div class="grid grid--3">
+        <div class="card card--accent">
+          <div class="card__title">PathAssist · head / data plane</div>
+          <p class="card__body">Multi-tenant DSA / Girder 5 viewer — React 18 + OpenSeadragon. <span class="muted">Alone: a viewer, no reasoning.</span></p>
+        </div>
+        <div class="card card--accent card--teal">
+          <div class="card__title">Trident · feature backbone</div>
+          <p class="card__body">WSI → seg → coords → CONCH / UNI embeddings, cached. <span class="muted">Alone: features, no trust or narrative.</span></p>
+        </div>
+        <div class="card card--accent card--rose">
+          <div class="card__title">WSI-Agents · trust layer</div>
+          <p class="card__body">Dual verification → a scored, cited summary. <span class="muted">Alone: built for offline benchmarks.</span></p>
+        </div>
+      </div>
+      <div class="row">
+        <span class="tag">+ PathFinder · navigation loop</span>
+        <span class="pill">SlideChat · deferred</span>
+        <span class="pill">Patho-Bench · M5 eval</span>
+      </div>
+      <div class="callout callout--ok">
+        <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <div>
+          <p class="callout__title">The fusion is the novelty &nbsp;<span class="pill pill--ok plain">M0–M4 shipped</span></p>
+          <p class="callout__body">WSI-Agents and PathFinder were built for offline benchmarks; PathAssist is a live viewer. We fused them and let the agent drive the actual viewport — <strong>now running end-to-end</strong>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="How It Works" id="s-arch">
+  <div class="slide__inner">
+    <p class="eyebrow">PART B · <span class="em">07 / 25</span> · System diagram</p>
+    <h2 class="slide-title">The end-to-end system — <span class="hl">now wired</span></h2>
+    <figure class="figure">
+      <svg viewBox="0 0 900 560" role="img" aria-label="PathAgent target architecture, M0 through M4 shipped">
+        <defs>
+          <marker id="ah-arch2-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--text-3)"/></marker>
+        </defs>
+
+        <!-- Row 1: PathAssist band (existing) + PathAgent panel (M4) -->
+        <rect x="60" y="20" width="780" height="78" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <text class="f-label" x="78" y="46" style="font-size:13px">PathAssist · React 18 + Vite + OpenSeadragon viewer</text>
+        <text class="f-sub" x="78" y="66">existing platform · multi-tenant DSA client</text>
+        <rect x="518" y="32" width="304" height="54" rx="8" fill="color-mix(in srgb,var(--ok) 8%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="534" y="54">PathAgent panel</text>
+        <text class="f-sub" x="534" y="72">trace · nav trail · heatmap · pause · save</text>
+        <text class="f-sub" x="806" y="50" text-anchor="end" style="fill:var(--ok)">✓ M4</text>
+
+        <line x1="450" y1="98" x2="450" y2="115" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+        <text class="f-sub" x="460" y="111">SSE</text>
+
+        <!-- Row 2: nginx -->
+        <rect x="330" y="116" width="240" height="40" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <text class="f-label" x="450" y="141" text-anchor="middle">nginx · /api/agent · SSE</text>
+
+        <line x1="450" y1="156" x2="450" y2="173" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+
+        <!-- Row 3: Agent Gateway (M0) -->
+        <rect x="170" y="174" width="560" height="62" rx="9" fill="color-mix(in srgb,var(--ok) 6%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="188" y="200" style="font-size:13px">Agent Gateway · FastAPI</text>
+        <text class="f-sub" x="188" y="220">auth passthrough · registry · Redis / RQ queue · params-hash cache</text>
+        <text class="f-sub" x="712" y="200" text-anchor="end" style="fill:var(--ok)">✓ M0</text>
+
+        <line x1="450" y1="236" x2="180" y2="268" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+        <line x1="450" y1="236" x2="450" y2="268" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+        <line x1="450" y1="236" x2="720" y2="268" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+
+        <!-- Row 4: three workers -->
+        <rect x="50" y="270" width="250" height="100" rx="9" fill="color-mix(in srgb,var(--ok) 6%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="64" y="294">Trident worker</text>
+        <text class="f-sub" x="64" y="314">seg → coords</text>
+        <text class="f-sub" x="64" y="331">CONCH conch_v1 · 512-d</text>
+        <text class="f-sub" x="64" y="348">UNI uni_v1 · 1024-d consensus</text>
+        <text class="f-sub" x="286" y="294" text-anchor="end" style="fill:var(--ok)">✓ M1 / M2</text>
+
+        <rect x="325" y="270" width="250" height="100" rx="9" fill="color-mix(in srgb,var(--ok) 6%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="339" y="294">Perception · local GPU</text>
+        <text class="f-sub" x="339" y="314">CONCH concept-similarity nav</text>
+        <text class="f-sub" x="339" y="331">importance raster</text>
+        <text class="f-sub" x="339" y="348">BRCA ABMIL classifier</text>
+        <text class="f-sub" x="561" y="294" text-anchor="end" style="fill:var(--ok)">✓</text>
+
+        <rect x="600" y="270" width="250" height="100" rx="9" fill="color-mix(in srgb,var(--ok) 6%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="614" y="294">Orchestrator · LangGraph</text>
+        <text class="f-sub" x="614" y="314">Route→Triage→Nav⇄Describe→Diagnose</text>
+        <text class="f-sub" x="614" y="331">Verify: ICV ∥ KB ∥ Consensus</text>
+        <text class="f-sub" x="614" y="348">reasoning = local MedGemma</text>
+        <text class="f-sub" x="836" y="294" text-anchor="end" style="fill:var(--ok)">✓ M3</text>
+
+        <!-- deferred SlideChat candidate -->
+        <rect x="600" y="380" width="250" height="26" rx="7" fill="none" stroke="var(--border-2)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <text class="f-sub" x="725" y="397" text-anchor="middle">+ SlideChat candidate — deferred</text>
+
+        <line x1="175" y1="370" x2="200" y2="412" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+        <line x1="450" y1="370" x2="285" y2="412" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+        <line x1="725" y1="406" x2="420" y2="440" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+
+        <!-- Row 5: cache + KB -->
+        <rect x="50" y="414" width="470" height="58" rx="9" fill="color-mix(in srgb,var(--ok) 6%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="64" y="438">Feature / artifact cache</text>
+        <text class="f-sub" x="64" y="458">conch_v1 · uni_v1 · coords · thumbnails · classifier.json · heatmap</text>
+        <text class="f-sub" x="506" y="438" text-anchor="end" style="fill:var(--ok)">✓</text>
+
+        <rect x="540" y="414" width="150" height="58" rx="9" fill="color-mix(in srgb,var(--ok) 6%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text class="f-label" x="554" y="438">Seed KB</text>
+        <text class="f-sub" x="554" y="458">12 entries</text>
+        <text class="f-sub" x="676" y="438" text-anchor="end" style="fill:var(--ok)">✓</text>
+
+        <rect x="705" y="414" width="145" height="58" rx="9" fill="none" stroke="var(--border-2)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <text class="f-sub" x="777" y="436" text-anchor="middle">full WHO /</text>
+        <text class="f-sub" x="777" y="450" text-anchor="middle">PathologyOutlines KB</text>
+        <text class="f-sub" x="777" y="466" text-anchor="middle" style="fill:var(--text-3)">deferred</text>
+
+        <line x1="285" y1="472" x2="285" y2="489" class="f-flow" marker-end="url(#ah-arch2-arrow)"/>
+
+        <!-- Row 6: Girder + M5 -->
+        <rect x="50" y="490" width="640" height="48" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <text class="f-label" x="370" y="519" text-anchor="middle">Girder 5 · Digital Slide Archive — slides + annotations</text>
+
+        <rect x="705" y="490" width="145" height="48" rx="9" fill="none" stroke="var(--border-2)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <text class="f-sub" x="777" y="512" text-anchor="middle" style="fill:var(--text-3)">M5 eval — deferred</text>
+        <text class="f-sub" x="777" y="528" text-anchor="middle">Patho-Bench · CAMELYON16</text>
+        <line x1="690" y1="514" x2="704" y2="514" class="f-flow" stroke-dasharray="4 3" marker-end="url(#ah-arch2-arrow)"/>
+      </svg>
+      <div class="fig-legend">
+        <span class="legend-item"><span class="swatch" style="background:var(--ok)"></span>shipped · M0–M4</span>
+        <span class="legend-item"><span class="swatch" style="background:transparent;border:1.5px dashed var(--text-3)"></span>deferred</span>
+        <span class="legend-item"><span class="swatch" style="background:var(--border-2)"></span>existing</span>
+      </div>
+      <figcaption class="figure__cap">Top→bottom: <b>viewer + PathAgent panel</b> → nginx SSE → <b>Agent Gateway</b> → Trident / Perception / Orchestrator workers → feature cache + seed KB → <b>Girder 5 / DSA</b>. Green ✓ = built and verified end-to-end.</figcaption>
+    </figure>
+    <p class="footnote">Reasoning LLM is pluggable — local MedGemma / Gemma today (:11500), hosted GPT-4V a config swap. No rewrite.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="How It Works" id="s-loop">
+  <div class="slide__inner">
+    <p class="eyebrow">PART B · <span class="em">08 / 25</span> · Reasoning loop</p>
+    <h2 class="slide-title">One question, streamed as <span class="hl">seven events</span></h2>
+    <p class="lead">Compiled as a <strong>LangGraph</strong> graph and streamed as typed SSE events over <span class="mono">POST /api/agent/query</span> — a cyclic Navigate⇄Describe survey with three parallel verification branches that merge into one cited summary.</p>
+    <figure class="figure">
+      <svg viewBox="0 0 900 460" role="img" aria-label="The merged agent loop: router, triage, navigate-describe cycle, diagnose, three verify branches, summary">
+        <defs>
+          <marker id="ah-loop2-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--text-3)"/></marker>
+          <marker id="ah-loop2-arrowv" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--violet)"/></marker>
+        </defs>
+
+        <!-- reasoning nodes (violet), perception nodes (teal) -->
+        <rect x="24" y="196" width="96" height="52" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="72" y="226" text-anchor="middle">Router</text>
+
+        <rect x="148" y="196" width="106" height="52" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="201" y="220" text-anchor="middle">Triage</text>
+        <text class="f-sub" x="201" y="236" text-anchor="middle">sets budget</text>
+
+        <rect x="300" y="148" width="122" height="48" rx="9" fill="color-mix(in srgb,var(--teal) 12%,var(--surface))" stroke="var(--teal)" stroke-width="1.5"/>
+        <text class="f-label" x="361" y="170" text-anchor="middle">Navigate</text>
+        <text class="f-sub" x="361" y="186" text-anchor="middle">CONCH sim</text>
+
+        <rect x="300" y="256" width="122" height="48" rx="9" fill="color-mix(in srgb,var(--teal) 12%,var(--surface))" stroke="var(--teal)" stroke-width="1.5"/>
+        <text class="f-label" x="361" y="278" text-anchor="middle">Describe</text>
+        <text class="f-sub" x="361" y="294" text-anchor="middle">patch features</text>
+
+        <rect x="462" y="196" width="118" height="52" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="521" y="220" text-anchor="middle">Diagnose</text>
+        <text class="f-sub" x="521" y="236" text-anchor="middle">answer-first</text>
+
+        <rect x="620" y="110" width="150" height="44" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="695" y="137" text-anchor="middle">ICV · φ_l</text>
+        <rect x="620" y="190" width="150" height="44" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="695" y="217" text-anchor="middle">Fact · φ_k</text>
+        <rect x="620" y="270" width="150" height="44" rx="9" fill="color-mix(in srgb,var(--teal) 12%,var(--surface))" stroke="var(--teal)" stroke-width="1.5"/>
+        <text class="f-label" x="695" y="297" text-anchor="middle">Consensus · φ_c</text>
+
+        <rect x="806" y="196" width="80" height="52" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="846" y="226" text-anchor="middle">Summary</text>
+
+        <!-- flow -->
+        <line x1="120" y1="222" x2="146" y2="222" class="f-flow-accent" marker-end="url(#ah-loop2-arrowv)"/>
+        <path d="M254 214 Q285 200 300 180" class="f-flow-accent" fill="none" marker-end="url(#ah-loop2-arrowv)"/>
+        <!-- Navigate <-> Describe cycle -->
+        <line x1="344" y1="196" x2="344" y2="254" class="f-flow-accent" marker-end="url(#ah-loop2-arrowv)"/>
+        <line x1="380" y1="256" x2="380" y2="198" class="f-flow-accent" marker-end="url(#ah-loop2-arrowv)"/>
+        <text class="f-sub" x="298" y="228" text-anchor="end" style="fill:var(--violet)">×8</text>
+        <text class="f-sub" x="298" y="242" text-anchor="end" style="fill:var(--violet)">loop</text>
+        <!-- exit to Diagnose -->
+        <path d="M422 268 Q450 240 462 226" class="f-flow-accent" fill="none" marker-end="url(#ah-loop2-arrowv)"/>
+        <!-- Diagnose fans out to 3 verify -->
+        <path d="M580 210 Q600 160 618 132" class="f-flow" fill="none" marker-end="url(#ah-loop2-arrow)"/>
+        <line x1="580" y1="222" x2="618" y2="212" class="f-flow" marker-end="url(#ah-loop2-arrow)"/>
+        <path d="M580 234 Q600 280 618 292" class="f-flow" fill="none" marker-end="url(#ah-loop2-arrow)"/>
+        <!-- verify merge to Summary -->
+        <path d="M770 132 Q800 170 806 210" class="f-flow" fill="none" marker-end="url(#ah-loop2-arrow)"/>
+        <line x1="770" y1="212" x2="805" y2="220" class="f-flow" marker-end="url(#ah-loop2-arrow)"/>
+        <path d="M770 292 Q800 254 806 234" class="f-flow" fill="none" marker-end="url(#ah-loop2-arrow)"/>
+
+        <!-- observed stream strip -->
+        <rect x="24" y="392" width="852" height="44" rx="8" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.5"/>
+        <text class="f-sub" x="40" y="386" style="fill:var(--text-3)">OBSERVED STREAM · BRACS_1648 (verified)</text>
+        <text class="f-label" x="450" y="419" text-anchor="middle">route → triage → navigate×8 → describe×8 → diagnose → verify → final</text>
+      </svg>
+      <div class="fig-legend">
+        <span class="legend-item"><span class="swatch" style="background:var(--violet)"></span>reasoning · local MedGemma (pluggable)</span>
+        <span class="legend-item"><span class="swatch" style="background:var(--teal)"></span>perception · CONCH sim + BRCA classifier</span>
+      </div>
+      <figcaption class="figure__cap"><b>Diagnose emits a preliminary answer before verify</b> (answer-first); three verify branches run in parallel and merge into the cited Summary.</figcaption>
+    </figure>
+    <div class="row">
+      <span class="tag">LangGraph · cyclic + streaming + bounded loop</span>
+      <span class="tag">triage budget · benign ~3 / suspicious ~8 / cap 12</span>
+    </div>
+    <p class="footnote">v1 = Diagnosis task only; Morphology / Treatment / Report fan-out = M3b (deferred).</p>
+  </div>
+</section>
+
+<section class="slide" data-part="How It Works" id="s-nav">
+  <div class="slide__inner">
+    <p class="eyebrow">PART B · <span class="em">09 / 25</span> · Navigation</p>
+    <h2 class="slide-title">Query-conditioned <span class="hl">concept similarity</span> — training-free, now real</h2>
+    <p class="lead">The question is embedded with CONCH's <strong>text tower</strong> and cosined against every cached patch embedding, so attention follows the actual question. The sampler balances exploitation (top-similarity hotspots) with coverage (survey→dive) — zero-shot, ~free from the cache, and strictly advisory: <strong>where to look, never the answer</strong>.</p>
+    <div class="two-col narrow-right">
+      <figure class="figure">
+        <svg viewBox="0 0 480 360" role="img" aria-label="Slide thumbnail with importance blobs and an 8-region survey-to-dive path">
+          <defs>
+            <marker id="ah-nav2-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--violet)"/></marker>
+            <radialGradient id="ah-nav2-blob" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="var(--rose)" stop-opacity="0.42"/>
+              <stop offset="100%" stop-color="var(--rose)" stop-opacity="0"/>
+            </radialGradient>
+            <radialGradient id="ah-nav2-blob2" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="var(--violet)" stop-opacity="0.38"/>
+              <stop offset="100%" stop-color="var(--violet)" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <rect x="16" y="16" width="448" height="328" rx="12" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+          <!-- importance blobs -->
+          <ellipse cx="350" cy="150" rx="95" ry="80" fill="url(#ah-nav2-blob)"/>
+          <ellipse cx="130" cy="110" rx="70" ry="60" fill="url(#ah-nav2-blob2)"/>
+          <ellipse cx="240" cy="290" rx="80" ry="55" fill="url(#ah-nav2-blob)"/>
+          <!-- survey to dive path -->
+          <path d="M90 90 L200 70 L330 110 L400 190 L300 230 L170 200 L120 290 L250 300" class="f-flow-accent" fill="none" stroke-dasharray="1 0" marker-end="url(#ah-nav2-arrow)"/>
+          <!-- numbered regions -->
+          <g>
+            <circle cx="90" cy="90" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="90" y="94" text-anchor="middle">1</text>
+            <circle cx="200" cy="70" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="200" y="74" text-anchor="middle">2</text>
+            <circle cx="330" cy="110" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="330" y="114" text-anchor="middle">3</text>
+            <circle cx="400" cy="190" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="400" y="194" text-anchor="middle">4</text>
+            <circle cx="300" cy="230" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="300" y="234" text-anchor="middle">5</text>
+            <circle cx="170" cy="200" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="170" y="204" text-anchor="middle">6</text>
+            <circle cx="120" cy="290" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="120" y="294" text-anchor="middle">7</text>
+            <circle cx="250" cy="300" r="14" fill="var(--surface)" stroke="var(--violet)" stroke-width="1.6"/><text class="f-label" x="250" y="304" text-anchor="middle">8</text>
+          </g>
+          <text class="f-sub" x="30" y="336">survey → dive · 8 visited regions</text>
+        </svg>
+        <figcaption class="figure__cap">Real run: <b>8 in-bounds regions</b> + a heatmap PNG at level-0 extent <b>81920×60928</b>.</figcaption>
+      </figure>
+      <div class="stack">
+        <figure class="figure">
+          <svg viewBox="0 0 300 320" role="img" aria-label="Navigation pipeline: text query to CONCH text tower to cosine to importance map">
+            <defs>
+              <marker id="ah-nav2-parrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--text-3)"/></marker>
+            </defs>
+            <rect x="30" y="16" width="240" height="46" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+            <text class="f-label" x="150" y="44" text-anchor="middle">text query</text>
+            <line x1="150" y1="62" x2="150" y2="86" class="f-flow" marker-end="url(#ah-nav2-parrow)"/>
+            <rect x="30" y="88" width="240" height="46" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+            <text class="f-label" x="150" y="116" text-anchor="middle">CONCH text tower</text>
+            <line x1="150" y1="134" x2="150" y2="158" class="f-flow" marker-end="url(#ah-nav2-parrow)"/>
+            <rect x="30" y="160" width="240" height="46" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+            <text class="f-label" x="150" y="182" text-anchor="middle">cosine vs</text>
+            <text class="f-sub" x="150" y="198" text-anchor="middle">cached patch embeddings</text>
+            <line x1="150" y1="206" x2="150" y2="230" class="f-flow" marker-end="url(#ah-nav2-parrow)"/>
+            <rect x="30" y="232" width="240" height="46" rx="9" fill="color-mix(in srgb,var(--teal) 12%,var(--surface))" stroke="var(--teal)" stroke-width="1.5"/>
+            <text class="f-label" x="150" y="260" text-anchor="middle">importance map</text>
+            <text class="f-sub" x="150" y="300" text-anchor="middle">zero-shot · ~free from cache</text>
+          </svg>
+        </figure>
+        <div class="callout callout--warn">
+          <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span>
+          <div>
+            <p class="callout__title">Advisory, not diagnostic</p>
+            <p class="callout__body">Concept-similarity is guidance for where to look — never the diagnosis itself.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="How It Works" id="s-verify">
+  <div class="slide__inner">
+    <p class="eyebrow">PART B · <span class="em">10 / 25</span> · Verification</p>
+    <h2 class="slide-title">Two independent checks — with a <span class="hl">calibrated</span> confidence</h2>
+    <figure class="figure">
+      <svg viewBox="0 0 900 400" role="img" aria-label="Three verification lanes combine into a total score and confidence gauge">
+        <defs>
+          <marker id="ah-verify2-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--text-3)"/></marker>
+        </defs>
+
+        <!-- Lane phi_l -->
+        <rect x="40" y="56" width="300" height="86" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <text class="f-label" x="56" y="82">φ_l · ICV — LLM logic judge</text>
+        <text class="f-sub" x="56" y="100">internal consistency of claims vs evidence</text>
+        <rect x="56" y="112" width="180" height="12" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+        <rect x="56" y="112" width="90" height="12" rx="6" fill="var(--violet)"/>
+        <text class="f-label" x="248" y="123">0.50</text>
+
+        <!-- Lane phi_k -->
+        <rect x="40" y="158" width="300" height="86" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <text class="f-label" x="56" y="184">φ_k · Fact — 12-entry seed KB</text>
+        <text class="f-sub" x="56" y="202">retrieval → factual alignment + citations</text>
+        <rect x="56" y="214" width="180" height="12" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+        <rect x="56" y="214" width="2" height="12" rx="1" fill="var(--rose)"/>
+        <text class="f-label" x="248" y="225" style="fill:var(--rose)">0.00</text>
+
+        <!-- Lane phi_c -->
+        <rect x="40" y="260" width="300" height="86" rx="9" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <text class="f-label" x="56" y="286">φ_c · Consensus — BRCA ABMIL</text>
+        <text class="f-sub" x="56" y="304">agreement vs the classifier prediction</text>
+        <rect x="56" y="316" width="180" height="12" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+        <rect x="56" y="316" width="128" height="12" rx="6" fill="var(--teal)"/>
+        <text class="f-label" x="248" y="327">0.709</text>
+
+        <!-- arrows to formula -->
+        <line x1="340" y1="99" x2="378" y2="188" class="f-flow" marker-end="url(#ah-verify2-arrow)"/>
+        <line x1="340" y1="201" x2="378" y2="201" class="f-flow" marker-end="url(#ah-verify2-arrow)"/>
+        <line x1="340" y1="303" x2="378" y2="216" class="f-flow" marker-end="url(#ah-verify2-arrow)"/>
+
+        <!-- formula box -->
+        <rect x="380" y="146" width="176" height="112" rx="9" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.5"/>
+        <text class="f-label" x="468" y="176" text-anchor="middle">φ_total =</text>
+        <text class="f-sub" x="468" y="196" text-anchor="middle">w₁φ_l + w₂φ_k + w₃φ_c</text>
+        <text class="f-sub" x="468" y="212" text-anchor="middle">(renormalized)</text>
+        <text class="f-label" x="468" y="240" text-anchor="middle" style="fill:var(--violet)">= 0.404</text>
+
+        <!-- arrow to gauge -->
+        <line x1="556" y1="202" x2="600" y2="252" class="f-flow" marker-end="url(#ah-verify2-arrow)"/>
+
+        <!-- gauge -->
+        <path d="M585 300 A 115 115 0 0 1 815 300" fill="none" stroke="var(--border-2)" stroke-width="14" stroke-linecap="round"/>
+        <path d="M585 300 A 115 115 0 0 1 664.5 190.6" fill="none" stroke="var(--warn)" stroke-width="14" stroke-linecap="round"/>
+        <line x1="700" y1="300" x2="671.6" y2="212.5" stroke="var(--text)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="700" cy="300" r="6" fill="var(--text)"/>
+        <text class="f-sub" x="575" y="318" text-anchor="middle">0</text>
+        <text class="f-sub" x="825" y="318" text-anchor="middle">100</text>
+        <text x="700" y="278" text-anchor="middle" style="fill:var(--warn);font-family:var(--mono);font-size:34px;font-weight:600">40</text>
+        <text class="f-label" x="700" y="330" text-anchor="middle">confidence</text>
+        <text class="f-sub" x="700" y="348" text-anchor="middle">φ_total 0.404</text>
+      </svg>
+      <figcaption class="figure__cap">Real BRACS_1648 run: <b>φ_l 0.50 · φ_k 0.00 · φ_c 0.709</b> → φ_total <b>0.404</b> → confidence <b>40</b>.</figcaption>
+    </figure>
+    <div class="grid grid--2">
+      <div class="callout callout--rose">
+        <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span>
+        <div>
+          <p class="callout__title">The low φ_k is a feature, not a bug</p>
+          <p class="callout__body">The small local reasoner found the answer only weakly supported by short seed-KB snippets and pulled confidence down — verification being appropriately skeptical. Richer KB + stronger reasoner + φ-weight tuning is exactly the <strong>M5 calibration</strong> work.</p>
+        </div>
+      </div>
+      <ul class="ticks rose">
+        <li><strong>Abstention is designed in.</strong> Non-H&amp;E or no tissue → low confidence.</li>
+        <li><strong>Disagreement lowers trust.</strong> Classifier vs LLM conflict pulls φ_total down.</li>
+        <li><strong>Answer-first, verify-streaming.</strong> The badge updates live as φ scores arrive.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="How It Works" id="s-ux">
+  <div class="slide__inner">
+    <p class="eyebrow">PART B · <span class="em">11 / 25</span> · Experience</p>
+    <h2 class="slide-title"><span class="hl">Answer-first</span> — and it drives your microscope</h2>
+    <p class="lead">The panel streams the loop: the preliminary answer and navigation trail render immediately, φ scores + citations stream in after. It <strong>moves the live OpenSeadragon viewport</strong> to each region and overlays the heatmap — verified live in a real browser.</p>
+    <div class="two-col">
+      <figure class="figure">
+        <svg viewBox="0 0 900 470" role="img" aria-label="Right panel mock beside the viewer, linked by fitBounds co-navigation">
+          <defs>
+            <marker id="ah-ux2-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--violet)"/></marker>
+            <radialGradient id="ah-ux2-heat" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="var(--rose)" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="var(--rose)" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+
+          <!-- viewer -->
+          <rect x="24" y="40" width="470" height="400" rx="12" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+          <text class="f-sub" x="40" y="30">OpenSeadragon viewer</text>
+          <ellipse cx="330" cy="150" rx="90" ry="70" fill="url(#ah-ux2-heat)"/>
+          <ellipse cx="180" cy="320" rx="80" ry="60" fill="url(#ah-ux2-heat)"/>
+          <rect x="215" y="200" width="150" height="120" rx="6" fill="color-mix(in srgb,var(--violet) 10%,transparent)" stroke="var(--violet)" stroke-width="2"/>
+          <text class="f-sub" x="290" y="192" text-anchor="middle" style="fill:var(--violet)">focused ROI · region 5</text>
+          <text class="f-sub" x="40" y="428">heatmap overlay · addTiledImage</text>
+
+          <!-- panel -->
+          <rect x="560" y="24" width="316" height="428" rx="12" fill="var(--surface)" stroke="var(--border-2)" stroke-width="1.5"/>
+          <circle cx="580" cy="48" r="5" fill="var(--violet)"/>
+          <text class="f-label" x="594" y="52">PathAgent</text>
+          <!-- readiness / prepare -->
+          <rect x="576" y="66" width="100" height="24" rx="12" fill="none" stroke="var(--ok)" stroke-width="1.4"/>
+          <text class="f-sub" x="626" y="82" text-anchor="middle" style="fill:var(--ok)">ready ✓</text>
+          <rect x="686" y="66" width="174" height="24" rx="8" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.4"/>
+          <text class="f-sub" x="773" y="82" text-anchor="middle">Prepare</text>
+          <!-- diagnosis chip -->
+          <rect x="576" y="100" width="284" height="30" rx="8" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--violet)" stroke-width="1.4"/>
+          <text class="f-label" x="590" y="120">Diagnosis · ILC — single-file pattern</text>
+          <!-- streaming trace -->
+          <text class="f-sub" x="576" y="152">streaming trace</text>
+          <rect x="576" y="158" width="240" height="8" rx="4" fill="var(--surface-2)"/>
+          <rect x="576" y="170" width="200" height="8" rx="4" fill="var(--surface-2)"/>
+          <rect x="576" y="182" width="220" height="8" rx="4" fill="var(--surface-2)"/>
+          <!-- confidence badge + phi bars -->
+          <rect x="576" y="200" width="72" height="46" rx="9" fill="none" stroke="var(--warn)" stroke-width="1.5"/>
+          <text x="612" y="230" text-anchor="middle" style="fill:var(--warn);font-family:var(--mono);font-size:22px;font-weight:600">40</text>
+          <text class="f-sub" x="664" y="212">φ_l 0.50</text>
+          <rect x="664" y="216" width="120" height="7" rx="3" fill="var(--surface-2)"/><rect x="664" y="216" width="60" height="7" rx="3" fill="var(--violet)"/>
+          <text class="f-sub" x="664" y="234">φ_k 0.00</text>
+          <rect x="664" y="238" width="120" height="7" rx="3" fill="var(--surface-2)"/><rect x="664" y="238" width="2" height="7" rx="1" fill="var(--rose)"/>
+          <text class="f-sub" x="664" y="256">φ_c 0.71</text>
+          <rect x="664" y="260" width="120" height="7" rx="3" fill="var(--surface-2)"/><rect x="664" y="260" width="85" height="7" rx="3" fill="var(--teal)"/>
+          <!-- citations -->
+          <text class="f-sub" x="576" y="292">citations · [1] WHO · [2] seed-KB</text>
+          <!-- nav trail -->
+          <text class="f-sub" x="576" y="318">navigation trail · 8</text>
+          <g fill="var(--surface)" stroke="var(--violet)" stroke-width="1.4">
+            <circle cx="586" cy="336" r="9"/><circle cx="616" cy="336" r="9"/><circle cx="646" cy="336" r="9"/><circle cx="676" cy="336" r="9"/>
+            <circle cx="706" cy="336" r="9"/><circle cx="736" cy="336" r="9"/><circle cx="766" cy="336" r="9"/><circle cx="796" cy="336" r="9"/>
+          </g>
+          <!-- controls -->
+          <rect x="576" y="360" width="284" height="30" rx="8" fill="color-mix(in srgb,var(--rose) 12%,var(--surface))" stroke="var(--rose)" stroke-width="1.5"/>
+          <text class="f-label" x="718" y="380" text-anchor="middle" style="fill:var(--rose)">⏸ pause / take control</text>
+          <rect x="576" y="398" width="138" height="28" rx="8" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.4"/>
+          <text class="f-sub" x="645" y="416" text-anchor="middle">heatmap toggle</text>
+          <rect x="722" y="398" width="138" height="28" rx="8" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.4"/>
+          <text class="f-sub" x="791" y="416" text-anchor="middle">save ROIs</text>
+
+          <!-- fitBounds connector -->
+          <path d="M576 332 Q450 320 366 262" class="f-flow-accent" fill="none" stroke-dasharray="6 4" marker-end="url(#ah-ux2-arrow)"/>
+          <text class="f-sub" x="430" y="300" text-anchor="middle" style="fill:var(--violet)">fitBounds → viewport</text>
+        </svg>
+        <figcaption class="figure__cap">The panel <b>drives</b> the viewer: each navigated region → <span class="mono">imageToViewportRectangle → fitBounds</span>; the heatmap overlays at its level-0 extent.</figcaption>
+      </figure>
+      <div class="stack">
+        <div class="stat-row">
+          <div class="stat"><div class="stat__num ok">12/12</div><div class="stat__label">live browser checks</div><div class="stat__sub">real Chromium → gateway</div></div>
+          <div class="stat"><div class="stat__num violet">21</div><div class="stat__label">SSE events streamed</div><div class="stat__sub">route → … → final</div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><div class="stat__num teal">8</div><div class="stat__label">region nav trail</div><div class="stat__sub">all in-bounds</div></div>
+          <div class="stat"><div class="stat__num ok">moved</div><div class="stat__label">viewport co-navigated</div><div class="stat__sub">bounds changed on navigate</div></div>
+        </div>
+        <p class="footnote">v1 take-control = pause-only; save = manual. Auto-persist every run is deferred.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-roadmap">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">12 / 25</span> · Roadmap · M0–M5</p>
+    <h2 class="slide-title"><span class="hl">Five milestones</span> shipped — verified end-to-end.</h2>
+    <p class="lead">The backbone-service-first plan is now built all the way through the frontend. <strong>M0–M4 are done, tested, and verified on real whole-slide images</strong> — M4 live in a real browser. M5 (evaluation &amp; calibration) is next.</p>
+
+    <div class="stack stack--sm">
+      <div class="mstone done">
+        <div class="mstone__code">M0</div>
+        <div>
+          <div class="mstone__name">Agent Gateway</div>
+          <div class="mstone__desc">FastAPI contract · Girder-token auth · Redis/RQ queue · params-hash cache · SSE</div>
+        </div>
+        <span class="pill pill--ok">shipped</span>
+      </div>
+      <div class="mstone done">
+        <div class="mstone__code">M1</div>
+        <div>
+          <div class="mstone__name">Trident backbone</div>
+          <div class="mstone__desc">seg → coords → CONCH <span class="mono">conch_v1</span> (512-d) · typed manifest · 3 real slides</div>
+        </div>
+        <span class="pill pill--ok">shipped</span>
+      </div>
+      <div class="mstone done">
+        <div class="mstone__code">M2</div>
+        <div>
+          <div class="mstone__name">Classifier consensus</div>
+          <div class="mstone__desc">UNI <span class="mono">uni_v1</span> (1024-d) + BRCA ABMIL → <span class="mono">classifier.json</span> → φ<sub>c</sub></div>
+        </div>
+        <span class="pill pill--ok">shipped</span>
+      </div>
+      <div class="mstone done">
+        <div class="mstone__code">M3</div>
+        <div>
+          <div class="mstone__name">Orchestrator / merged loop</div>
+          <div class="mstone__desc">LangGraph 7-event loop · navigation · φ<sub>l</sub> ∥ φ<sub>k</sub> ∥ φ<sub>c</sub> · zoomable heatmap</div>
+        </div>
+        <span class="pill pill--ok">shipped</span>
+      </div>
+      <div class="mstone done">
+        <div class="mstone__code">M4</div>
+        <div>
+          <div class="mstone__name">React panel + co-navigation</div>
+          <div class="mstone__desc">streams the loop · drives the live OSD viewport · heatmap overlay · save-to-Girder</div>
+        </div>
+        <span class="pill pill--ok">shipped</span>
+      </div>
+      <div class="mstone">
+        <div class="mstone__code">M3b</div>
+        <div>
+          <div class="mstone__name">Task fan-out</div>
+          <div class="mstone__desc">Morphology / Treatment / Report chips + auto-persist — scoped out of v1</div>
+        </div>
+        <span class="pill pill--info">deferred</span>
+      </div>
+      <div class="mstone next">
+        <div class="mstone__code">M5</div>
+        <div>
+          <div class="mstone__name">Evaluation &amp; calibration</div>
+          <div class="mstone__desc">ablation grid · Patho-Bench / CAMELYON16 · confidence calibration (ECE)</div>
+        </div>
+        <span class="pill pill--warn">next</span>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="stat-row">
+      <div class="stat"><div class="stat__num ok">5 / 5</div><div class="stat__label">core milestones shipped</div></div>
+      <div class="stat"><div class="stat__num violet">146</div><div class="stat__label">backend unit tests</div></div>
+      <div class="stat"><div class="stat__num teal">12 / 12</div><div class="stat__label">live browser checks</div></div>
+      <div class="stat"><div class="stat__num">M0→M4</div><div class="stat__label">runs on 1× A6000</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-backbone">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">13 / 25</span> · M0 + M1 · shipped</p>
+    <h2 class="slide-title">A tested service spine, then <span class="hl">real CONCH</span> features.</h2>
+    <p class="lead">First a GPU-free, fully tested gateway with a single swap-point; then the real Trident backbone dropped into that swap-point — verified on three slides, including a live 1.3&nbsp;GB Girder download.</p>
+
+    <div class="two-col">
+      <div class="card card--accent card--pad">
+        <div class="row"><h3 class="card__title">M0 · Agent Gateway</h3><span class="pill pill--ok">shipped</span></div>
+        <p class="card__body">The full API contract: Girder-token auth passthrough, a Redis/RQ queue, a worker registry, params-hash cache keys, camelCase wire format, and SSE — behind a <strong>fake preprocessor</strong> so the whole cycle is testable without a GPU. Exactly one clean swap-point for the real worker.</p>
+        <div class="chips" style="margin-top:.75rem">
+          <span class="tag">416 lines</span><span class="tag">11 modules</span><span class="tag">31 tests</span><span class="tag">245 MB image</span><span class="tag">3/3 feed-forward ready</span>
+        </div>
+      </div>
+      <div class="card card--teal card--pad">
+        <div class="row"><h3 class="card__title">M1 · Trident backbone</h3><span class="pill pill--ok">shipped</span></div>
+        <p class="card__body">Real seg → coords → CONCH <span class="mono">conch_v1</span> (512-d) in an isolated <span class="mono">pathology</span> conda-env subprocess. A typed manifest reads level-0 geometry from the h5 attrs — <strong>never hardcoded</strong>; <span class="mono">PIPELINE_VERSION</span> 1→2.</p>
+        <div class="chips" style="margin-top:.75rem">
+          <span class="tag">BRACS_1648 · 6290×512</span><span class="tag">BRACS_1652 · 11455×512</span><span class="tag">BRACS_1654 · 9694×512 (live DL)</span><span class="tag">~1–2 min/slide · A6000</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col" style="margin-top:1.1rem">
+      <figure class="figure">
+        <svg viewBox="0 0 840 132" role="img" aria-label="Request lifecycle from auth to ready">
+          <defs>
+            <marker id="ah-back13" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L7 4 L0 8 Z" fill="var(--text-3)"/></marker>
+          </defs>
+          <g>
+            <rect class="f-box" x="8" y="46" width="104" height="46" rx="9"/>
+            <text class="f-label" x="60" y="66" text-anchor="middle">auth</text>
+            <text class="f-sub" x="60" y="82" text-anchor="middle">Girder token</text>
+
+            <rect class="f-box" x="126" y="46" width="104" height="46" rx="9"/>
+            <text class="f-label" x="178" y="66" text-anchor="middle">cache-key</text>
+            <text class="f-sub" x="178" y="82" text-anchor="middle">params-hash</text>
+
+            <rect class="f-box" x="244" y="46" width="104" height="46" rx="9"/>
+            <text class="f-label" x="296" y="66" text-anchor="middle">registry</text>
+            <text class="f-sub" x="296" y="82" text-anchor="middle">worker lookup</text>
+
+            <rect class="f-box" x="362" y="46" width="104" height="46" rx="9"/>
+            <text class="f-label" x="414" y="66" text-anchor="middle">enqueue</text>
+            <text class="f-sub" x="414" y="82" text-anchor="middle">Redis / RQ</text>
+
+            <rect class="f-box-accent" x="480" y="46" width="104" height="46" rx="9"/>
+            <text class="f-label" x="532" y="66" text-anchor="middle">Trident</text>
+            <text class="f-sub" x="532" y="82" text-anchor="middle">subprocess</text>
+
+            <rect class="f-box" x="598" y="46" width="104" height="46" rx="9"/>
+            <text class="f-label" x="650" y="66" text-anchor="middle">manifest</text>
+            <text class="f-sub" x="650" y="82" text-anchor="middle">h5 attrs</text>
+
+            <rect class="f-box" x="716" y="46" width="104" height="46" rx="9" stroke="var(--ok)"/>
+            <text class="f-label" x="768" y="66" text-anchor="middle">ready</text>
+            <text class="f-sub" x="768" y="82" text-anchor="middle" fill="var(--ok)">✓ cached</text>
+
+            <line class="f-flow" x1="112" y1="69" x2="124" y2="69" marker-end="url(#ah-back13)"/>
+            <line class="f-flow" x1="230" y1="69" x2="242" y2="69" marker-end="url(#ah-back13)"/>
+            <line class="f-flow" x1="348" y1="69" x2="360" y2="69" marker-end="url(#ah-back13)"/>
+            <line class="f-flow" x1="466" y1="69" x2="478" y2="69" marker-end="url(#ah-back13)"/>
+            <line class="f-flow" x1="584" y1="69" x2="596" y2="69" marker-end="url(#ah-back13)"/>
+            <line class="f-flow" x1="702" y1="69" x2="714" y2="69" marker-end="url(#ah-back13)"/>
+          </g>
+        </svg>
+        <figcaption class="figure__cap"><b>Request lifecycle</b> — one preprocess call, GPU-free contract in M0, real worker in M1.</figcaption>
+      </figure>
+
+      <div>
+        <p class="section-label">/api/agent endpoints · Girder-token gated</p>
+        <div class="kv">
+          <div class="kv__row"><div class="kv__k">POST /preprocess</div><div class="kv__v">enqueue backbone + consensus for an item</div></div>
+          <div class="kv__row"><div class="kv__k">GET /status/{id}</div><div class="kv__v">readiness — <span class="mono">features</span> / <span class="mono">classifiers</span></div></div>
+          <div class="kv__row"><div class="kv__k">POST /query</div><div class="kv__v">merged loop, streamed as 7 typed SSE events</div></div>
+          <div class="kv__row"><div class="kv__k">GET …/heatmap/{task}</div><div class="kv__v">zoomable PNG at its level-0 extent</div></div>
+          <div class="kv__row"><div class="kv__k">GET …/classifier</div><div class="kv__v">cached BRCA diagnosis (400/404, never 500)</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-m2">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">14 / 25</span> · M2 · shipped</p>
+    <h2 class="slide-title">A second opinion — UNI + a <span class="hl">BRCA classifier</span>.</h2>
+    <p class="lead">M2 adds the slide-level consensus signal (design φ<sub>c</sub>): a second Trident pass extracts <strong>UNI <span class="mono">uni_v1</span> (1024-d)</strong> features, then a deployed <strong>BRCA ABMIL</strong> classifier predicts subtype. The result is cached to <span class="mono">classifier.json</span> and served at <span class="mono">GET /cases/{itemId}/classifier</span>. Pluggable and best-effort.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 840 250" role="img" aria-label="Consensus classifier data flow">
+        <defs>
+          <marker id="ah-m2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L7 4 L0 8 Z" fill="var(--text-3)"/></marker>
+          <marker id="ah-m2v" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L7 4 L0 8 Z" fill="var(--violet)"/></marker>
+        </defs>
+
+        <rect class="f-box" x="20" y="42" width="150" height="52" rx="9"/>
+        <text class="f-label" x="95" y="66" text-anchor="middle">CONCH conch_v1</text>
+        <text class="f-sub" x="95" y="84" text-anchor="middle">backbone · 512-d</text>
+
+        <rect class="f-box-accent" x="20" y="120" width="150" height="52" rx="9"/>
+        <text class="f-label" x="95" y="144" text-anchor="middle">UNI uni_v1</text>
+        <text class="f-sub" x="95" y="162" text-anchor="middle">consensus · 1024-d</text>
+
+        <rect class="f-box-accent" x="300" y="80" width="180" height="56" rx="9" stroke="var(--violet)"/>
+        <text class="f-label" x="390" y="104" text-anchor="middle">ClassifierClient</text>
+        <text class="f-sub" x="390" y="122" text-anchor="middle">.predict() · typed seam</text>
+
+        <rect class="f-box" x="560" y="80" width="150" height="56" rx="9"/>
+        <text class="f-label" x="635" y="104" text-anchor="middle">classifier.json</text>
+        <text class="f-sub" x="635" y="122" text-anchor="middle">cached diagnosis</text>
+
+        <rect class="f-box" x="740" y="80" width="76" height="56" rx="9" stroke="var(--teal)"/>
+        <text class="f-label" x="778" y="106" text-anchor="middle" fill="var(--teal)">φc</text>
+        <text class="f-sub" x="778" y="123" text-anchor="middle">consensus</text>
+
+        <line class="f-flow" x1="170" y1="68" x2="298" y2="98" marker-end="url(#ah-m2)"/>
+        <line class="f-flow-accent" x1="170" y1="146" x2="298" y2="116" marker-end="url(#ah-m2v)"/>
+        <line class="f-flow-accent" x1="480" y1="108" x2="558" y2="108" marker-end="url(#ah-m2v)"/>
+        <line class="f-flow" x1="710" y1="108" x2="738" y2="108" marker-end="url(#ah-m2)"/>
+
+        <rect class="f-box" x="300" y="184" width="416" height="44" rx="9" stroke="var(--border-2)" stroke-dasharray="5 4"/>
+        <text class="f-sub" x="508" y="202" text-anchor="middle">best-effort — a classifier failure is non-fatal</text>
+        <text class="f-sub" x="508" y="218" text-anchor="middle" fill="var(--text-2)">job still reaches ready with classifiers=False · features guaranteed</text>
+        <line class="f-flow" x1="390" y1="136" x2="390" y2="182" stroke-dasharray="5 4" marker-end="url(#ah-m2)"/>
+
+        <text class="f-sub" x="390" y="72" text-anchor="middle" fill="var(--violet)">pluggable · BRCA is one backend</text>
+      </svg>
+      <figcaption class="figure__cap"><b>Consensus pass</b> — only the client is model-specific; BRCA sits behind a typed <span class="mono">predict()</span>, and a failure degrades gracefully.</figcaption>
+    </figure>
+
+    <div class="stat-row" style="margin-top:1.1rem">
+      <div class="stat"><div class="stat__num rose">70.9%</div><div class="stat__label">BRCA prediction ILC</div><div class="stat__sub">IDC 29.1% / ILC 70.9%</div></div>
+      <div class="stat"><div class="stat__num teal">0.9624</div><div class="stat__label">AUC</div><div class="stat__sub">ABMIL-BRCA-5fold-ensemble</div></div>
+      <div class="stat"><div class="stat__num">6290×1024</div><div class="stat__label">uni_v1 features</div></div>
+      <div class="stat"><div class="stat__num">50</div><div class="stat__label">in-bounds attention coords</div></div>
+      <div class="stat"><div class="stat__num violet">78</div><div class="stat__label">unit tests · ruff clean</div></div>
+      <div class="stat"><div class="stat__num ok">12 / 12</div><div class="stat__label">checks · ready.classifiers=True</div></div>
+    </div>
+
+    <p class="footnote">Best-effort: a classifier failure is contained (<span class="mono">ClassifierError</span>) — the job still reaches <span class="mono">ready</span>. The BRCA service (:11501) runs as a different OS user and reads the h5 by path, so the cache dir must be world-traversable. SlideChat candidate deferred.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-m3">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">15 / 25</span> · M3 · shipped</p>
+    <h2 class="slide-title">The merged loop, running for real in <span class="hl">LangGraph</span>.</h2>
+    <p class="lead">M3 is the PathFinder × WSI-Agents merged loop as a <strong>LangGraph</strong> graph — streaming 7 typed SSE events over <span class="mono">POST /api/agent/query</span> and serving a zoomable heatmap. Navigation, φ<sub>c</sub>, φ<sub>k</sub> and φ<sub>l</sub> are all <strong>real and computed on the slide</strong>, on a pluggable local MedGemma reasoner.</p>
+
+    <div class="two-col">
+      <figure class="figure">
+        <svg viewBox="0 0 800 280" role="img" aria-label="BRACS_1648 event stream and phi readout">
+          <defs>
+            <marker id="ah-m3" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0 0 L6 3.5 L0 7 Z" fill="var(--text-3)"/></marker>
+          </defs>
+          <g>
+            <rect class="f-box" x="14" y="20" width="106" height="38" rx="8"/><text class="f-label" x="67" y="43" text-anchor="middle">route</text>
+            <rect class="f-box" x="140" y="20" width="106" height="38" rx="8"/><text class="f-label" x="193" y="43" text-anchor="middle">triage</text>
+            <rect class="f-box-accent" x="266" y="20" width="106" height="38" rx="8"/><text class="f-sub" x="319" y="38" text-anchor="middle" fill="var(--text)">nav ⇄ desc</text><text class="f-sub" x="319" y="52" text-anchor="middle" fill="var(--violet)">×8</text>
+            <rect class="f-box" x="392" y="20" width="106" height="38" rx="8"/><text class="f-label" x="445" y="43" text-anchor="middle">diagnose</text>
+            <rect class="f-box" x="518" y="20" width="106" height="38" rx="8"/><text class="f-label" x="571" y="43" text-anchor="middle">verify</text>
+            <rect class="f-box" x="644" y="20" width="106" height="38" rx="8" stroke="var(--ok)"/><text class="f-label" x="697" y="43" text-anchor="middle" fill="var(--ok)">final</text>
+            <line class="f-flow" x1="120" y1="39" x2="138" y2="39" marker-end="url(#ah-m3)"/>
+            <line class="f-flow" x1="246" y1="39" x2="264" y2="39" marker-end="url(#ah-m3)"/>
+            <line class="f-flow" x1="372" y1="39" x2="390" y2="39" marker-end="url(#ah-m3)"/>
+            <line class="f-flow" x1="498" y1="39" x2="516" y2="39" marker-end="url(#ah-m3)"/>
+            <line class="f-flow" x1="624" y1="39" x2="642" y2="39" marker-end="url(#ah-m3)"/>
+          </g>
+
+          <text class="f-sub" x="14" y="92" fill="var(--text-2)">φ verification · BRACS_1648</text>
+
+          <rect class="f-box" x="150" y="100" width="550" height="22" rx="6"/><rect x="150" y="100" width="275" height="22" rx="6" fill="var(--violet)"/>
+          <text class="f-sub" x="14" y="115">φl ICV</text><text class="f-sub" x="712" y="115">0.50</text>
+
+          <rect class="f-box" x="150" y="140" width="550" height="22" rx="6"/><rect x="150" y="140" width="6" height="22" rx="3" fill="var(--rose)"/>
+          <text class="f-sub" x="14" y="155">φk Fact</text><text class="f-sub" x="712" y="155" fill="var(--rose)">0.00</text>
+
+          <rect class="f-box" x="150" y="180" width="550" height="22" rx="6"/><rect x="150" y="180" width="390" height="22" rx="6" fill="var(--teal)"/>
+          <text class="f-sub" x="14" y="195">φc Cons.</text><text class="f-sub" x="712" y="195">0.709</text>
+
+          <rect class="f-box" x="150" y="228" width="550" height="24" rx="6" stroke="var(--amber)"/><rect x="150" y="228" width="222" height="24" rx="6" fill="var(--amber)"/>
+          <text class="f-label" x="14" y="245" fill="var(--text)">φtotal</text>
+          <text class="f-sub" x="384" y="245" fill="var(--amber)">0.404 → confidence 40</text>
+        </svg>
+        <figcaption class="figure__cap"><b>The verified run</b> — 8 in-bounds nav regions, ILC candidate matched, heatmap PNG at level-0 extent <span class="mono">81920×60928</span>.</figcaption>
+      </figure>
+
+      <div class="stack">
+        <div class="stat-row">
+          <div class="stat"><div class="stat__num ok">36 / 36</div><div class="stat__label">checks on BRACS_1648</div></div>
+          <div class="stat"><div class="stat__num violet">146</div><div class="stat__label">backend tests · ruff clean</div></div>
+          <div class="stat"><div class="stat__num">≈1,385</div><div class="stat__label">orchestrator LOC</div><div class="stat__sub">10 focused modules</div></div>
+          <div class="stat"><div class="stat__num">0.404→40</div><div class="stat__label">φ<sub>total</sub> → confidence</div></div>
+        </div>
+        <div class="callout">
+          <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></span>
+          <div>
+            <p class="callout__title">Low confidence on a correct answer — a feature.</p>
+            <p class="callout__body">The φ<sub>k</sub> 0.00 is a real skeptical judgment: a small local reasoner found the answer only weakly supported by short seed-KB snippets, pulling confidence down. Appropriately skeptical verification is the point → this motivates M5 calibration. Review verdict: <strong>APPROVED-WITH-NITS, zero Critical.</strong></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="footnote">Gateway venv gained only <span class="mono">langgraph</span> / <span class="mono">sse-starlette</span> / <span class="mono">numpy</span> / <span class="mono">pillow</span> — torch + CONCH stay isolated in the perception subprocess. Parallel-safe: the 3 verify branches write distinct state keys; list fields use <span class="mono">operator.add</span> reducers; bounded loop.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-m4">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">16 / 25</span> · M4 · live-verified</p>
+    <h2 class="slide-title">It runs in the browser — and drives <span class="hl2">the microscope</span>.</h2>
+    <p class="lead">The React PathAgent right-panel streams the M3 loop, <strong>moves the live OpenSeadragon viewport</strong> to each navigated region, overlays the heatmap, renders the verified/cited answer with a confidence badge and φ-bars, supports pause/take-control, and saves the visited regions as a Girder annotation.</p>
+
+    <p class="section-label">Live E2E — real Chromium → dev build → live gateway (+Redis +RQ) → real public DSA slide BRACS_1648</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Check</th><th>Observed</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><strong>SSE stream</strong></td><td class="mono">21 events · route→triage→8×(navigate+describe)→diagnose→verify→final</td><td><span class="pill pill--ok">pass</span></td></tr>
+          <tr><td><strong>Co-navigation</strong></td><td>viewport bounds changed on each <span class="mono">navigate</span></td><td><span class="pill pill--ok">pass</span></td></tr>
+          <tr><td><strong>Heatmap overlay</strong></td><td>OSD world items <span class="mono">1 → 2</span> (<span class="mono">addTiledImage</span>)</td><td><span class="pill pill--ok">pass</span></td></tr>
+          <tr><td><strong>Save annotation</strong></td><td>DSA annotations <span class="mono">2 → 3</span> (visited regions)</td><td><span class="pill pill--ok">pass</span></td></tr>
+          <tr><td><strong>Answer + badge</strong></td><td>verified/cited answer · confidence <strong>60</strong> · 8-region trail</td><td><span class="pill pill--ok">pass</span></td></tr>
+          <tr><td><strong>Build</strong></td><td class="mono">npm run build</td><td><span class="pill pill--ok">green</span></td></tr>
+          <tr><td><strong>Total</strong></td><td>every assertion held end-to-end</td><td><span class="pill pill--ok">12 / 12</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout--ok" style="margin-top:1.1rem">
+      <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+      <div>
+        <p class="callout__title">The bug only the live browser could catch.</p>
+        <p class="callout__body">The SSE reader split frames on <span class="mono">\n\n</span>, but <span class="mono">sse-starlette</span> delimits events with <span class="mono">\r\n\r\n</span> — so no frame ever parsed and the trace came back empty. A direct <span class="mono">curl</span> test <strong>missed it</strong> (it bypassed the JS parser); the live end-to-end run surfaced it. Fix: strip <span class="mono">\r</span> before framing.</p>
+      </div>
+    </div>
+
+    <p class="footnote">v1 = pause-only take-control + manual save. Auto-persist every run and the M3b task chips are deferred, documented.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-rigor">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">17 / 25</span> · Engineering discipline</p>
+    <h2 class="slide-title"><span class="hl">Test-first</span>, then two reviews — across all five milestones.</h2>
+    <p class="lead">Every module was built subagent-driven: a failing test first, a fresh implementer per batch, then spec-compliance and code-quality reviews, then a final holistic review. Each milestone was independently APPROVED — <strong>146 backend tests plus a live browser E2E.</strong></p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 840 138" role="img" aria-label="Test-first review loop">
+        <defs>
+          <marker id="ah-rig17" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L7 4 L0 8 Z" fill="var(--text-3)"/></marker>
+          <marker id="ah-rig17r" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L7 4 L0 8 Z" fill="var(--rose)"/></marker>
+        </defs>
+        <rect class="f-box-accent" x="12" y="34" width="140" height="48" rx="9"/><text class="f-label" x="82" y="55" text-anchor="middle">① failing test</text><text class="f-sub" x="82" y="71" text-anchor="middle">TDD, per batch</text>
+        <rect class="f-box" x="184" y="34" width="140" height="48" rx="9"/><text class="f-label" x="254" y="55" text-anchor="middle">② implement</text><text class="f-sub" x="254" y="71" text-anchor="middle">fresh implementer</text>
+        <rect class="f-box" x="356" y="34" width="140" height="48" rx="9"/><text class="f-label" x="426" y="55" text-anchor="middle">③ spec review</text><text class="f-sub" x="426" y="71" text-anchor="middle">compliance</text>
+        <rect class="f-box" x="528" y="34" width="140" height="48" rx="9"/><text class="f-label" x="598" y="55" text-anchor="middle">④ quality review</text><text class="f-sub" x="598" y="71" text-anchor="middle">code health</text>
+        <rect class="f-box" x="700" y="34" width="128" height="48" rx="9" stroke="var(--ok)"/><text class="f-label" x="764" y="55" text-anchor="middle" fill="var(--ok)">⑤ holistic</text><text class="f-sub" x="764" y="71" text-anchor="middle">APPROVED</text>
+
+        <line class="f-flow" x1="152" y1="58" x2="182" y2="58" marker-end="url(#ah-rig17)"/>
+        <line class="f-flow" x1="324" y1="58" x2="354" y2="58" marker-end="url(#ah-rig17)"/>
+        <line class="f-flow" x1="496" y1="58" x2="526" y2="58" marker-end="url(#ah-rig17)"/>
+        <line class="f-flow" x1="668" y1="58" x2="698" y2="58" marker-end="url(#ah-rig17)"/>
+
+        <path class="f-flow" d="M598 82 C598 118 254 118 254 84" stroke="var(--rose)" marker-end="url(#ah-rig17r)"/>
+        <text class="f-sub" x="426" y="128" text-anchor="middle" fill="var(--rose)">fix + regression test</text>
+      </svg>
+      <figcaption class="figure__cap"><b>The loop per batch</b> — reviews caught real defects, each fixed with a regression test before the milestone was signed off.</figcaption>
+    </figure>
+
+    <div class="table-wrap" style="margin-top:1.1rem">
+      <table class="data">
+        <thead><tr><th>Issue</th><th>Severity</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>Path traversal on cache segments</td><td><span class="pill pill--warn">Security</span></td><td class="mono">_validate_segment guard + tests</td></tr>
+          <tr><td>Auth bypass on stub endpoints</td><td><span class="pill pill--err">Critical</span></td><td>enforce Girder-token on every route</td></tr>
+          <tr><td>Arbitrary file-write via Girder filename</td><td><span class="pill pill--err">Critical</span></td><td class="mono">sanitize + atomic .part → os.replace</td></tr>
+          <tr><td>Classifier failure crashes the job</td><td><span class="pill pill--warn">Important</span></td><td class="mono">ClassifierError → ready(classifiers=False)</td></tr>
+          <tr><td>camelCase↔snake_case <span class="mono">classifier.json</span></td><td><span class="pill pill--warn">Important</span></td><td class="mono">model_validate_json().model_dump()</td></tr>
+          <tr><td>Heatmap extent lost to CORS</td><td><span class="pill pill--warn">Important</span></td><td class="mono">X-Level0-* in expose_headers</td></tr>
+          <tr><td>CRLF SSE framing (live-caught, M4)</td><td><span class="pill pill--warn">Important</span></td><td class="mono">strip \r before framing</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout callout--ok" style="margin-top:1.1rem">
+      <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></span>
+      <div>
+        <p class="callout__title">Secret hygiene, end to end.</p>
+        <p class="callout__body">The HF token is env-only — never in Settings, argv, logs, the manifest, or git. A tracked <span class="mono">.env.local</span> finding was remediated with <span class="mono">git rm --cached</span>; the token never entered git history.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-coords">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">18 / 25</span> · Data contract</p>
+    <h2 class="slide-title">Everything speaks <span class="hl">level-0 pixels</span> — proven by co-navigation.</h2>
+    <p class="lead">The trickiest part of an in-viewer agent is geometry. The contract: all coordinates crossing <span class="mono">/api/agent</span> — ROI, navigate regions, heatmap extents, attention coords — are <strong>level-0 (base) image pixels</strong>. Backend owns patch↔px0; frontend owns px0↔viewport.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 840 292" role="img" aria-label="Three coordinate spaces and their transforms">
+        <defs>
+          <marker id="ah-coord18" markerWidth="9" markerHeight="9" refX="6" refY="4.5" orient="auto"><path d="M0 0 L8 4.5 L0 9 Z" fill="var(--violet)"/></marker>
+        </defs>
+
+        <rect class="f-box" x="24" y="60" width="196" height="150" rx="10"/>
+        <g stroke="var(--border-2)" stroke-width="1.2">
+          <line x1="60" y1="90" x2="60" y2="188"/><line x1="100" y1="90" x2="100" y2="188"/><line x1="140" y1="90" x2="140" y2="188"/><line x1="180" y1="90" x2="180" y2="188"/>
+          <line x1="44" y1="106" x2="200" y2="106"/><line x1="44" y1="139" x2="200" y2="139"/><line x1="44" y1="172" x2="200" y2="172"/>
+        </g>
+        <rect x="100" y="106" width="40" height="33" fill="color-mix(in srgb,var(--violet) 32%,transparent)" stroke="var(--violet)" stroke-width="1.4"/>
+        <text class="f-label" x="122" y="242" text-anchor="middle">CONCH patch grid</text>
+        <text class="f-sub" x="122" y="258" text-anchor="middle">patch indices (i, j)</text>
+
+        <rect class="f-box" x="322" y="44" width="196" height="182" rx="10"/>
+        <rect x="380" y="96" width="40" height="34" fill="color-mix(in srgb,var(--violet) 32%,transparent)" stroke="var(--violet)" stroke-width="1.4"/>
+        <text class="f-label" x="420" y="242" text-anchor="middle">level-0 image pixels</text>
+        <text class="f-sub" x="420" y="258" text-anchor="middle">base extent · 81920 × 60928</text>
+
+        <rect class="f-box" x="620" y="60" width="196" height="150" rx="10" stroke="var(--teal)"/>
+        <rect x="636" y="76" width="164" height="20" fill="var(--surface)" stroke="var(--border-2)"/>
+        <rect x="700" y="110" width="60" height="46" fill="color-mix(in srgb,var(--teal) 26%,transparent)" stroke="var(--teal)" stroke-width="1.4"/>
+        <circle cx="676" cy="150" r="14" fill="color-mix(in srgb,var(--rose) 30%,transparent)" stroke="var(--rose)" stroke-width="1.2"/>
+        <text class="f-label" x="718" y="242" text-anchor="middle">OSD viewport</text>
+        <text class="f-sub" x="718" y="258" text-anchor="middle">ROI + heatmap overlay</text>
+
+        <line class="f-flow-accent" x1="220" y1="128" x2="320" y2="128" marker-end="url(#ah-coord18)"/>
+        <text class="f-sub" x="270" y="118" text-anchor="middle" fill="var(--violet)">patch ↔ px0</text>
+        <text class="f-sub" x="270" y="150" text-anchor="middle">Trident attrs · backend</text>
+
+        <line class="f-flow-accent" x1="518" y1="128" x2="618" y2="128" marker-end="url(#ah-coord18)"/>
+        <text class="f-sub" x="568" y="118" text-anchor="middle" fill="var(--violet)">px0 ↔ viewport</text>
+        <text class="f-sub" x="568" y="150" text-anchor="middle">fitBounds · frontend</text>
+      </svg>
+      <figcaption class="figure__cap"><b>One contract, two owners</b> — backend maps patch↔px0 from <span class="mono">coords.attrs</span>; frontend maps px0↔viewport via <span class="mono">imageToViewportRectangle</span> / <span class="mono">fitBounds</span>.</figcaption>
+    </figure>
+
+    <ul class="ticks teal" style="margin-top:1.1rem">
+      <li>Derive downsample / magnification from <strong>Trident attrs</strong> — slides vary 40× vs 20×; never hardcode.</li>
+      <li>Build the raster on the <strong>full grid at Trident's exact origin</strong>, or the heatmap smears by a patch.</li>
+      <li>The <span class="mono">X-Level0-*</span> headers must be <strong>CORS-exposed</strong> or the overlay silently breaks — a real M3 fix.</li>
+      <li>The M3 heatmap extent and M4 co-navigation moving the viewport to the right regions <strong>prove the contract holds end-to-end.</strong></li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" data-part="Build & Status" id="s-deploy">
+  <div class="slide__inner">
+    <p class="eyebrow">PART C · <span class="em">19 / 25</span> · Infra</p>
+    <h2 class="slide-title"><span class="hl">Local-first</span> today, <span class="hl2">pluggable</span> by design.</h2>
+    <p class="lead">The whole chain runs on <strong>one RTX A6000</strong> with a local reasoner (MedGemma/Gemma, :11500) and a local BRCA classifier (:11501) — <strong>zero data egress</strong>. The reasoner is a config swap to hosted GPT-4V for de-identified sites; nothing else changes.</p>
+
+    <div class="two-col narrow-left">
+      <div>
+        <p class="section-label">Runtime processes · 1× RTX A6000 (48 GB)</p>
+        <div class="kv">
+          <div class="kv__row"><div class="kv__k">Gateway</div><div class="kv__v">FastAPI + LangGraph + SSE (venv)</div></div>
+          <div class="kv__row"><div class="kv__k">Queue</div><div class="kv__v">Redis + RQ worker</div></div>
+          <div class="kv__row"><div class="kv__k">Trident</div><div class="kv__v">subprocess · <span class="mono">pathology</span> conda env (torch + CONCH + UNI)</div></div>
+          <div class="kv__row"><div class="kv__k">Perception</div><div class="kv__v">subprocess · CONCH concept-similarity + importance raster</div></div>
+          <div class="kv__row"><div class="kv__k">Reasoner</div><div class="kv__v">MedGemma / Gemma @ <span class="mono">:11500</span> · pluggable</div></div>
+          <div class="kv__row"><div class="kv__k">Classifier</div><div class="kv__v">BRCA ABMIL @ <span class="mono">:11501</span></div></div>
+          <div class="kv__row"><div class="kv__k">Cache</div><div class="kv__v">~0.2–0.5 GB/slide · ~1–2 min/slide extract</div></div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="card card--accent">
+          <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></div>
+          <h3 class="card__title">Local GPU</h3>
+          <p class="card__body">Privacy and $0 egress with real accuracy anchors — now running, not designed.</p>
+        </div>
+        <div class="card card--rose">
+          <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7Z"/></svg></div>
+          <h3 class="card__title">Pluggable reasoning</h3>
+          <p class="card__body">MedGemma today, hosted GPT-4V a config swap — and no LLM keys ever live in the browser.</p>
+        </div>
+        <div class="card card--teal">
+          <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg></div>
+          <h3 class="card__title">Background precompute + cache</h3>
+          <p class="card__body">Case-open → params-hash cache → the panel opens <span class="mono">ready</span>; latency mitigated in code.</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="footnote">Shared filesystem: the cache dir is world-traversable (0755 dirs / 0644 files) so the classifier's OS user can read the UNI h5 by path.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="Evidence & Road" id="s-pipeline">
+  <div class="slide__inner">
+    <p class="eyebrow">PART D · <span class="em">20 / 25</span> · Proof</p>
+    <h2 class="slide-title"><span class="hl">M0 → M4</span>, on one slide, on one GPU.</h2>
+    <p class="lead">The milestones aren&#8217;t isolated boxes on a roadmap — they <strong>chain into one working pipeline</strong>, verified on real whole-slide images and, finally, live in a browser. Same slide, same GPU, one pass.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 914 300" role="img" aria-label="End-to-end pipeline from a Girder slide through milestones M0 to M4">
+        <defs>
+          <marker id="ah-pipe-dv" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker>
+        </defs>
+
+        <!-- flow arrows (violet main chain) -->
+        <line x1="146" y1="150" x2="164" y2="150" class="f-flow-accent" marker-end="url(#ah-pipe-dv)"/>
+        <line x1="296" y1="150" x2="314" y2="150" class="f-flow-accent" marker-end="url(#ah-pipe-dv)"/>
+        <line x1="446" y1="150" x2="464" y2="150" class="f-flow-accent" marker-end="url(#ah-pipe-dv)"/>
+        <line x1="596" y1="150" x2="614" y2="150" class="f-flow-accent" marker-end="url(#ah-pipe-dv)"/>
+        <line x1="746" y1="150" x2="764" y2="150" class="f-flow-accent" marker-end="url(#ah-pipe-dv)"/>
+
+        <!-- b1 Girder slide (source) -->
+        <rect x="18" y="36" width="128" height="236" rx="10" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <text x="82" y="62" class="f-sub" text-anchor="middle" fill="var(--text-3)">source</text>
+        <text x="82" y="90" class="f-label" text-anchor="middle" style="font-size:13px;font-weight:700">Girder slide</text>
+        <text x="82" y="118" class="f-sub" text-anchor="middle">gigapixel WSI</text>
+        <text x="82" y="136" class="f-sub" text-anchor="middle">DSA / Girder 5</text>
+        <line x1="30" y1="210" x2="134" y2="210" stroke="var(--border)" stroke-width="1"/>
+        <text x="82" y="236" class="f-label" text-anchor="middle" style="font-weight:600" fill="var(--text-3)">BRACS_1648</text>
+
+        <!-- b2 M0 Gateway -->
+        <rect x="168" y="36" width="128" height="236" rx="10" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text x="232" y="62" class="f-sub" text-anchor="middle" fill="var(--ok)" style="font-size:11px;font-weight:700">M0 &#10003;</text>
+        <text x="232" y="90" class="f-label" text-anchor="middle" style="font-size:13px;font-weight:700">Gateway</text>
+        <text x="232" y="118" class="f-sub" text-anchor="middle">auth · queue</text>
+        <text x="232" y="136" class="f-sub" text-anchor="middle">cache · registry</text>
+        <line x1="180" y1="210" x2="284" y2="210" stroke="var(--border)" stroke-width="1"/>
+        <text x="232" y="236" class="f-label" text-anchor="middle" style="font-weight:600" fill="var(--teal)">&#8594; ready</text>
+
+        <!-- b3 M1 Trident -->
+        <rect x="318" y="36" width="128" height="236" rx="10" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text x="382" y="62" class="f-sub" text-anchor="middle" fill="var(--ok)" style="font-size:11px;font-weight:700">M1 &#10003;</text>
+        <text x="382" y="90" class="f-label" text-anchor="middle" style="font-size:13px;font-weight:700">Trident</text>
+        <text x="382" y="118" class="f-sub" text-anchor="middle">CONCH backbone</text>
+        <text x="382" y="136" class="f-sub" text-anchor="middle">seg &#8594; coords</text>
+        <line x1="330" y1="210" x2="434" y2="210" stroke="var(--border)" stroke-width="1"/>
+        <text x="382" y="236" class="f-label" text-anchor="middle" style="font-weight:600" fill="var(--teal)">6290&#215;512</text>
+
+        <!-- b4 M2 UNI + BRCA -->
+        <rect x="468" y="36" width="128" height="236" rx="10" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text x="532" y="62" class="f-sub" text-anchor="middle" fill="var(--ok)" style="font-size:11px;font-weight:700">M2 &#10003;</text>
+        <text x="532" y="90" class="f-label" text-anchor="middle" style="font-size:13px;font-weight:700">UNI + BRCA</text>
+        <text x="532" y="118" class="f-sub" text-anchor="middle">uni_v1 · ABMIL</text>
+        <text x="532" y="136" class="f-sub" text-anchor="middle">consensus &#966;c</text>
+        <line x1="480" y1="210" x2="584" y2="210" stroke="var(--border)" stroke-width="1"/>
+        <text x="532" y="236" class="f-label" text-anchor="middle" style="font-weight:600" fill="var(--teal)">ILC 70.9%</text>
+
+        <!-- b5 M3 LangGraph loop -->
+        <rect x="618" y="36" width="128" height="236" rx="10" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text x="682" y="62" class="f-sub" text-anchor="middle" fill="var(--ok)" style="font-size:11px;font-weight:700">M3 &#10003;</text>
+        <text x="682" y="90" class="f-label" text-anchor="middle" style="font-size:13px;font-weight:700">LangGraph</text>
+        <text x="682" y="116" class="f-sub" text-anchor="middle">nav&#8646;describe &#8594; dx</text>
+        <text x="682" y="134" class="f-sub" text-anchor="middle">verify &#966;l&#8741;&#966;k&#8741;&#966;c</text>
+        <text x="682" y="152" class="f-sub" text-anchor="middle">&#8594; summary</text>
+        <text x="682" y="170" class="f-sub" text-anchor="middle">+ heatmap</text>
+        <line x1="630" y1="210" x2="734" y2="210" stroke="var(--border)" stroke-width="1"/>
+        <text x="682" y="236" class="f-label" text-anchor="middle" style="font-weight:600" fill="var(--teal)">trail 8 · &#966; .40</text>
+
+        <!-- b6 M4 React panel -->
+        <rect x="768" y="36" width="128" height="236" rx="10" fill="color-mix(in srgb,var(--violet) 12%,var(--surface))" stroke="var(--ok)" stroke-width="1.5"/>
+        <text x="832" y="62" class="f-sub" text-anchor="middle" fill="var(--ok)" style="font-size:11px;font-weight:700">M4 &#10003;</text>
+        <text x="832" y="90" class="f-label" text-anchor="middle" style="font-size:13px;font-weight:700">React panel</text>
+        <text x="832" y="116" class="f-sub" text-anchor="middle">stream · co-nav</text>
+        <text x="832" y="134" class="f-sub" text-anchor="middle">overlay heatmap</text>
+        <text x="832" y="152" class="f-sub" text-anchor="middle">save &#8594; Girder</text>
+        <line x1="780" y1="210" x2="884" y2="210" stroke="var(--border)" stroke-width="1"/>
+        <text x="832" y="236" class="f-label" text-anchor="middle" style="font-weight:600" fill="var(--ok)">12/12 live</text>
+      </svg>
+      <figcaption class="figure__cap"><b>One pass, left to right.</b> A real Girder slide (BRACS_1648) flows through <b>M0</b> gateway &#8594; <b>M1</b> CONCH backbone &#8594; <b>M2</b> UNI consensus + BRCA classifier &#8594; <b>M3</b> the LangGraph verified loop + heatmap &#8594; <b>M4</b> the React panel that streams, co-navigates, overlays and saves. Green = shipped &amp; verified.</figcaption>
+      <div class="fig-legend">
+        <span class="legend-item"><span class="swatch" style="background:color-mix(in srgb,var(--violet) 12%,var(--surface));border:1.5px solid var(--ok)"></span>M0&#8211;M4 shipped &amp; verified</span>
+        <span class="legend-item"><span class="swatch" style="background:var(--surface-2);border:1.5px dashed var(--border-2)"></span>Girder source (existing)</span>
+        <span class="legend-item"><span class="swatch" style="background:var(--violet)"></span>main data flow</span>
+      </div>
+    </figure>
+
+    <div class="stat-row" style="margin-top:1.1rem">
+      <div class="stat"><div class="stat__num violet">5</div><div class="stat__label">milestones shipped</div><div class="stat__sub">M0 &#8594; M4</div></div>
+      <div class="stat"><div class="stat__num">146</div><div class="stat__label">backend unit tests</div><div class="stat__sub">+ 12/12 live browser E2E</div></div>
+      <div class="stat"><div class="stat__num teal">3</div><div class="stat__label">real slides verified</div><div class="stat__sub">+ 1 live browser run</div></div>
+      <div class="stat"><div class="stat__num ok">$0</div><div class="stat__label">data egress</div><div class="stat__sub">1&#215; RTX A6000 · local</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="Evidence & Road" id="s-eval">
+  <div class="slide__inner">
+    <p class="eyebrow">PART D · <span class="em">21 / 25</span> · Evaluation · M5</p>
+    <h2 class="slide-title">The merge is testable — and the tests are the <span class="hl">contribution</span>.</h2>
+    <p class="lead">M5 measures the multi-agent layer against single-model baselines across <strong>four axes</strong>; the ablation grid is the core claim — navigation and verification each add value, and interact when merged. The real M3 observation (<strong>&#966;<sub>k</sub> 0.0 &#8594; &#966;<sub>total</sub> 0.40 on a correct answer</strong>) is exactly what the calibration axis exists to measure.</p>
+
+    <figure class="figure">
+      <svg viewBox="0 0 820 360" role="img" aria-label="Ablation grid of five configurations, with the full merged system best">
+        <line x1="66" y1="48" x2="66" y2="248" class="f-flow"/>
+        <line x1="66" y1="248" x2="792" y2="248" class="f-flow"/>
+        <text x="30" y="150" class="f-sub" text-anchor="middle" transform="rotate(-90 30 150)">score (illustrative)</text>
+        <text x="74" y="40" class="f-sub">better &#8593;</text>
+
+        <rect x="76" y="158" width="70" height="90" rx="6" fill="color-mix(in srgb,var(--violet) 16%,var(--surface))" stroke="var(--border-2)" stroke-width="1.5"/>
+        <rect x="233" y="170" width="70" height="78" rx="6" fill="color-mix(in srgb,var(--violet) 16%,var(--surface))" stroke="var(--border-2)" stroke-width="1.5"/>
+        <rect x="390" y="118" width="70" height="130" rx="6" fill="color-mix(in srgb,var(--violet) 34%,var(--surface))" stroke="var(--border-2)" stroke-width="1.5"/>
+        <rect x="547" y="124" width="70" height="124" rx="6" fill="color-mix(in srgb,var(--violet) 34%,var(--surface))" stroke="var(--border-2)" stroke-width="1.5"/>
+        <rect x="704" y="74" width="70" height="174" rx="6" fill="var(--violet)" stroke="var(--violet)" stroke-width="1.5"/>
+        <text x="739" y="64" class="f-label" text-anchor="middle" fill="var(--violet)">best</text>
+
+        <text x="58" y="296" class="f-sub" text-anchor="end">navigate</text>
+        <text x="58" y="320" class="f-sub" text-anchor="end">verify</text>
+        <circle cx="111" cy="291" r="6" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <circle cx="268" cy="291" r="6" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <circle cx="425" cy="291" r="6" fill="var(--violet)"/>
+        <circle cx="582" cy="291" r="6" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <circle cx="739" cy="291" r="6" fill="var(--violet)"/>
+        <circle cx="111" cy="315" r="6" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <circle cx="268" cy="315" r="6" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <circle cx="425" cy="315" r="6" fill="var(--surface-2)" stroke="var(--border-2)" stroke-width="1.5"/>
+        <circle cx="582" cy="315" r="6" fill="var(--violet)"/>
+        <circle cx="739" cy="315" r="6" fill="var(--violet)"/>
+
+        <text x="111" y="348" class="f-sub" text-anchor="middle">SlideChat</text>
+        <text x="268" y="348" class="f-sub" text-anchor="middle">GPT-4V thumb</text>
+        <text x="425" y="348" class="f-sub" text-anchor="middle">+ navigate</text>
+        <text x="582" y="348" class="f-sub" text-anchor="middle">+ verify</text>
+        <text x="739" y="348" class="f-label" text-anchor="middle" fill="var(--violet)">full merged</text>
+      </svg>
+      <figcaption class="figure__cap"><b>Ablation grid.</b> Five configurations isolate each contribution; the dots mark which components are active. Bar heights are illustrative of the hypothesized pattern — navigation and verification each help, and interact when merged.</figcaption>
+    </figure>
+
+    <div class="grid grid--2" style="margin-top:1.1rem">
+      <div class="card card--accent">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <p class="card__title">Axis 1 · Task accuracy</p>
+        <p class="card__body">Patho-Bench (42 tasks) + SlideBench-VQA (TCGA / BCNB) + WSI-Bench. <span class="pill pill--violet">42 tasks</span></p>
+      </div>
+      <div class="card card--accent">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5Z"/></svg></div>
+        <p class="card__title">Axis 2 · Trust &amp; calibration</p>
+        <p class="card__body">&#966;<sub>k</sub> factuality (human-audited), reliability diagram / <strong>ECE</strong>, citation validity, abstention P/R — motivated by the real &#966;<sub>k</sub> 0.0 run. <span class="pill pill--violet">ECE</span></p>
+      </div>
+      <div class="card card--accent">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-2 5-4 1 2-5Z"/></svg></div>
+        <p class="card__title">Axis 3 · Navigation quality</p>
+        <p class="card__body">Region hit-rate vs <strong>CAMELYON16</strong> pixel masks (IoU / recall) + efficiency (regions to reach the answer). <span class="pill pill--violet">CAMELYON16</span></p>
+      </div>
+      <div class="card card--accent">
+        <div class="card__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg></div>
+        <p class="card__title">Axis 4 · Human factors</p>
+        <p class="card__body">Reader study, pathologist &#177; copilot: accuracy, time-to-diagnosis, automation bias. <span class="pill pill--warn">needs IRB · later</span></p>
+      </div>
+    </div>
+
+    <p class="footnote">Provenance annotations double as versioned eval records — model + KB + prompt captured per run, so the eval set builds itself as reproducible records.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="Evidence & Road" id="s-risks">
+  <div class="slide__inner">
+    <p class="eyebrow">PART D · <span class="em">22 / 25</span> · Risks &amp; mitigations</p>
+    <h2 class="slide-title">What could bite — and where the plan already <span class="hl">shipped</span>.</h2>
+    <p class="lead">None of these is a blocker, and the biggest three are now <strong>mitigated in code</strong>, not just on a slide. What remains open is scoped and named — led here by the ones already addressed.</p>
+
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th style="width:24%">Risk</th><th style="width:20%">Status</th><th>Mitigation</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Latency</strong></td>
+            <td><span class="pill pill--ok">mitigated in code</span></td>
+            <td>Background precompute + params-hash caching are <strong>shipped</strong> (case-open &#8594; cache &#8594; panel <span class="mono">ready</span>); ~1&#8211;2 min/slide extraction on the A6000. ROI fast path still later.</td>
+          </tr>
+          <tr>
+            <td><strong>Hallucination / grounding</strong></td>
+            <td><span class="pill pill--ok">live</span></td>
+            <td>The <strong>verification layer + navigation trail + citations</strong> run and stream today; kept behind a &#8220;research use only, not diagnostic&#8221; disclaimer.</td>
+          </tr>
+          <tr>
+            <td><strong>PHI egress</strong></td>
+            <td><span class="pill pill--ok">stronger</span></td>
+            <td>v1 runs a <strong>local MedGemma/Gemma reasoner &#8212; $0 egress</strong>; the reasoner is pluggable, so hosted GPT-4V is a config swap for de-identified sites. v1 stays research-only.</td>
+          </tr>
+          <tr>
+            <td><strong>Calibration</strong></td>
+            <td><span class="pill pill--warn">open · M5</span></td>
+            <td>&#966;<sub>total</sub> is not yet calibrated (the M3 run gave low confidence on a correct answer). Calibrating it is exactly M5&#8217;s job.</td>
+          </tr>
+          <tr>
+            <td><strong>Licensing</strong></td>
+            <td><span class="pill pill--warn">open</span></td>
+            <td>SlideChat Apache-2.0 is friendly; Trident / CONCH / UNI / TITAN + the BRCA classifier are non-commercial &#8594; a commercial path leans on <strong>permissive components + owned encoders</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>Item-level authorization</strong></td>
+            <td><span class="pill pill--warn">open</span></td>
+            <td>Endpoints authenticate the Girder token but don&#8217;t yet bind the caller to the specific <span class="mono">itemId</span> &#8594; add an ownership check.</td>
+          </tr>
+          <tr>
+            <td><strong>Branding</strong></td>
+            <td><span class="pill pill--warn">open</span></td>
+            <td>PathAI already ships &#8220;PathAssist Derm&#8221; (FDA Breakthrough) &#8594; resolve the product name / branding before any launch.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-part="Evidence & Road" id="s-next">
+  <div class="slide__inner">
+    <p class="eyebrow">PART D · <span class="em">23 / 25</span> · What&#8217;s next</p>
+    <h2 class="slide-title">From a working copilot to a <span class="hl">validated</span> one.</h2>
+    <p class="lead">With M0&#8211;M4 shipped on an <strong>unchanged contract</strong>, what remains is evaluation, calibration, and the deferred polish — additive layers, not rewrites.</p>
+
+    <div class="two-col narrow-right">
+      <div>
+        <p class="section-label">Next up</p>
+        <ul class="ticks">
+          <li><strong>M5 &#8212; evaluation.</strong> Patho-Bench / SlideBench-VQA + the CAMELYON16 navigation metric + confidence calibration (ECE) + the pathologist reader study.</li>
+          <li><strong>Calibration.</strong> Richer KB (full WHO / PathologyOutlines) + a stronger / hosted reasoner + &#966;-weight tuning.</li>
+          <li><strong>M3b &#8212; task fan-out.</strong> Morphology / Treatment / Report task chips beyond Diagnosis.</li>
+          <li><strong>Polish.</strong> Auto-persist every run, item-level authorization, region-pixel <span class="mono">describe</span>, the SlideChat candidate, and an ROI fast path.</li>
+        </ul>
+      </div>
+      <div class="callout">
+        <span class="callout__ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7Z"/></svg></span>
+        <div>
+          <p class="callout__title">Research angle</p>
+          <p class="callout__body">The platform is the productization vehicle for the group&#8217;s agentic-pathology research: <strong>&#8220;Adaptive Agentic Inference for WSIs: when to think, where to look, and when to stop.&#8221;</strong></p>
+        </div>
+      </div>
+    </div>
+
+    <figure class="figure" style="margin-top:1.2rem">
+      <svg viewBox="0 0 820 120" role="img" aria-label="Timeline from M4 done to M5 to paper">
+        <defs>
+          <marker id="ah-next-d" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L7,3 L0,6 Z" fill="var(--text-3)"/></marker>
+        </defs>
+        <line x1="120" y1="56" x2="700" y2="56" class="f-flow" marker-end="url(#ah-next-d)"/>
+        <circle cx="120" cy="56" r="11" fill="var(--ok)" stroke="var(--ok)"/>
+        <text x="120" y="30" class="f-label" text-anchor="middle" fill="var(--ok)">M4</text>
+        <text x="120" y="86" class="f-sub" text-anchor="middle">done &#183; live</text>
+        <circle cx="410" cy="56" r="11" fill="color-mix(in srgb,var(--amber) 20%,var(--surface))" stroke="var(--amber)" stroke-width="2"/>
+        <text x="410" y="30" class="f-label" text-anchor="middle" fill="var(--amber)">M5</text>
+        <text x="410" y="86" class="f-sub" text-anchor="middle">eval + calibration</text>
+        <circle cx="700" cy="56" r="11" fill="var(--surface-2)" stroke="var(--violet)" stroke-width="2"/>
+        <text x="700" y="30" class="f-label" text-anchor="middle" fill="var(--violet)">paper</text>
+        <text x="700" y="86" class="f-sub" text-anchor="middle">research + clinical claim</text>
+      </svg>
+      <figcaption class="figure__cap"><b>M4 shipped &amp; live</b> (green) &#183; <b>M5 next</b> (amber) &#8594; the paper. Same contract throughout.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="slide" data-part="Evidence & Road" id="s-summary">
+  <div class="slide__inner">
+    <p class="eyebrow">PART D · <span class="em">24 / 25</span> · In one slide</p>
+    <h2 class="slide-title">What to <span class="hl">remember</span>.</h2>
+
+    <div class="grid grid--2">
+      <div class="card card--accent card--pad">
+        <p class="card__title">A copilot that navigates + verifies + drives the viewer &#8212; now live</p>
+        <p class="card__body">Not a slide-deck concept. It <strong>streams</strong>, <strong>co-navigates</strong> the slide, <strong>overlays a heatmap</strong>, and <strong>saves to Girder</strong> &#8212; in a real browser.</p>
+      </div>
+      <div class="card card--teal card--pad">
+        <p class="card__title">M0&#8211;M4 shipped &amp; verified</p>
+        <p class="card__body">Gateway &#8594; CONCH backbone &#8594; UNI consensus + BRCA classifier (<strong>ILC 70.9%</strong>) &#8594; the LangGraph merged verified/cited loop &#8594; the React panel. <strong>146 tests + 12/12 live.</strong></p>
+      </div>
+      <div class="card card--accent card--pad">
+        <p class="card__title">Built with discipline</p>
+        <p class="card__body">Test-first, dual-reviewed, security-hardened, secret-clean &#8212; and the live browser run even <strong>caught a bug curl couldn&#8217;t</strong> (the CRLF SSE framing fix).</p>
+      </div>
+      <div class="card card--rose card--pad">
+        <p class="card__title">Clear white space + a privacy edge</p>
+        <p class="card__body">In-viewer co-navigation + verification + lymphoma-first + a <strong>local $0-egress reasoner</strong> &#8212; while the closest copilot, PathChat, just went to <strong>AstraZeneca</strong>.</p>
+      </div>
+    </div>
+
+    <blockquote class="quote" style="margin-top:1.4rem">PathAgent turns a black-box answer into a navigated, verified, self-documenting second read &#8212; now running live inside the viewer pathologists already use.</blockquote>
+    <p class="footnote">Milestone status: M0&#8211;M4 shipped &amp; verified end-to-end (146 backend tests + 12/12 live browser checks) &#183; M5 eval + calibration and M3b task fan-out remain &#8212; the step that turns this into a research + clinical claim &#183; Branch chen &#183; 2026-07-08.</p>
+  </div>
+</section>
+
+<section class="slide" data-part="Evidence & Road" id="s-refs">
+  <div class="slide__inner">
+    <p class="eyebrow">PART D · <span class="em">25 / 25</span> · Sources</p>
+    <h2 class="slide-title">Design docs &amp; <span class="hl">references</span>.</h2>
+
+    <div class="two-col">
+      <div>
+        <p class="section-label">Internal &#8212; design, plans &amp; reports</p>
+        <div class="kv">
+          <div class="kv__row"><span class="kv__k">design</span><span class="kv__v">PathAgent integration design v3 &#8212; 2026-07-06</span></div>
+          <div class="kv__row"><span class="kv__k">M0 plan</span><span class="kv__v">Agent Gateway</span></div>
+          <div class="kv__row"><span class="kv__k">M1 plan</span><span class="kv__v">Trident preprocessing backbone</span></div>
+          <div class="kv__row"><span class="kv__k">M2 plan</span><span class="kv__v">Classifier consensus (UNI + BRCA)</span></div>
+          <div class="kv__row"><span class="kv__k">M3 plan</span><span class="kv__v">Orchestrator / merged loop</span></div>
+          <div class="kv__row"><span class="kv__k">M4 plan</span><span class="kv__v">React panel + co-navigation</span></div>
+          <div class="kv__row"><span class="kv__k">reports</span><span class="kv__v">M0 · M1 · M2 · M3 · M4 &#8212; 2026-07-07</span></div>
+          <div class="kv__row"><span class="kv__k">market</span><span class="kv__v">Project overview &amp; competitors</span></div>
+        </div>
+      </div>
+      <div>
+        <p class="section-label">External &#8212; systems &amp; models</p>
+        <div class="kv">
+          <div class="kv__row"><span class="kv__k">WSI-Agents</span><span class="kv__v">arXiv 2507.14680 · dual-verification trust layer</span></div>
+          <div class="kv__row"><span class="kv__k">Trident</span><span class="kv__v">Mahmood Lab · TITAN · Patho-Bench</span></div>
+          <div class="kv__row"><span class="kv__k">SlideChat</span><span class="kv__v">CVPR&#8217;25 · Apache-2.0 open weights</span></div>
+          <div class="kv__row"><span class="kv__k">PathFinder</span><span class="kv__v">ICCV&#8217;25 · navigation loop</span></div>
+          <div class="kv__row"><span class="kv__k">CPath-Omni</span><span class="kv__v">CVPR&#8217;25 · fallback model</span></div>
+          <div class="kv__row"><span class="kv__k">NOVA</span><span class="kv__v">2025 · future discovery mode</span></div>
+          <div class="kv__row"><span class="kv__k">CONCH / UNI</span><span class="kv__v">Mahmood Lab encoders (gated research)</span></div>
+          <div class="kv__row"><span class="kv__k">PathChat</span><span class="kv__v">Modella AI · Nature 2024</span></div>
+          <div class="kv__row"><span class="kv__k">LangGraph</span><span class="kv__v">cyclic agent graph + streaming</span></div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider">
+    <p class="credit">PathAssist / Impart DX · PathAgent implementation report (M0&#8211;M4) · prepared by Chen with Claude · 2026-07-08</p>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function(){
+  var deck=document.getElementById('deck');
+  var slides=Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var dotsWrap=document.getElementById('dots');
+  var hudNum=document.getElementById('hudNum'),hudTot=document.getElementById('hudTot'),hudPart=document.getElementById('hudPart');
+  var prog=document.getElementById('progress');
+  hudTot.textContent=String(slides.length).padStart(2,'0');
+  var cur=0;
+  slides.forEach(function(s,i){
+    var b=document.createElement('button');
+    b.setAttribute('aria-label','Go to slide '+(i+1));
+    b.addEventListener('click',function(){slides[i].scrollIntoView({behavior:'smooth'});});
+    dotsWrap.appendChild(b);
+  });
+  var dotEls=dotsWrap.querySelectorAll('button');
+  function setActive(i){
+    cur=i;
+    dotEls.forEach(function(d,j){d.classList.toggle('active',j===i);});
+    hudNum.textContent=String(i+1).padStart(2,'0');
+    hudPart.textContent=slides[i].getAttribute('data-part')||'';
+    prog.style.width=((i+1)/slides.length*100)+'%';
+  }
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){var i=slides.indexOf(e.target);if(i>=0)setActive(i);}
+      });
+    },{threshold:.55});
+    slides.forEach(function(s){io.observe(s);});
+  }
+  function go(d){var n=Math.max(0,Math.min(slides.length-1,cur+d));slides[n].scrollIntoView({behavior:'smooth'});}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowDown'||e.key==='PageDown'||e.key===' '||e.key==='ArrowRight'){e.preventDefault();go(1);}
+    else if(e.key==='ArrowUp'||e.key==='PageUp'||e.key==='ArrowLeft'){e.preventDefault();go(-1);}
+    else if(e.key==='Home'){e.preventDefault();slides[0].scrollIntoView({behavior:'smooth'});}
+    else if(e.key==='End'){e.preventDefault();slides[slides.length-1].scrollIntoView({behavior:'smooth'});}
+    else if(e.key==='p'||e.key==='P'){window.print();}
+  });
+  setActive(0);
+})();
+</script>
