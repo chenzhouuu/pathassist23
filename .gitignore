@@ -8,6 +8,11 @@ dist/
 .claude/worktrees/
 # contains server IPs / personal paths
 .claude/settings.local.json
+# per-session work logs
+.claude/logs/
+
+# Locally cloned reference repos (TRIDENT, WSI-Agents, ...)
+github/
 
 # Local env overrides (contain secrets)
 .env.local
