@@ -27,6 +27,24 @@ All endpoints require a valid `Girder-Token`.
 The store sits behind a `ConversationStore` ABC (`src/agent/store/`); `PgStore` is the
 Postgres impl, and tests inject an in-memory fake — so route tests need no database.
 
+## Increment 2 — Claude replies
+
+`POST /conversations/{id}/messages` now streams from a **`Responder`** (`src/agent/chat/`)
+instead of echoing. `ClaudeResponder` streams real tokens from Anthropic's Messages API
+over the full conversation history; `EchoResponder` is the keyless fallback and the
+deterministic test double. The SSE contract is unchanged apart from a new `error` frame
+(`{type:"error", message, full}`) emitted on a mid-stream backend failure.
+
+Set the key in the gitignored `services/agent/.env` to switch on Claude:
+
+```
+AGENT_ANTHROPIC_API_KEY=sk-ant-...
+AGENT_ANTHROPIC_MODEL=claude-sonnet-5   # optional; this is the default
+```
+
+With no key the copilot keeps working in echo mode. `GET /health` reports which is live
+(`"chat": "claude" | "echo"`), and the panel labels itself accordingly.
+
 ## Run it (container)
 
 ```bash

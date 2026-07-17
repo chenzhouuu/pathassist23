@@ -33,6 +33,10 @@ services:
       AGENT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-https://lymphoma.dev.pathassist.health/api/v1}
       AGENT_CORS_ORIGINS: '["*"]'
       AGENT_DATABASE_URL: ${AGENT_DATABASE_URL:-postgresql://copilot:copilot@db:5432/copilot}
+      # Set AGENT_ANTHROPIC_API_KEY in services/agent/.env to stream real Claude
+      # replies; with no key the copilot degrades to the echo responder.
+      AGENT_ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
+      AGENT_ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-claude-sonnet-5}
     volumes:
       - ./src:/app/src        # live code — edit-and-reload during the increment loop
     command: >

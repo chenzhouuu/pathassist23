@@ -7,9 +7,10 @@ handlers without a Postgres. The DB-free health/echo tests don't use it.
 import pytest
 from starlette.testclient import TestClient
 
+from agent.chat import EchoResponder
 from agent.gateway.app import create_app
 from agent.gateway.auth import require_user
-from agent.gateway.routes import get_store
+from agent.gateway.routes import get_responder, get_store
 from agent.store.base import ConversationStore
 
 _TS = "2026-07-17T00:00:00+00:00"
@@ -80,8 +81,10 @@ def store() -> MemoryStore:
 
 @pytest.fixture
 def client(store: MemoryStore) -> TestClient:
-    """A client with require_user stubbed and the in-memory store injected."""
+    """A client with require_user stubbed, the in-memory store injected, and the echo
+    responder pinned so replies are deterministic regardless of AGENT_ANTHROPIC_API_KEY."""
     app = create_app()
     app.dependency_overrides[require_user] = lambda: {"_id": "u1", "login": "tester"}
     app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_responder] = lambda: EchoResponder()
     return TestClient(app)

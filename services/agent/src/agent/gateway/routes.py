@@ -1,13 +1,18 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from ..chat import EchoResponder, Responder
+from ..common.config import get_settings
 from ..store import ConversationStore
 from .auth import require_user
 from .sse import sse_json
+
+logger = logging.getLogger(__name__)
 
 # Distinct base from the existing pathagent gateway (/api/agent) so the two coexist.
 router = APIRouter(prefix="/api/copilot")
@@ -19,6 +24,11 @@ def get_store(request: Request) -> ConversationStore:
     if store is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Copilot store unavailable")
     return store
+
+
+def get_responder(request: Request) -> Responder:
+    """Resolve the process-wide chat responder; fall back to echo if unset (tests)."""
+    return getattr(request.app.state, "responder", None) or EchoResponder()
 
 
 def _uid(user: dict) -> str:
@@ -44,8 +54,9 @@ async def _iter_echo_tokens(text: str) -> AsyncIterator[tuple[str, str]]:
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    """Unauthenticated liveness probe — handy for `curl` and container healthchecks."""
-    return {"status": "ok", "service": "copilot", "version": "0.2.0"}
+    """Unauthenticated liveness probe. `chat` tells the UI which backend is live."""
+    chat = "claude" if get_settings().anthropic_api_key else "echo"
+    return {"status": "ok", "service": "copilot", "version": "0.3.0", "chat": chat}
 
 
 class EchoRequest(BaseModel):
@@ -118,12 +129,13 @@ async def post_message(
     body: MessageRequest,
     user: dict = Depends(require_user),
     store: ConversationStore = Depends(get_store),
+    responder: Responder = Depends(get_responder),
 ) -> EventSourceResponse:
-    """Persist the user turn, stream the (echo) reply, then persist the assistant turn.
+    """Persist the user turn, stream the model reply, then persist the assistant turn.
 
     The user turn is saved *before* streaming, so a reload shows the message even if
-    the stream is interrupted. Increment 2 replaces the echo body with Claude; the
-    persist-around-stream shape stays.
+    the stream is interrupted. The reply comes from the injected Responder (Claude, or
+    echo when unkeyed); the SSE contract (start/token/done, plus error) is stable.
     """
     conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
     if conv is None:
@@ -133,13 +145,33 @@ async def post_message(
         await store.set_title_if_empty(conversation_id=conversation_id, title=_snippet(body.text))
     await store.add_turn(conversation_id=conversation_id, role="user", content=body.text)
 
+    # Full history (incl. the turn just saved) is the model context.
+    turns = await store.get_turns(conversation_id=conversation_id)
+    history = [{"role": t["role"], "content": t["text"]} for t in turns]
+
     async def event_stream():
         yield sse_json({"type": "start", "actor": login, "conversation_id": conversation_id})
         acc = ""
-        async for word, acc in _iter_echo_tokens(body.text):
-            yield sse_json({"type": "token", "text": f"{word} ", "full": acc})
-        await store.add_turn(conversation_id=conversation_id, role="assistant", content=acc)
-        yield sse_json({"type": "done", "text": acc, "conversation_id": conversation_id})
+        try:
+            async for chunk in responder.stream_reply(messages=history):
+                acc += chunk
+                yield sse_json({"type": "token", "text": chunk, "full": acc.strip()})
+        except Exception as exc:  # noqa: BLE001 — surface any backend failure to the client
+            logger.exception("chat stream failed for conversation %s", conversation_id)
+            reply = acc.strip()
+            if reply:
+                await store.add_turn(
+                    conversation_id=conversation_id, role="assistant", content=reply
+                )
+            yield sse_json({
+                "type": "error",
+                "message": f"The copilot backend failed mid-reply ({type(exc).__name__}).",
+                "full": reply,
+            })
+            return
+        reply = acc.strip()
+        await store.add_turn(conversation_id=conversation_id, role="assistant", content=reply)
+        yield sse_json({"type": "done", "text": reply, "conversation_id": conversation_id})
 
     return EventSourceResponse(event_stream())
 

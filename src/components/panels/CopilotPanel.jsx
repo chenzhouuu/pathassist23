@@ -8,6 +8,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import {
   streamMessage, listConversations, createConversation, getConversation, deleteConversation,
+  checkHealth,
 } from '../../api/copilotApi.js';
 
 // ── tiny inline icons (stroke = currentColor) ───────────────────────────────────
@@ -51,10 +52,18 @@ export default function CopilotPanel() {
   const [conversations, setConversations] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [confirmId, setConfirmId] = useState(null);   // conversation pending delete-confirm
+  const [mode, setMode] = useState(null);             // 'claude' | 'echo' — which backend is live
   const threadRef = useRef(null);
   const abortRef = useRef(null);
 
   const itemId = activeItem?._id || null;
+
+  // Which chat backend is configured server-side, so the UI can label itself honestly.
+  useEffect(() => {
+    let ok = true;
+    checkHealth().then((h) => { if (ok) setMode(h.chat || null); }).catch(() => {});
+    return () => { ok = false; };
+  }, []);
 
   const refreshList = useCallback(async () => {
     if (!itemId) { setConversations([]); return []; }
@@ -129,6 +138,9 @@ export default function CopilotPanel() {
         onEvent: (evt) => {
           if (evt.type === 'token' || evt.type === 'done') {
             updateLastCopilotMessage(evt.full ?? evt.text ?? '');
+          } else if (evt.type === 'error') {
+            setCopilotError(evt.message || 'The copilot backend failed mid-reply.');
+            updateLastCopilotMessage(evt.full || '(interrupted)');
           }
         },
       });
@@ -201,6 +213,12 @@ export default function CopilotPanel() {
       <div className="cp-header">
         <span className="cp-mark">◆</span>
         <span className="cp-title">Copilot</span>
+        {mode && (
+          <span className="cp-mode" data-mode={mode} title={mode === 'claude'
+            ? 'Replies from Claude' : 'Echo fallback — set AGENT_ANTHROPIC_API_KEY for Claude'}>
+            <i />{mode === 'claude' ? 'Claude' : 'echo'}
+          </span>
+        )}
         <span className="cp-spacer" />
         <button className="cp-btn" onClick={openHistory} title="Conversation history"
           disabled={!itemId}>
@@ -227,8 +245,15 @@ export default function CopilotPanel() {
             {itemId ? (
               <>
                 <div className="cp-empty-mark">◆</div>
-                <p>Start a conversation. For now I echo your message back while the framework
-                  comes online — but your thread <b>persists</b>: reload and it's still here.</p>
+                {mode === 'echo' ? (
+                  <p>Start a conversation. I echo your message back for now — set
+                    <b> AGENT_ANTHROPIC_API_KEY</b> to switch replies to Claude. Either way your
+                    thread <b>persists</b>: reload and it's still here.</p>
+                ) : (
+                  <p>Ask about the tissue, staining, or analysis workflow for this slide. I reason
+                    with <b>Claude</b> — research use only, and I can't run image analysis on the
+                    pixels <i>yet</i> (that lands in a later release).</p>
+                )}
                 <p className="cp-empty-slide">Slide in context · <span>{activeItem.name}</span></p>
               </>
             ) : (
@@ -345,6 +370,11 @@ const CP_CSS = `
   background:linear-gradient(160deg,#a78bfa,#7c3aed);color:#fff;font-size:11px;font-weight:700;
   box-shadow:0 0 0 1px rgba(167,139,250,.25),0 2px 8px rgba(124,58,237,.35)}
 .cp-title{font-weight:600;font-size:13px;letter-spacing:.2px}
+.cp-mode{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-family:monospace;
+  color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:2px 7px}
+.cp-mode i{width:5px;height:5px;border-radius:50%;background:#64748b}
+.cp-mode[data-mode="claude"]{color:#c4b5fd;border-color:rgba(139,92,246,.35)}
+.cp-mode[data-mode="claude"] i{background:#34d399;box-shadow:0 0 6px rgba(52,211,153,.8)}
 .cp-spacer{margin-left:auto}
 .cp-btn{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);
   background:transparent;border:1px solid transparent;border-radius:7px;padding:4px 8px;cursor:pointer;

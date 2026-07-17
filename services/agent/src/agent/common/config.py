@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # override with AGENT_DATABASE_URL for local runs (e.g. localhost:5432).
     database_url: str = "postgresql://copilot:copilot@db:5432/copilot"
 
+    # Chat model (increment 2). With no key the copilot degrades to the echo
+    # responder, so the framework still runs end-to-end without Anthropic access.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-5"
+    anthropic_max_tokens: int = 1024
+
 
 @lru_cache
 def get_settings() -> Settings:
