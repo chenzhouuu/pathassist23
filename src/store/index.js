@@ -94,11 +94,13 @@ export const useStore = create((set, get) => ({
       chatPendingAttachment: null,
       agentTrace: [], agentNavTrail: [], agentFinal: null, agentHeatmap: null,
       agentStatus: null, agentCacheKey: null, agentRunning: false, agentError: null,
+      copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
       leftPanelOpen: autoCollapseViewerPanels ? false : get().leftPanelOpen,
       rightPanelOpen: autoCollapseViewerPanels ? false : get().rightPanelOpen,
+      rightRailVisible: autoCollapseViewerPanels ? true : get().rightRailVisible,
     });
   },
 
@@ -118,11 +120,13 @@ export const useStore = create((set, get) => ({
       visibleAnnotations: {},
       selectedAnnotation: null,
       drawingMode: null,
+      copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
       leftPanelOpen: autoCollapseViewerPanels ? false : get().leftPanelOpen,
       rightPanelOpen: autoCollapseViewerPanels ? false : get().rightPanelOpen,
+      rightRailVisible: autoCollapseViewerPanels ? true : get().rightRailVisible,
     });
   },
 
@@ -258,6 +262,28 @@ export const useStore = create((set, get) => ({
   resetAgentRun:    ()       => set({ agentTrace: [], agentNavTrail: [], agentFinal: null,
                                       agentHeatmap: null, agentRunning: false, agentError: null }),
 
+  // ── Copilot (PathAgent v2) ──────────────────────────────────────────────────
+  // Conversational thread with the greenfield services/agent gateway. Per-slide;
+  // persisted in Postgres (increment 1) keyed by (girder user, slide item). The panel
+  // hydrates copilotConversationId + copilotMessages from the store on mount.
+  copilotMessages: [],          // [{ role:'user'|'assistant', text }]
+  copilotConversationId: null,  // active server conversation id (null → lazy-create on send)
+  copilotStreaming: false,
+  copilotError: null,
+  addCopilotMessage:        (m)    => set((s) => ({ copilotMessages: [...s.copilotMessages, m] })),
+  setCopilotMessages:       (msgs) => set({ copilotMessages: msgs }),
+  updateLastCopilotMessage: (text) => set((s) => {
+    if (!s.copilotMessages.length) return {};
+    const msgs = s.copilotMessages.slice();
+    msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], text };
+    return { copilotMessages: msgs };
+  }),
+  setCopilotConversationId: (id)   => set({ copilotConversationId: id }),
+  setCopilotStreaming:      (v)    => set({ copilotStreaming: v }),
+  setCopilotError:          (e)    => set({ copilotError: e }),
+  resetCopilot:             ()     => set({ copilotMessages: [], copilotConversationId: null,
+                                            copilotStreaming: false, copilotError: null }),
+
   // 'claude' | 'gemini' — which model to run when ROI is drawn
   ki67PendingModel: 'claude',
   setKi67PendingModel: (v) => set({ ki67PendingModel: v }),
@@ -312,6 +338,7 @@ export const useStore = create((set, get) => ({
   // ── Viewer UI ────────────────────────────────────────────────────────────
   leftPanelOpen: false,
   rightPanelOpen: false,
+  rightRailVisible: true,
   leftPanelTab: 'slides',
   rightPanelTab: 'metadata',
   autoCollapseViewerPanels: (() => {
@@ -319,9 +346,20 @@ export const useStore = create((set, get) => ({
     return raw == null ? true : raw === 'true';
   })(),
   setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
-  setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+  setRightPanelOpen: (open) => set({
+    rightPanelOpen: open,
+    // Keep the icon rail available whenever the panel is closed so tabs stay reachable.
+    ...(open ? {} : { rightRailVisible: true }),
+  }),
+  setRightRailVisible: (visible) => set({ rightRailVisible: visible }),
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
-  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+  toggleRightPanel: () => set((s) => {
+    const open = !s.rightPanelOpen;
+    return open
+      ? { rightPanelOpen: true }
+      : { rightPanelOpen: false, rightRailVisible: true };
+  }),
+  toggleRightRail: () => set((s) => ({ rightRailVisible: !s.rightRailVisible })),
   setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
   setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   setAutoCollapseViewerPanels: (enabled) => {

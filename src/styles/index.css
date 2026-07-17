@@ -234,12 +234,17 @@ button, input, textarea, select { font: inherit; }
 .viewer-rail-chevron {
   width: 28px;
   height: 28px;
-  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, rgba(255,255,255,0.04));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
-.viewer-rail-btn:hover,
-.viewer-rail-chevron:hover {
+.viewer-rail-btn:hover {
   color: var(--text);
   background: rgba(255,255,255,0.08);
+}
+.viewer-rail-chevron:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 20%, rgba(255,255,255,0.06));
 }
 .viewer-rail-btn.active {
   color: var(--accent);
@@ -284,6 +289,57 @@ button, input, textarea, select { font: inherit; }
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.viewer-rail-divider {
+  width: 22px;
+  height: 1px;
+  margin: 2px 0;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  flex-shrink: 0;
+}
+.viewer-panel-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 10px;
+  color: var(--muted);
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.viewer-panel-collapse-btn:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.viewer-panel-collapse-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+.viewer-panel-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.viewer-panel-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: ew-resize;
+  z-index: 10;
+  background: transparent;
+  border-left: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+.viewer-panel-resize-handle:hover {
+  border-left-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 .app-header {
   position: relative;
@@ -2152,16 +2208,32 @@ textarea.login-input {
   border-color: rgba(95,99,104,0.14);
 }
 [data-theme="light"] .viewer-rail-btn,
-[data-theme="light"] .viewer-rail-chevron,
 [data-theme="light"] .viewer-rail-pref {
   background: rgba(26,115,232,0.04);
   color: #5f6368;
 }
+[data-theme="light"] .viewer-rail-chevron {
+  background: rgba(26,115,232,0.12);
+  color: #1a73e8;
+  box-shadow: inset 0 0 0 1px rgba(26,115,232,0.22);
+}
 [data-theme="light"] .viewer-rail-btn:hover,
-[data-theme="light"] .viewer-rail-chevron:hover,
 [data-theme="light"] .viewer-rail-pref:hover {
   background: rgba(26,115,232,0.08);
   color: #202124;
+}
+[data-theme="light"] .viewer-rail-chevron:hover {
+  background: rgba(26,115,232,0.18);
+  color: #1557b0;
+}
+[data-theme="light"] .viewer-panel-collapse-btn {
+  background: rgba(26,115,232,0.04);
+  color: #5f6368;
+}
+[data-theme="light"] .viewer-panel-collapse-btn:hover {
+  background: rgba(26,115,232,0.1);
+  color: #202124;
+  border-color: rgba(26,115,232,0.28);
 }
 [data-theme="light"] .viewer-inline-tab {
   background: rgba(0,0,0,0.03);

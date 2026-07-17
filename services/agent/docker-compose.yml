@@ -1,0 +1,43 @@
+# services/agent/docker-compose.yml — PathAgent v2 Copilot stack.
+# Increment 1: gateway + Postgres control store (conversations + turns persist).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: copilot
+      POSTGRES_DB: copilot
+    volumes:
+      - copilot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot -d copilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Uncomment to inspect the DB from the host (psql -h localhost -p 5433 -U copilot):
+    # ports: ["5433:5432"]
+
+  copilot:
+    build: .
+    ports: ["8010:8010"]
+    depends_on:
+      db:
+        condition: service_healthy
+    # Lets the container reach a Girder running on the host via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # MUST match the Girder your viewer is signed into (frontend .env.local
+      # VITE_GIRDER_BASE), or tokens issued there are rejected here → 401.
+      # Override in services/agent/.env (gitignored).
+      AGENT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-https://lymphoma.dev.pathassist.health/api/v1}
+      AGENT_CORS_ORIGINS: '["*"]'
+      AGENT_DATABASE_URL: ${AGENT_DATABASE_URL:-postgresql://copilot:copilot@db:5432/copilot}
+    volumes:
+      - ./src:/app/src        # live code — edit-and-reload during the increment loop
+    command: >
+      uv run uvicorn agent.gateway.app:create_app --factory
+      --host 0.0.0.0 --port 8010 --reload
+
+volumes:
+  copilot_pgdata:

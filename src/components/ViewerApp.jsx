@@ -50,33 +50,42 @@ function LeftRail() {
   ].filter((tab) => tab.show);
 
   const openTab = (id) => {
+    if (leftPanelOpen && leftPanelTab === id) {
+      setLeftPanelOpen(false);
+      return;
+    }
     setLeftPanelTab(id);
     setLeftPanelOpen(true);
   };
 
   return (
     <div className={`viewer-side-rail viewer-side-rail-left ${leftPanelOpen ? 'is-open' : 'is-closed'}`}>
+      <button
+        type="button"
+        onClick={toggleLeftPanel}
+        className="viewer-rail-chevron"
+        title={leftPanelOpen ? 'Hide left panel' : 'Show left panel'}
+        aria-expanded={leftPanelOpen}
+        aria-label={leftPanelOpen ? 'Hide left panel' : 'Show left panel'}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+          <polyline points={leftPanelOpen ? '15 18 9 12 15 6' : '9 18 15 12 9 6'} />
+        </svg>
+      </button>
+      <div className="viewer-rail-divider" aria-hidden="true" />
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           onClick={() => openTab(tab.id)}
           className={`viewer-rail-btn ${leftPanelTab === tab.id && leftPanelOpen ? 'active' : ''}`}
-          title={tab.title}
+          title={leftPanelOpen && leftPanelTab === tab.id ? `Hide ${tab.title}` : tab.title}
+          aria-pressed={leftPanelTab === tab.id && leftPanelOpen}
         >
           {tab.icon}
         </button>
       ))}
-      <button
-        type="button"
-        onClick={toggleLeftPanel}
-        className="viewer-rail-chevron"
-        title={leftPanelOpen ? 'Hide left panel' : 'Show left panel'}
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-          <polyline points={leftPanelOpen ? '15 18 9 12 15 6' : '9 18 15 12 9 6'} />
-        </svg>
-      </button>
+      <div className="viewer-rail-divider" aria-hidden="true" />
       <button
         type="button"
         onClick={() => setAutoCollapseViewerPanels(!autoCollapseViewerPanels)}
@@ -105,8 +114,9 @@ function LeftRail() {
 
 function RightRail() {
   const {
-    rightPanelOpen, rightPanelTab, setRightPanelOpen, setRightPanelTab,
-    toggleRightPanel, hasRole, autoCollapseViewerPanels, setAutoCollapseViewerPanels,
+    rightPanelOpen, rightPanelTab, rightRailVisible, setRightPanelOpen, setRightPanelTab,
+    setRightRailVisible, hasRole, autoCollapseViewerPanels, setAutoCollapseViewerPanels,
+    panels,
   } = useStore();
   const tabs = [
     {
@@ -160,6 +170,28 @@ function RightRail() {
         </svg>
       ),
     },
+    {
+      id: 'copilot',
+      show: hasRole('ai-users'),
+      title: 'Copilot',
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>
+        </svg>
+      ),
+    },
+    {
+      id: 'panels',
+      show: true,
+      title: 'Panels',
+      badge: panels.length || null,
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+      ),
+    },
   ].filter((tab) => tab.show);
 
   const openTab = (id) => {
@@ -167,8 +199,22 @@ function RightRail() {
     setRightPanelOpen(true);
   };
 
+  if (!rightRailVisible) return null;
+
   return (
     <div className={`viewer-side-rail viewer-side-rail-right ${rightPanelOpen ? 'is-open' : 'is-closed'}`}>
+      <button
+        type="button"
+        onClick={() => setRightRailVisible(false)}
+        className="viewer-rail-chevron"
+        title="Hide icon bar"
+        aria-label="Hide icon bar"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+      <div className="viewer-rail-divider" aria-hidden="true" />
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -176,20 +222,13 @@ function RightRail() {
           onClick={() => openTab(tab.id)}
           className={`viewer-rail-btn ${rightPanelTab === tab.id && rightPanelOpen ? 'active' : ''}`}
           title={tab.title}
+          aria-pressed={rightPanelTab === tab.id && rightPanelOpen}
         >
           {tab.icon}
+          {tab.badge ? <span className="viewer-rail-badge">{tab.badge}</span> : null}
         </button>
       ))}
-      <button
-        type="button"
-        onClick={toggleRightPanel}
-        className="viewer-rail-chevron"
-        title={rightPanelOpen ? 'Hide right panel' : 'Show right panel'}
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-          <polyline points={rightPanelOpen ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
-        </svg>
-      </button>
+      <div className="viewer-rail-divider" aria-hidden="true" />
       <button
         type="button"
         onClick={() => setAutoCollapseViewerPanels(!autoCollapseViewerPanels)}

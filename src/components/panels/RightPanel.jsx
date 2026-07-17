@@ -1,5 +1,5 @@
 // src/components/panels/RightPanel.jsx
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useStore } from '../../store/index.js';
 import MetadataPanel from './MetadataPanel.jsx';
 import AIPanel from './AIPanel.jsx';
@@ -7,15 +7,23 @@ import PanelsPanel from './PanelsPanel.jsx';
 import AnalysisPanel from './AnalysisPanel.jsx';
 import PathChatPanel from './PathChatPanel.jsx';
 import PathAgentPanel from './PathAgentPanel.jsx';
+import CopilotPanel from './CopilotPanel.jsx';
 
 const MIN_W = 248;
 const MAX_W = 780;
 const DEFAULT_W = 248;
 
 export default function RightPanel() {
-  const { rightPanelOpen, rightPanelTab, setRightPanelTab, panels, hasRole } = useStore();
+  const {
+    rightPanelOpen, rightPanelTab, rightRailVisible, setRightPanelTab,
+    toggleRightRail, panels, hasRole,
+  } = useStore();
   const [panelW, setPanelW] = useState(DEFAULT_W);
   const dragRef = useRef(null);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--right-w', `${panelW}px`);
+  }, [panelW]);
 
   const onDragStart = useCallback((e) => {
     if (e.button !== 0) return;
@@ -62,6 +70,10 @@ export default function RightPanel() {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
       </svg> },
+    { id:'copilot',     label:'Copilot', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>
+      </svg> },
     { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -69,6 +81,7 @@ export default function RightPanel() {
       </svg> },
   ];
   const tabs = allTabs.filter((t) => t.show);
+  const activeLabel = tabs.find((t) => t.id === rightPanelTab)?.label || 'Info';
 
   return (
     <div className="app-sidepanel app-sidepanel-right" style={{ width: panelW, position: 'relative' }}>
@@ -77,21 +90,33 @@ export default function RightPanel() {
         ref={dragRef}
         onMouseDown={onDragStart}
         title="Drag to resize panel"
-        style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
-          cursor: 'ew-resize', zIndex: 10,
-          background: 'transparent',
-          borderLeft: '2px solid transparent',
-          transition: 'border-color 0.15s',
-        }}
-        onMouseEnter={e => e.currentTarget.style.borderLeftColor = 'rgba(124,58,237,0.5)'}
-        onMouseLeave={e => e.currentTarget.style.borderLeftColor = 'transparent'}
+        className="viewer-panel-resize-handle"
       />
       <div className="viewer-panel-topbar">
         <div>
           <div className="viewer-panel-eyebrow">Workspace Panel</div>
-          <div className="viewer-panel-title">{tabs.find((t) => t.id === rightPanelTab)?.label || 'Info'}</div>
+          <div className="viewer-panel-title">{activeLabel}</div>
         </div>
+        <button
+          type="button"
+          className="viewer-panel-collapse-btn"
+          onClick={toggleRightRail}
+          title={rightRailVisible ? 'Hide icon bar' : 'Show icon bar'}
+          aria-label={rightRailVisible ? 'Hide icon bar' : 'Show icon bar'}
+          aria-pressed={rightRailVisible}
+        >
+          {rightRailVisible ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <rect x="4" y="3" width="6" height="18" rx="1.5" />
+              <path d="M14 8h6M14 12h6M14 16h6" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <rect x="4" y="3" width="6" height="18" rx="1.5" />
+              <polyline points="14 8 18 12 14 16" />
+            </svg>
+          )}
+        </button>
       </div>
       <div className="tab-bar shrink-0 viewer-right-tabs" style={{ display:'flex', borderBottom:'1px solid var(--border)' }}>
         {tabs.map(t => (
@@ -118,6 +143,7 @@ export default function RightPanel() {
         {rightPanelTab === 'analysis'    && <AnalysisPanel/>}
         {rightPanelTab === 'chat'        && <PathChatPanel/>}
         {rightPanelTab === 'agent'       && <PathAgentPanel/>}
+        {rightPanelTab === 'copilot'     && <CopilotPanel/>}
       </div>
     </div>
   );
