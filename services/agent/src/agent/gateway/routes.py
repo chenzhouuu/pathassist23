@@ -129,7 +129,7 @@ def _plan_guidance(errors: list[str], scope: dict) -> str:
 async def health() -> dict[str, str]:
     """Unauthenticated liveness probe. `chat` tells the UI which backend is live."""
     chat = "claude" if get_settings().anthropic_api_key else "echo"
-    return {"status": "ok", "service": "copilot", "version": "0.6.0", "chat": chat}
+    return {"status": "ok", "service": "copilot", "version": "0.6.2", "chat": chat}
 
 
 @router.get("/tools")
@@ -197,6 +197,9 @@ async def get_conversation(
     conv["turns"] = await store.get_turns(conversation_id=conversation_id)
     conv["plans"] = await store.get_plans(conversation_id=conversation_id)
     conv["claims"] = await store.get_claims(conversation_id=conversation_id)
+    # The case blackboard is per-slide (spans the user's threads on this slide), not
+    # per-conversation — so it comes from (user, item), not conversation_id.
+    conv["blackboard"] = await store.get_blackboard(user=_uid(user), item=conv.get("item_id"))
     return conv
 
 
@@ -397,6 +400,10 @@ async def run_plan(
             status.HTTP_409_CONFLICT,
             f"Plan must be approved before it can run (state: {plan['state']}).",
         )
+    # Content-addressed cache (increment 6b): an identical approved plan reuses the prior
+    # run instead of recomputing — scoped to this user + slide by the plan digest.
+    cached = await store.get_cached_run(
+        user=_uid(user), item=conv.get("item_id"), plan_digest=digest)
     run = await store.create_run(conversation_id=conversation_id, plan_digest=digest)
     steps = plan.get("steps") or []
     scope = plan.get("scope")
@@ -404,22 +411,33 @@ async def run_plan(
     async def run_stream():
         yield sse_json({
             "type": "run_start", "run_id": run["id"], "conversation_id": conversation_id,
+            "cached": cached is not None,
             "steps": [{"n": s["n"], "tool": s["tool"], "category": s.get("category")}
                       for s in steps],
         })
         artifacts: dict = {}
         values: dict = {}
         try:
-            for s in steps:
-                yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
-                                "tool": s["tool"], "status": "running"})
-                await asyncio.sleep(0.3)  # let RUNNING show; real tools take much longer
-                res = invoke(s["tool"], s.get("args"), scope, artifacts)
-                artifacts.update(res.artifacts)
-                values.update(res.values)
-                yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
-                                "tool": s["tool"], "status": "done",
-                                "produced": list(res.artifacts) + list(res.values)})
+            if cached is not None:
+                # Reuse the prior result/artifacts, no re-invocation. Copy-on-hit keeps this
+                # conversation's artifacts self-contained (get_artifact stays owner-scoped);
+                # rung 7 swaps the copy for shared manifest refs when tools emit millions.
+                values = cached.get("result") or {}
+                artifacts = cached.get("artifacts") or {}
+                for s in steps:
+                    yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
+                                    "tool": s["tool"], "status": "done", "cached": True})
+            else:
+                for s in steps:
+                    yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
+                                    "tool": s["tool"], "status": "running"})
+                    await asyncio.sleep(0.3)  # let RUNNING show; real tools take much longer
+                    res = invoke(s["tool"], s.get("args"), scope, artifacts)
+                    artifacts.update(res.artifacts)
+                    values.update(res.values)
+                    yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
+                                    "tool": s["tool"], "status": "done",
+                                    "produced": list(res.artifacts) + list(res.values)})
         except Exception as exc:  # noqa: BLE001 — surface any tool failure to the client
             logger.exception("run failed for conversation %s plan %s", conversation_id, digest)
             await store.finish_run(run_id=run["id"], status="FAILED", result=values,
@@ -435,10 +453,13 @@ async def run_plan(
                             artifacts=artifacts, registry_version=_REGISTRY.version)
         saved = await store.create_claim(
             conversation_id=conversation_id, run_id=run["id"], claim=claim)
+        # The new Claim updates the case blackboard; ship it so the memory strip refreshes
+        # live without a reload (same per-slide projection as GET /conversations/{id}).
+        blackboard = await store.get_blackboard(user=_uid(user), item=conv.get("item_id"))
         yield sse_json({
             "type": "run_done", "run_id": run["id"], "result": values,
             "artifacts": [{"key": k, "kind": a.get("kind", k)} for k, a in artifacts.items()],
-            "claim": saved,
+            "claim": saved, "cached": cached is not None, "blackboard": blackboard,
         })
 
     return EventSourceResponse(run_stream())

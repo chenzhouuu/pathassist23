@@ -26,6 +26,12 @@ client:
                   "status": str, "created_at": iso8601}
                  the durable, evidence-bound result of a run; evidence entries are opaque
                  ArtifactRefs {"run_id": int, "key": str} for get_artifact
+  fact         → {"subject": str, "predicate": str, "value": float|None, "unit": str,
+                  "scope": dict, "metrics": dict, "evidence": list, "run_id": int,
+                  "conversation_id": int, "status": str, "updated_at": iso8601}
+                 a case-blackboard entry: the projection of the *latest* Claim for a
+                 (subject, predicate) on a slide; carries its source run + conversation so
+                 the evidence overlay stays owner-scoped even across threads
 """
 
 from abc import ABC, abstractmethod
@@ -113,6 +119,16 @@ class ConversationStore(ABC):
         """Return the named artifact of a run, iff the run belongs to `conversation_id`
         (owner scoping) and the key exists; else None."""
 
+    @abstractmethod
+    async def get_cached_run(
+        self, *, user: str, item: str | None, plan_digest: str
+    ) -> dict | None:
+        """The content-addressed cache (increment 6b). Return ``{"result", "artifacts"}`` of
+        the latest DONE run with this `plan_digest` owned by `user` on slide `item`, else
+        None. Since the digest content-addresses (slide + ROI + steps + registry), an
+        identical approved plan reuses this result instead of recomputing — within a thread
+        and across threads on the same slide."""
+
     # ── Claims (increment 6a) ────────────────────────────────────────────────────
 
     @abstractmethod
@@ -123,3 +139,13 @@ class ConversationStore(ABC):
     @abstractmethod
     async def get_claims(self, *, conversation_id: int) -> list[dict]:
         """Return the conversation's claims in chronological order (for reload rehydration)."""
+
+    # ── Case blackboard (increment 6c) ───────────────────────────────────────────
+
+    @abstractmethod
+    async def get_blackboard(self, *, user: str, item: str | None) -> list[dict]:
+        """The case blackboard: per (user, slide) *deduped current facts*. For each
+        (subject, predicate) return only the most recent Claim's projection (see the `fact`
+        shape above), aggregated across ALL of the user's conversations on slide `item`
+        (per-slide scope, matching the cache). Newest-asserted fact first. This is a derived
+        read-model over `claim` — the projection query, no separate write path."""

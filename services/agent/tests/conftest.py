@@ -146,6 +146,20 @@ class MemoryStore(ConversationStore):
             return None
         return run["artifacts"].get(key)
 
+    async def get_cached_run(self, *, user, item, plan_digest):
+        best = None
+        for run in self._runs.values():
+            if run["status"] != "DONE" or run["plan_digest"] != plan_digest:
+                continue
+            conv = self._conv.get(run["conversation_id"])
+            if conv is None or conv["user"] != user or conv["item_id"] != item:
+                continue
+            if best is None or run["id"] > best["id"]:
+                best = run
+        if best is None:
+            return None
+        return {"result": best["result"], "artifacts": best["artifacts"]}
+
     async def create_claim(self, *, conversation_id, run_id, claim):
         self._claim_seq += 1
         stored = {
@@ -161,6 +175,29 @@ class MemoryStore(ConversationStore):
 
     async def get_claims(self, *, conversation_id):
         return [dict(c) for c in self._claims.get(conversation_id, [])]
+
+    @staticmethod
+    def _fact(c: dict) -> dict:
+        return {
+            "subject": c["subject"], "predicate": c["predicate"],
+            "value": c["value"], "unit": c["unit"],
+            "scope": c["scope"], "metrics": c["metrics"], "evidence": c["evidence"],
+            "run_id": c["run_id"], "conversation_id": c["conversation_id"],
+            "status": c["status"], "updated_at": c["created_at"],
+        }
+
+    async def get_blackboard(self, *, user, item):
+        latest: dict[tuple, dict] = {}   # (subject, predicate) → newest claim
+        for cid, claims in self._claims.items():
+            conv = self._conv.get(cid)
+            if conv is None or conv["user"] != user or conv["item_id"] != item:
+                continue
+            for c in claims:
+                key = (c["subject"], c["predicate"])
+                if key not in latest or c["id"] > latest[key]["id"]:
+                    latest[key] = c
+        chosen = sorted(latest.values(), key=lambda c: c["id"], reverse=True)
+        return [self._fact(c) for c in chosen]
 
 
 @pytest.fixture

@@ -92,6 +92,8 @@ _CLAIM_COLS = (
     "id, conversation_id, run_id, plan_digest, subject, predicate, value, unit, "
     "scope, metrics, evidence, method_versions, status, created_at"
 )
+# Same columns qualified for the blackboard JOIN (claim + conversation both have id/created_at).
+_CLAIM_COLS_C = ", ".join(f"c.{col.strip()}" for col in _CLAIM_COLS.split(","))
 
 
 def _claim(row: asyncpg.Record | None) -> dict | None:
@@ -112,6 +114,18 @@ def _claim(row: asyncpg.Record | None) -> dict | None:
         "method_versions": row["method_versions"],
         "status": row["status"],
         "created_at": row["created_at"].isoformat(),
+    }
+
+
+def _fact_from_claim(c: dict) -> dict:
+    """Project a Claim to a blackboard fact (drops id/plan_digest/method_versions; keeps the
+    source run + conversation so the evidence overlay stays owner-scoped across threads)."""
+    return {
+        "subject": c["subject"], "predicate": c["predicate"],
+        "value": c["value"], "unit": c["unit"],
+        "scope": c["scope"], "metrics": c["metrics"], "evidence": c["evidence"],
+        "run_id": c["run_id"], "conversation_id": c["conversation_id"],
+        "status": c["status"], "updated_at": c["created_at"],
     }
 
 
@@ -378,6 +392,23 @@ class PgStore(ConversationStore):
             return None
         return artifacts.get(key)
 
+    async def get_cached_run(
+        self, *, user: str, item: str | None, plan_digest: str
+    ) -> dict | None:
+        # The content-addressed cache: latest DONE run for this (user, slide, digest).
+        # Joins run → conversation so reuse spans a user's threads on the same slide.
+        row = await self._pool.fetchrow(
+            "SELECT r.result, r.artifacts FROM run r "
+            "JOIN conversation c ON c.id = r.conversation_id "
+            "WHERE c.girder_user = $1 AND c.girder_item IS NOT DISTINCT FROM $2 "
+            "AND r.plan_digest = $3 AND r.status = 'DONE' "
+            "ORDER BY r.id DESC LIMIT 1",
+            user, item, plan_digest,
+        )
+        if row is None:
+            return None
+        return {"result": row["result"], "artifacts": row["artifacts"]}
+
     async def create_claim(self, *, conversation_id: int, run_id: int, claim: dict) -> dict:
         # value is DOUBLE PRECISION; coerce so an int count encodes cleanly (asyncpg is
         # strict about float8 params).
@@ -399,3 +430,16 @@ class PgStore(ConversationStore):
             conversation_id,
         )
         return [_claim(r) for r in rows]  # type: ignore[misc]
+
+    async def get_blackboard(self, *, user: str, item: str | None) -> list[dict]:
+        # DISTINCT ON (subject, predicate) + ORDER BY ... id DESC → the latest claim per fact.
+        rows = await self._pool.fetch(
+            f"SELECT DISTINCT ON (c.subject, c.predicate) {_CLAIM_COLS_C} "
+            "FROM claim c JOIN conversation cv ON cv.id = c.conversation_id "
+            "WHERE cv.girder_user = $1 AND cv.girder_item IS NOT DISTINCT FROM $2 "
+            "ORDER BY c.subject, c.predicate, c.id DESC",
+            user, item,
+        )
+        claims = [_claim(r) for r in rows]
+        claims.sort(key=lambda c: c["id"], reverse=True)   # newest-asserted fact first
+        return [_fact_from_claim(c) for c in claims]  # type: ignore[arg-type]

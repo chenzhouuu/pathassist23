@@ -186,12 +186,43 @@ export const useStore = create((set, get) => ({
   clearRoiSelectResult: () => set({ roiSelectResult: null }),
 
   // Copilot region state, split into two concerns:
-  //  - copilotRoi: the region attached to the NEXT message (the composer chip). Cleared on send.
+  //  - copilotRoi: the region attached to the NEXT message (the composer chip). STICKY —
+  //                it survives sends, page refreshes, and re-opening the slide until the
+  //                user clears it (✕ / New) or draws a new box. Persisted per slide in
+  //                localStorage (key `pathassist_copilot_roi_<itemId>`) so a hard refresh
+  //                (which resets activeItem) still brings it back. Sentinel semantics:
+  //                a stored '' means "explicitly cleared" (stay empty on reload); an absent
+  //                key means "never set" (fall back to the conversation's last region).
   //  - shownRoi:   the region currently PAINTED on the viewer overlay (AnnotationCanvas). Driven
   //                by clicking a coordinate chip to reveal a region; independent of attachment.
-  // Both are in image pixels and both are dropped on slide change.
+  // Both are in image pixels. shownRoi is dropped on slide change; copilotRoi persists per slide.
   copilotRoi: null,                                  // { x, y, width, height } | null
-  setCopilotRoi: (r) => set({ copilotRoi: r }),
+  setCopilotRoi: (r) => {
+    const item = get().activeItem?._id;
+    if (item) {
+      try { localStorage.setItem(`pathassist_copilot_roi_${item}`, r ? JSON.stringify(r) : ''); }
+      catch { /* localStorage unavailable */ }
+    }
+    set({ copilotRoi: r });
+  },
+  // Restore the sticky region when a slide becomes active. localStorage wins (it holds the
+  // user's staged box + explicit-clear intent for this slide); `fallbackRoi` (the loaded
+  // conversation's last region) is adopted only when the slide has no stored value yet.
+  restoreCopilotRoi: (itemId, fallbackRoi = null) => {
+    if (!itemId) { set({ copilotRoi: null }); return; }
+    const key = `pathassist_copilot_roi_${itemId}`;
+    let roi = null;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) {                 // never set on this slide → adopt the conversation's region
+        roi = fallbackRoi || null;
+        if (roi) localStorage.setItem(key, JSON.stringify(roi));
+      } else if (raw !== '') {            // '' = explicitly cleared → stay empty
+        roi = JSON.parse(raw);
+      }
+    } catch { roi = null; }
+    set({ copilotRoi: roi });
+  },
   shownRoi: null,                                    // { x, y, width, height } | null
   setShownRoi: (r) => set({ shownRoi: r }),
 

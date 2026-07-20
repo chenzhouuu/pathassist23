@@ -60,3 +60,47 @@ async def test_finish_run_can_fail(store):
     )
     assert failed["status"] == "FAILED"
     assert failed["error"] == "boom"
+
+
+# ── Content-addressed cache (increment 6b) ────────────────────────────────────────
+
+
+async def _done_run(store, cid, digest="dig", count=5):
+    run = await store.create_run(conversation_id=cid, plan_digest=digest)
+    await store.finish_run(
+        run_id=run["id"], status="DONE",
+        result={"count": count}, artifacts={"nuclei": {"count": count}},
+    )
+    return run["id"]
+
+
+async def test_get_cached_run_finds_latest_done_for_user_item_digest(store):
+    cid = await _conv(store)
+    await _done_run(store, cid, count=5)
+    cached = await store.get_cached_run(user="u1", item="slideA", plan_digest="dig")
+    assert cached is not None
+    assert cached["result"]["count"] == 5
+    assert cached["artifacts"]["nuclei"]["count"] == 5
+
+
+async def test_get_cached_run_misses_on_other_digest_item_or_user(store):
+    cid = await _conv(store)
+    await _done_run(store, cid)
+    assert await store.get_cached_run(user="u1", item="slideA", plan_digest="other") is None
+    assert await store.get_cached_run(user="u1", item="slideB", plan_digest="dig") is None
+    assert await store.get_cached_run(user="u2", item="slideA", plan_digest="dig") is None
+
+
+async def test_get_cached_run_ignores_unfinished_runs(store):
+    cid = await _conv(store)
+    await store.create_run(conversation_id=cid, plan_digest="dig")   # RUNNING, never DONE
+    assert await store.get_cached_run(user="u1", item="slideA", plan_digest="dig") is None
+
+
+async def test_get_cached_run_reuses_across_conversations_on_the_same_slide(store):
+    c1 = await _conv(store)
+    await _done_run(store, c1, count=9)
+    # A different conversation on the same slide (same user+item) sees the cached run.
+    await store.create_conversation(user="u1", item="slideA", title=None)
+    cached = await store.get_cached_run(user="u1", item="slideA", plan_digest="dig")
+    assert cached["result"]["count"] == 9
