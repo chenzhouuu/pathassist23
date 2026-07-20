@@ -31,7 +31,8 @@ def test_reply_comes_from_the_responder(client):
     client.app.dependency_overrides[get_responder] = lambda: _ScriptedResponder(["Two ", "cells."])
     cid = _new_conv(client)
 
-    r = client.post(f"/api/copilot/conversations/{cid}/messages", json={"text": "how many?"})
+    # A plain-chat message (no quantify cue) so it streams from the responder, not the planner.
+    r = client.post(f"/api/copilot/conversations/{cid}/messages", json={"text": "hello there"})
     assert '"type":"done"' in r.text
     assert "Two cells." in r.text
 

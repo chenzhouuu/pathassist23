@@ -1,15 +1,21 @@
 // src/components/panels/CopilotPanel.jsx
 // Copilot — PathAgent v2 conversational panel.
-// Increment 1: conversations + turns persist in Postgres, keyed by (Girder user, slide).
-// The panel hydrates the newest conversation for the slide, lazily creates one on the
-// first message, and exposes a History drawer to browse / switch / delete past threads.
-// The plan/run/claim UI lands in later increments; this file grows, the tab stays.
+// - inc 1: conversations + turns persist in Postgres, keyed by (Girder user, slide);
+//   History drawer to browse / switch / delete threads.
+// - inc 2: replies stream from Claude (or echo when unkeyed); mode pill + error frame.
+// - inc 3: "Region" grounds the next message to an ROI drawn on the slide (reuses the
+//   viewer's roi-select handshake); the ROI rides along and renders on the message.
+// - inc 4: a quantitative ask returns a Plan card (proposed steps + cost/time envelope)
+//   that the user must Approve before anything runs; older plans expire. Nothing executes
+//   yet — that's inc 5.
+// The run/claim UI lands in later increments; this file grows, the tab stays.
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import {
   streamMessage, listConversations, createConversation, getConversation, deleteConversation,
-  checkHealth,
+  approvePlan, rejectPlan, checkHealth,
 } from '../../api/copilotApi.js';
+import { focusRegion } from './agentViewerSync.js';
 
 // ── tiny inline icons (stroke = currentColor) ───────────────────────────────────
 const Icon = ({ d, size = 14 }) => (
@@ -25,6 +31,44 @@ const TrashIcon = () => <Icon d={['M3 6h18', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2
   'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6']} size={13} />;
 const CheckIcon = () => <Icon d="M20 6 9 17l-5-5" size={13} />;
 const CloseIcon = () => <Icon d="M18 6 6 18M6 6l12 12" size={13} />;
+const RectIcon = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinejoin="round" strokeDasharray="4 3">
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+  </svg>
+);
+
+const r0 = (n) => Math.round(n);
+const fmtRoi = (r) => `${r0(r.width)}×${r0(r.height)} @ (${r0(r.x)}, ${r0(r.y)})`;
+
+// Rebuild the thread from a hydrated conversation: turns as bubbles, with each plan card
+// slotted in right after the turn that triggered it (plan.turn_id).
+function buildMessages(full) {
+  const turns = full.turns || [];
+  const plans = full.plans || [];
+  const byTurn = new Map();
+  const tail = [];
+  plans.forEach((p) => {
+    if (p.turn_id == null) { tail.push(p); return; }
+    const arr = byTurn.get(p.turn_id) || [];
+    arr.push(p);
+    byTurn.set(p.turn_id, arr);
+  });
+  const msgs = [];
+  turns.forEach((t) => {
+    msgs.push({ role: t.role, text: t.text, roi: t.roi });
+    (byTurn.get(t.id) || []).forEach((p) => msgs.push({ role: 'plan', plan: p }));
+  });
+  tail.forEach((p) => msgs.push({ role: 'plan', plan: p }));
+  return msgs;
+}
+
+const PLAN_STATE = {
+  AWAITING_APPROVAL: { s: 'await', label: 'Awaiting' },
+  APPROVED: { s: 'approved', label: 'Approved' },
+  REJECTED: { s: 'rejected', label: 'Rejected' },
+  EXPIRED: { s: 'expired', label: 'Expired' },
+};
 
 function relTime(iso) {
   const t = new Date(iso).getTime();
@@ -44,8 +88,11 @@ export default function CopilotPanel() {
   const {
     activeItem,
     copilotMessages, copilotConversationId, copilotStreaming, copilotError,
-    addCopilotMessage, setCopilotMessages, updateLastCopilotMessage,
+    addCopilotMessage, setCopilotMessages, updateLastCopilotMessage, setLastCopilotMessage,
+    expireCopilotPlans, updateCopilotPlanState,
     setCopilotConversationId, setCopilotStreaming, setCopilotError, resetCopilot,
+    setDrawingMode, roiSelectResult, clearRoiSelectResult,
+    copilotRoi, setCopilotRoi, shownRoi, setShownRoi, viewer,
   } = useStore();
   const [input, setInput] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -53,10 +100,51 @@ export default function CopilotPanel() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [confirmId, setConfirmId] = useState(null);   // conversation pending delete-confirm
   const [mode, setMode] = useState(null);             // 'claude' | 'echo' — which backend is live
+  const [awaitingRoi, setAwaitingRoi] = useState(false);  // waiting for the user to draw a box
+  const [planBusy, setPlanBusy] = useState(false);        // approve/reject request in flight
+  // The grounded region (copilotRoi) lives in the store so the viewer can paint it too.
   const threadRef = useRef(null);
   const abortRef = useRef(null);
 
   const itemId = activeItem?._id || null;
+
+  // Reuse the viewer's roi-select handshake: startRoi() puts the canvas in select mode;
+  // AnnotationCanvas writes roiSelectResult when the box is drawn, and we capture it here.
+  const startRoi = () => {
+    if (!itemId || copilotStreaming) return;
+    clearRoiSelectResult();
+    setAwaitingRoi(true);
+    setDrawingMode('roi-select');
+  };
+  const cancelRoi = () => {
+    setAwaitingRoi(false);
+    setDrawingMode(null);
+  };
+  useEffect(() => {
+    if (awaitingRoi && roiSelectResult) {
+      const { x, y, width, height } = roiSelectResult;
+      const roi = { x, y, width, height };
+      setCopilotRoi(roi);   // attach to the next message
+      setShownRoi(roi);     // and paint it while composing
+      setAwaitingRoi(false);
+      clearRoiSelectResult();
+    }
+  }, [awaitingRoi, roiSelectResult, clearRoiSelectResult, setCopilotRoi, setShownRoi]);
+
+  // Reveal a region on the viewer: pan/zoom to it and paint the box. Clicking the same
+  // region again hides it (toggle). Display only — never changes the pending attachment.
+  const showRoi = useCallback((roi) => {
+    if (!roi) return;
+    const same = shownRoi && shownRoi.x === roi.x && shownRoi.y === roi.y
+      && shownRoi.width === roi.width && shownRoi.height === roi.height;
+    if (same) { setShownRoi(null); return; }
+    setShownRoi({ x: roi.x, y: roi.y, width: roi.width, height: roi.height });
+    if (viewer) focusRegion(viewer, roi);
+  }, [shownRoi, setShownRoi, viewer]);
+
+  // Reset the local "awaiting a box" flag when the slide changes; the grounded
+  // copilotRoi itself is cleared at the store level (setActiveItem / openCaseItem).
+  useEffect(() => { setAwaitingRoi(false); }, [itemId]);
 
   // Which chat backend is configured server-side, so the UI can label itself honestly.
   useEffect(() => {
@@ -88,7 +176,7 @@ export default function CopilotPanel() {
           const full = await getConversation(convs[0].id);
           if (cancelled) return;
           setCopilotConversationId(full.id);
-          setCopilotMessages((full.turns || []).map((t) => ({ role: t.role, text: t.text })));
+          setCopilotMessages(buildMessages(full));
         } else {
           setCopilotConversationId(null);
           setCopilotMessages([]);
@@ -111,6 +199,7 @@ export default function CopilotPanel() {
     if (!text || copilotStreaming || !itemId) return;
     setInput('');
     setCopilotError(null);
+    const roi = copilotRoi ? { kind: 'rect', ...copilotRoi } : null;
 
     // Ensure a server conversation exists (lazy-create on first message).
     let convId = copilotConversationId;
@@ -125,8 +214,10 @@ export default function CopilotPanel() {
       return;
     }
 
-    addCopilotMessage({ role: 'user', text });
+    addCopilotMessage({ role: 'user', text, roi });
     addCopilotMessage({ role: 'assistant', text: '' });
+    setCopilotRoi(null);   // consumed by the message; the region rides on it now
+    setShownRoi(null);     // hide the box — click the message's coord chip to bring it back
     setCopilotStreaming(true);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -134,10 +225,20 @@ export default function CopilotPanel() {
       await streamMessage({
         conversationId: convId,
         text,
+        roi,
         signal: ctrl.signal,
         onEvent: (evt) => {
-          if (evt.type === 'token' || evt.type === 'done') {
-            updateLastCopilotMessage(evt.full ?? evt.text ?? '');
+          if (evt.type === 'plan') {
+            expireCopilotPlans();   // a new proposal supersedes any prior live plan
+            setLastCopilotMessage({ role: 'plan', plan: {
+              digest: evt.digest, state: evt.state, steps: evt.steps, scope: evt.scope,
+              envelope: evt.envelope, reason: evt.reason, turn_id: evt.turn_id,
+            } });
+          } else if (evt.type === 'token' || evt.type === 'done') {
+            // A plan frame may have replaced the placeholder; only chat/guidance carry text.
+            if (evt.full != null || evt.text != null) {
+              updateLastCopilotMessage(evt.full ?? evt.text ?? '');
+            }
           } else if (evt.type === 'error') {
             setCopilotError(evt.message || 'The copilot backend failed mid-reply.');
             updateLastCopilotMessage(evt.full || '(interrupted)');
@@ -154,9 +255,26 @@ export default function CopilotPanel() {
       abortRef.current = null;
       refreshList().catch(() => {});   // pick up the auto-title + turn count + new ordering
     }
-  }, [input, copilotStreaming, itemId, copilotConversationId, addCopilotMessage,
-      updateLastCopilotMessage, setCopilotConversationId, setCopilotStreaming, setCopilotError,
-      refreshList]);
+  }, [input, copilotStreaming, itemId, copilotConversationId, copilotRoi, setCopilotRoi, setShownRoi,
+      addCopilotMessage, updateLastCopilotMessage, setLastCopilotMessage, expireCopilotPlans,
+      setCopilotConversationId, setCopilotStreaming, setCopilotError, refreshList]);
+
+  // Approve / reject the live plan. The gate is server-authoritative; we reflect the
+  // returned state into the card. Nothing runs on approve yet — execution is increment 5.
+  const resolvePlan = useCallback(async (digest, action) => {
+    if (!copilotConversationId || planBusy) return;
+    setPlanBusy(true);
+    setCopilotError(null);
+    try {
+      const fn = action === 'approve' ? approvePlan : rejectPlan;
+      const updated = await fn(copilotConversationId, digest);
+      updateCopilotPlanState(digest, updated.state);
+    } catch (err) {
+      setCopilotError(err.message || `Could not ${action} the plan`);
+    } finally {
+      setPlanBusy(false);
+    }
+  }, [copilotConversationId, planBusy, updateCopilotPlanState, setCopilotError]);
 
   const onKeyDown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
@@ -166,6 +284,9 @@ export default function CopilotPanel() {
   // creates a fresh one. The prior conversation stays saved.
   const handleNew = () => {
     if (abortRef.current) abortRef.current.abort();
+    if (awaitingRoi) cancelRoi();
+    setCopilotRoi(null);
+    setShownRoi(null);
     resetCopilot();
     setHistoryOpen(false);
   };
@@ -178,12 +299,15 @@ export default function CopilotPanel() {
 
   const openConversation = async (id) => {
     if (copilotStreaming) return;
+    if (awaitingRoi) cancelRoi();
+    setCopilotRoi(null);
+    setShownRoi(null);
     setHistoryOpen(false);
     setCopilotError(null);
     try {
       const full = await getConversation(id);
       setCopilotConversationId(full.id);
-      setCopilotMessages((full.turns || []).map((t) => ({ role: t.role, text: t.text })));
+      setCopilotMessages(buildMessages(full));   // same builder as reload → interleaves plan cards by turn_id
     } catch (err) {
       setCopilotError(err.message || 'Could not open conversation');
     }
@@ -262,29 +386,67 @@ export default function CopilotPanel() {
           </div>
         )}
         {copilotMessages.map((m, i) => (
-          <Bubble
-            key={i}
-            role={m.role}
-            text={m.text}
-            streaming={copilotStreaming && i === copilotMessages.length - 1 && m.role === 'assistant'}
-          />
+          m.role === 'plan' ? (
+            <PlanCard
+              key={i}
+              plan={m.plan}
+              busy={planBusy}
+              onApprove={(d) => resolvePlan(d, 'approve')}
+              onReject={(d) => resolvePlan(d, 'reject')}
+              onShowRoi={showRoi}
+            />
+          ) : (
+            <Bubble
+              key={i}
+              role={m.role}
+              text={m.text}
+              roi={m.roi}
+              onShowRoi={showRoi}
+              streaming={copilotStreaming && i === copilotMessages.length - 1 && m.role === 'assistant'}
+            />
+          )
         ))}
         {copilotError && <div className="cp-error">{copilotError}</div>}
       </div>
 
       {/* composer */}
-      <div className="cp-composer">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          rows={2}
-          placeholder={itemId ? 'Message the copilot…  (⌘/Ctrl + ⏎)' : 'Open a slide to begin'}
-          disabled={!itemId}
-        />
-        <button className="cp-send" onClick={send} disabled={!canSend} title="Send (⌘/Ctrl + ⏎)">
-          {copilotStreaming ? '…' : '➤'}
-        </button>
+      <div className="cp-composer-shell">
+        {itemId && (
+          <div className="cp-roibar">
+            {copilotRoi ? (
+              <span className="cp-roichip" title="Attached to your next message — click coords to show it on the slide">
+                <button type="button" className="cp-roichip-coords" onClick={() => showRoi(copilotRoi)}>
+                  <RectIcon />{fmtRoi(copilotRoi)}
+                </button>
+                <button className="cp-roichip-x" onClick={() => { setCopilotRoi(null); setShownRoi(null); }}
+                  title="Remove region"><CloseIcon /></button>
+              </span>
+            ) : awaitingRoi ? (
+              <span className="cp-roihint">
+                <span className="cp-roidot" />Draw a box on the slide…
+                <button className="cp-roilink" onClick={cancelRoi}>cancel</button>
+              </span>
+            ) : (
+              <button className="cp-roibtn" onClick={startRoi} disabled={copilotStreaming}
+                title="Ground your next message to a region on the slide">
+                <RectIcon /> Region
+              </button>
+            )}
+          </div>
+        )}
+        <div className="cp-composer">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            rows={2}
+            placeholder={itemId ? 'Message the copilot…  (⌘/Ctrl + ⏎)' : 'Open a slide to begin'}
+            disabled={!itemId}
+          />
+          <button className="cp-send" onClick={send} disabled={!canSend} title="Send (⌘/Ctrl + ⏎)">
+            {copilotStreaming ? '…' : '➤'}
+          </button>
+        </div>
       </div>
 
       {/* history drawer */}
@@ -353,11 +515,94 @@ export default function CopilotPanel() {
   );
 }
 
-function Bubble({ role, text, streaming }) {
+function Bubble({ role, text, roi, streaming, onShowRoi }) {
   const isUser = role === 'user';
   return (
-    <div className={`cp-bubble ${isUser ? 'cp-bubble--user' : 'cp-bubble--bot'}`}>
-      {text}{streaming && <span className="cp-caret">▍</span>}
+    <div className={`cp-bubble-wrap ${isUser ? 'is-user' : 'is-bot'}`}>
+      {roi && (
+        <button type="button" className="cp-msg-roi" onClick={() => onShowRoi?.(roi)}
+          title="Show this region on the slide">
+          <RectIcon size={10} />{fmtRoi(roi)}
+        </button>
+      )}
+      <div className={`cp-bubble ${isUser ? 'cp-bubble--user' : 'cp-bubble--bot'}`}>
+        {text}{streaming && <span className="cp-caret">▍</span>}
+      </div>
+    </div>
+  );
+}
+
+// Plan card (inc 4) — the human gate. Numbered steps, tool/param chips, cost envelope,
+// Approve/Reject. Nothing runs on approve yet; only one plan is ever live (older → Expired).
+function PlanCard({ plan, busy, onApprove, onReject, onShowRoi }) {
+  const meta = PLAN_STATE[plan.state] || { s: 'await', label: plan.state };
+  const roi = plan.scope && plan.scope.roi;
+  const env = plan.envelope || {};
+  const awaiting = plan.state === 'AWAITING_APPROVAL';
+  return (
+    <div className="cp-plan" data-state={meta.s}>
+      <div className="cp-plan-top">
+        <span className="cp-plan-ic">◆</span>
+        <div className="cp-plan-h">Plan<small>digest {plan.digest}</small></div>
+        <span className="cp-plan-pill" data-s={meta.s}>{meta.label}</span>
+      </div>
+
+      <div className="cp-plan-steps">
+        {(plan.steps || []).map((s) => (
+          <div className="cp-step" key={s.n}>
+            <div className="cp-step-rail">
+              <span className="cp-step-dot">{s.n}</span>
+              <span className="cp-step-line" />
+            </div>
+            <div className="cp-step-body">
+              <div>
+                <span className="cp-step-tool">{s.tool}</span>
+                {s.category && <span className="cp-step-cat">{s.category}</span>}
+              </div>
+              {s.args && Object.keys(s.args).length > 0 && (
+                <div className="cp-params">
+                  {Object.entries(s.args).map(([k, v]) => (
+                    <span className="cp-param" key={k}><b>{k}</b>={String(v)}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="cp-plan-env">
+        {roi && (
+          <button type="button" className="cp-env-roi" onClick={() => onShowRoi?.(roi)}
+            title="Show this region on the slide"><RectIcon size={10} />{fmtRoi(roi)}</button>
+        )}
+        {env.tools != null && <span>{env.tools} tool{env.tools === 1 ? '' : 's'}</span>}
+        {env.est_seconds != null && <span>~{env.est_seconds}s</span>}
+        {env.device && <span>{env.device}</span>}
+        {env.mode && <span>{env.mode}</span>}
+      </div>
+
+      {plan.reason && <div className="cp-plan-reason">{plan.reason}</div>}
+
+      {awaiting ? (
+        <div className="cp-plan-actions">
+          <button className="cp-plan-approve" onClick={() => onApprove(plan.digest)} disabled={busy}>
+            Approve &amp; freeze
+          </button>
+          <button className="cp-plan-reject" onClick={() => onReject(plan.digest)} disabled={busy}>
+            Reject
+          </button>
+        </div>
+      ) : (
+        <div className="cp-plan-resolved" data-s={meta.s}>
+          {plan.state === 'APPROVED' && (
+            <>Approved — frozen as <code>{plan.digest}</code>. Nothing runs yet; execution lands
+              in the next increment.</>
+          )}
+          {plan.state === 'REJECTED' && <>Rejected. Ask again to propose a new plan.</>}
+          {plan.state === 'EXPIRED' && <>Superseded by a newer plan — only the latest is runnable.</>}
+        </div>
+      )}
     </div>
   );
 }
@@ -398,15 +643,103 @@ const CP_CSS = `
   color:#a78bfa;background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.25)}
 .cp-empty-slide{font-size:11px;color:var(--muted)}
 .cp-empty-slide span{color:#a78bfa}
-.cp-bubble{align-self:flex-start;max-width:88%;font-size:12.5px;line-height:1.5;padding:8px 11px;
+.cp-bubble-wrap{display:flex;flex-direction:column;gap:4px;max-width:88%;animation:cp-in .22s ease both}
+.cp-bubble-wrap.is-user{align-self:flex-end;align-items:flex-end}
+.cp-bubble-wrap.is-bot{align-self:flex-start;align-items:flex-start}
+.cp-msg-roi{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-family:monospace;
+  color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);
+  border-radius:6px;padding:2px 6px;cursor:pointer;transition:background .12s}
+.cp-msg-roi:hover{background:rgba(139,92,246,.24)}
+.cp-bubble{font-size:12.5px;line-height:1.5;padding:8px 11px;
   border-radius:12px 12px 12px 3px;background:var(--surface,#171a26);border:1px solid var(--border);
-  white-space:pre-wrap;word-break:break-word;animation:cp-in .22s ease both}
-.cp-bubble--user{align-self:flex-end;color:#e9e3ff;border-radius:12px 12px 3px 12px;
+  white-space:pre-wrap;word-break:break-word}
+.cp-bubble--user{color:#e9e3ff;border-radius:12px 12px 3px 12px;
   background:linear-gradient(160deg,#3b2a6b,#2a2050);border:1px solid rgba(167,139,250,.3)}
 .cp-caret{opacity:.6}
 .cp-error{font-size:11.5px;color:#f87171;background:rgba(248,113,113,.08);
   border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:7px 10px}
-.cp-composer{border-top:1px solid var(--border);padding:10px;display:flex;gap:8px;align-items:flex-end}
+.cp-plan{align-self:stretch;border:1px solid var(--border);border-radius:12px;
+  background:var(--surface,#171a26);overflow:hidden;animation:cp-in .22s ease both;
+  transition:opacity .25s,filter .25s}
+.cp-plan[data-state="expired"]{opacity:.55;filter:grayscale(.4)}
+.cp-plan-top{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--border)}
+.cp-plan-ic{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:10px;
+  color:#c4b5fd;background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.3)}
+.cp-plan-h{font-size:12.5px;font-weight:600;line-height:1.2}
+.cp-plan-h small{display:block;font-family:monospace;font-size:9.5px;color:var(--muted);
+  font-weight:400;margin-top:1px}
+.cp-plan-pill{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-family:monospace;
+  font-size:9px;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
+.cp-plan-pill::before{content:"";width:5px;height:5px;border-radius:50%}
+.cp-plan-pill[data-s="await"]{color:#f5a623;background:rgba(245,166,35,.12)}
+.cp-plan-pill[data-s="await"]::before{background:#f5a623;animation:cp-pulse 1.5s infinite}
+.cp-plan-pill[data-s="approved"]{color:#34d399;background:rgba(52,211,153,.12)}
+.cp-plan-pill[data-s="approved"]::before{background:#34d399}
+.cp-plan-pill[data-s="rejected"]{color:#f87171;background:rgba(248,113,113,.12)}
+.cp-plan-pill[data-s="rejected"]::before{background:#f87171}
+.cp-plan-pill[data-s="expired"]{color:#94a3b8;background:rgba(148,163,184,.12)}
+.cp-plan-pill[data-s="expired"]::before{background:#94a3b8}
+.cp-plan-steps{padding:4px 11px 6px}
+.cp-step{display:flex;gap:9px;padding:7px 0}
+.cp-step-rail{display:flex;flex-direction:column;align-items:center;flex:none}
+.cp-step-dot{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-family:monospace;
+  font-size:9px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3)}
+.cp-step-line{width:1.5px;flex:1;background:var(--border);margin:2px 0 -7px}
+.cp-step:last-child .cp-step-line{display:none}
+.cp-step-body{flex:1;min-width:0}
+.cp-step-tool{font-size:12px;font-weight:600}
+.cp-step-cat{font-family:monospace;font-size:9px;color:#7dd3fc;background:rgba(77,166,255,.12);
+  border-radius:5px;padding:2px 5px;margin-left:6px}
+.cp-params{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.cp-param{font-family:monospace;font-size:10px;color:var(--fg);background:rgba(148,163,184,.1);
+  border:1px solid var(--border);border-radius:5px;padding:2px 6px}
+.cp-param b{color:#c4b5fd;font-weight:600}
+.cp-plan-env{display:flex;flex-wrap:wrap;gap:5px 12px;padding:8px 11px;border-top:1px dashed var(--border);
+  font-family:monospace;font-size:10px;color:var(--muted)}
+.cp-plan-env span{display:inline-flex;align-items:center;gap:4px}
+.cp-env-roi{display:inline-flex;align-items:center;gap:4px;font-family:monospace;font-size:10px;
+  color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);border-radius:6px;
+  padding:1px 6px;cursor:pointer;transition:background .12s}
+.cp-env-roi:hover{background:rgba(139,92,246,.24)}
+.cp-plan-reason{padding:9px 11px;font-size:11.5px;line-height:1.5;color:var(--muted);
+  border-top:1px solid var(--border)}
+.cp-plan-actions{display:flex;gap:8px;padding:10px 11px;border-top:1px solid var(--border)}
+.cp-plan-approve{flex:1;font-size:12px;font-weight:600;color:#fff;border:none;border-radius:8px;
+  padding:9px 12px;cursor:pointer;background:linear-gradient(160deg,#8b5cf6,#7c3aed);
+  transition:transform .12s,box-shadow .15s,opacity .15s}
+.cp-plan-approve:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(124,58,237,.4)}
+.cp-plan-approve:disabled{opacity:.5;cursor:default}
+.cp-plan-reject{font-size:12px;font-weight:600;color:var(--muted);background:transparent;
+  border:1px solid var(--border);border-radius:8px;padding:9px 14px;cursor:pointer;
+  transition:color .15s,border-color .15s}
+.cp-plan-reject:hover:not(:disabled){color:#f87171;border-color:rgba(248,113,113,.5)}
+.cp-plan-reject:disabled{opacity:.5;cursor:default}
+.cp-plan-resolved{padding:9px 11px;font-size:11px;line-height:1.5;color:var(--muted);
+  border-top:1px solid var(--border)}
+.cp-plan-resolved code{font-family:monospace;font-size:10px;color:#c4b5fd}
+.cp-plan-resolved[data-s="approved"]{color:#86efac}
+.cp-plan-resolved[data-s="rejected"]{color:#fca5a5}
+.cp-composer-shell{border-top:1px solid var(--border)}
+.cp-roibar{padding:8px 10px 0;display:flex;align-items:center;gap:8px}
+.cp-roibtn{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:#c4b5fd;
+  background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.3);border-radius:7px;
+  padding:4px 9px;cursor:pointer;transition:background .15s}
+.cp-roibtn:hover:not(:disabled){background:rgba(139,92,246,.2)}
+.cp-roibtn:disabled{opacity:.5;cursor:default}
+.cp-roichip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-family:monospace;
+  color:#c4b5fd;background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.4);
+  border-radius:7px;padding:3px 4px 3px 9px}
+.cp-roichip-coords{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-family:monospace;
+  color:#c4b5fd;background:transparent;border:none;padding:0;cursor:pointer}
+.cp-roichip-coords:hover{color:#ddd6fe}
+.cp-roichip-x{display:grid;place-items:center;width:18px;height:18px;border-radius:5px;border:none;
+  background:transparent;color:#c4b5fd;cursor:pointer;transition:background .15s}
+.cp-roichip-x:hover{background:rgba(139,92,246,.28)}
+.cp-roihint{display:inline-flex;align-items:center;gap:7px;font-size:10.5px;color:#f5a623}
+.cp-roidot{width:6px;height:6px;border-radius:50%;background:#f5a623;animation:cp-pulse 1s ease-in-out infinite}
+.cp-roilink{font-size:10.5px;color:var(--muted);background:none;border:none;cursor:pointer;
+  text-decoration:underline;padding:0}
+.cp-composer{padding:10px;display:flex;gap:8px;align-items:flex-end}
 .cp-composer textarea{flex:1;resize:none;background:var(--bg2,#0d0e14);color:var(--fg);
   border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;
   font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
@@ -444,4 +777,5 @@ const CP_CSS = `
   background:rgba(148,163,184,.25);border-radius:8px}
 @keyframes cp-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes cp-slide{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+@keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.3}}
 `;

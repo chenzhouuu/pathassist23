@@ -5,6 +5,7 @@ on connect; a real migration tool (alembic) can slot in later without touching r
 """
 
 import asyncio
+import json
 import logging
 
 import asyncpg
@@ -27,13 +28,57 @@ CREATE TABLE IF NOT EXISTS turn (
     conversation_id BIGINT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
+    roi             JSONB,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE turn ADD COLUMN IF NOT EXISTS roi JSONB;
+CREATE TABLE IF NOT EXISTS plan (
+    id              BIGSERIAL PRIMARY KEY,
+    conversation_id BIGINT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+    turn_id         BIGINT REFERENCES turn(id) ON DELETE SET NULL,
+    digest          TEXT NOT NULL,
+    state           TEXT NOT NULL DEFAULT 'AWAITING_APPROVAL',
+    steps           JSONB NOT NULL,
+    scope           JSONB,
+    envelope        JSONB,
+    reason          TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS turn_conversation_idx
     ON turn (conversation_id, id);
 CREATE INDEX IF NOT EXISTS conversation_owner_idx
     ON conversation (girder_user, girder_item, updated_at DESC);
+CREATE INDEX IF NOT EXISTS plan_conversation_idx
+    ON plan (conversation_id, id);
+CREATE INDEX IF NOT EXISTS plan_digest_idx
+    ON plan (conversation_id, digest);
 """
+
+_PLAN_COLS = "digest, state, steps, scope, envelope, reason, turn_id, created_at, updated_at"
+
+
+def _plan(row: asyncpg.Record | None) -> dict | None:
+    if row is None:
+        return None
+    return {
+        "digest": row["digest"],
+        "state": row["state"],
+        "steps": row["steps"],
+        "scope": row["scope"],
+        "envelope": row["envelope"],
+        "reason": row["reason"],
+        "turn_id": row["turn_id"],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+async def _init_conn(conn: asyncpg.Connection) -> None:
+    """Decode JSONB columns to/from Python objects (asyncpg returns raw text by default)."""
+    await conn.set_type_codec(
+        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+    )
 
 _CONV_COLS = "id, girder_item, title, created_at, updated_at"
 
@@ -65,7 +110,9 @@ class PgStore(ConversationStore):
         last_exc: Exception | None = None
         for attempt in range(1, retries + 1):
             try:
-                pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=10)
+                pool = await asyncpg.create_pool(
+                    dsn=dsn, min_size=1, max_size=10, init=_init_conn
+                )
                 break
             except (OSError, asyncpg.PostgresError) as exc:
                 last_exc = exc
@@ -121,27 +168,38 @@ class PgStore(ConversationStore):
 
     async def get_turns(self, *, conversation_id: int) -> list[dict]:
         rows = await self._pool.fetch(
-            "SELECT role, content, created_at FROM turn "
+            "SELECT id, role, content, roi, created_at FROM turn "
             "WHERE conversation_id = $1 ORDER BY id",
             conversation_id,
         )
         return [
-            {"role": r["role"], "text": r["content"], "created_at": r["created_at"].isoformat()}
+            {
+                "id": r["id"],
+                "role": r["role"],
+                "text": r["content"],
+                "roi": r["roi"],
+                "created_at": r["created_at"].isoformat(),
+            }
             for r in rows
         ]
 
-    async def add_turn(self, *, conversation_id: int, role: str, content: str) -> None:
+    async def add_turn(
+        self, *, conversation_id: int, role: str, content: str, roi: dict | None = None
+    ) -> int:
         async with self._pool.acquire() as conn, conn.transaction():
-            await conn.execute(
-                "INSERT INTO turn (conversation_id, role, content) VALUES ($1, $2, $3)",
+            turn_id = await conn.fetchval(
+                "INSERT INTO turn (conversation_id, role, content, roi) "
+                "VALUES ($1, $2, $3, $4) RETURNING id",
                 conversation_id,
                 role,
                 content,
+                roi,
             )
             await conn.execute(
                 "UPDATE conversation SET updated_at = now() WHERE id = $1",
                 conversation_id,
             )
+        return turn_id
 
     async def set_title_if_empty(self, *, conversation_id: int, title: str) -> None:
         await self._pool.execute(
@@ -151,10 +209,61 @@ class PgStore(ConversationStore):
         )
 
     async def delete_conversation(self, *, user: str, conversation_id: int) -> bool:
-        # Turns cascade via the FK ON DELETE CASCADE.
+        # Turns and plans cascade via the FK ON DELETE CASCADE.
         status = await self._pool.execute(
             "DELETE FROM conversation WHERE id = $1 AND girder_user = $2",
             conversation_id,
             user,
         )
         return status.rsplit(" ", 1)[-1] != "0"  # asyncpg returns e.g. "DELETE 1"
+
+    async def create_plan(
+        self, *, conversation_id: int, turn_id: int | None, digest: str,
+        steps: list, scope: dict | None, envelope: dict | None, reason: str | None,
+    ) -> dict:
+        async with self._pool.acquire() as conn, conn.transaction():
+            # Exactly one live plan per conversation: expire any prior one first.
+            await conn.execute(
+                "UPDATE plan SET state = 'EXPIRED', updated_at = now() "
+                "WHERE conversation_id = $1 AND state IN ('AWAITING_APPROVAL', 'APPROVED')",
+                conversation_id,
+            )
+            row = await conn.fetchrow(
+                "INSERT INTO plan "
+                "(conversation_id, turn_id, digest, state, steps, scope, envelope, reason) "
+                f"VALUES ($1, $2, $3, 'AWAITING_APPROVAL', $4, $5, $6, $7) RETURNING {_PLAN_COLS}",
+                conversation_id, turn_id, digest, steps, scope, envelope, reason,
+            )
+        return _plan(row)  # type: ignore[return-value]
+
+    async def get_plans(self, *, conversation_id: int) -> list[dict]:
+        rows = await self._pool.fetch(
+            f"SELECT {_PLAN_COLS} FROM plan WHERE conversation_id = $1 ORDER BY id",
+            conversation_id,
+        )
+        return [_plan(r) for r in rows]  # type: ignore[misc]
+
+    async def get_plan(self, *, conversation_id: int, digest: str) -> dict | None:
+        row = await self._pool.fetchrow(
+            f"SELECT {_PLAN_COLS} FROM plan WHERE conversation_id = $1 AND digest = $2 "
+            "ORDER BY id DESC LIMIT 1",
+            conversation_id,
+            digest,
+        )
+        return _plan(row)
+
+    async def set_plan_state(
+        self, *, conversation_id: int, digest: str, state: str, expected: tuple[str, ...]
+    ) -> dict | None:
+        # Updates only when the current state is one of `expected` → None means either
+        # the plan is absent or in a conflicting state (the route disambiguates with 404).
+        row = await self._pool.fetchrow(
+            f"UPDATE plan SET state = $3, updated_at = now() "
+            f"WHERE conversation_id = $1 AND digest = $2 AND state = ANY($4::text[]) "
+            f"RETURNING {_PLAN_COLS}",
+            conversation_id,
+            digest,
+            state,
+            list(expected),
+        )
+        return _plan(row)

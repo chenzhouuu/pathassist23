@@ -8,6 +8,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..chat import EchoResponder, Responder
 from ..common.config import get_settings
+from ..plan import Registry, load_registry, plan_digest, validate_plan
+from ..plan.planner import Planner, StubPlanner
 from ..store import ConversationStore
 from .auth import require_user
 from .sse import sse_json
@@ -16,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 # Distinct base from the existing pathagent gateway (/api/agent) so the two coexist.
 router = APIRouter(prefix="/api/copilot")
+
+# The tool catalog is static config; load it once. Increments 7–8 swap the tools'
+# implementations behind the same registry entries.
+_REGISTRY: Registry = load_registry()
 
 
 def get_store(request: Request) -> ConversationStore:
@@ -31,6 +37,11 @@ def get_responder(request: Request) -> Responder:
     return getattr(request.app.state, "responder", None) or EchoResponder()
 
 
+def get_planner(request: Request) -> Planner:
+    """Resolve the process-wide planner; fall back to the deterministic stub if unset."""
+    return getattr(request.app.state, "planner", None) or StubPlanner()
+
+
 def _uid(user: dict) -> str:
     """The stable Girder user id used to scope ownership."""
     return str(user.get("_id") or user.get("login"))
@@ -40,6 +51,22 @@ def _snippet(text: str, limit: int = 48) -> str:
     """First line of a message, trimmed — used to auto-title a fresh conversation."""
     first = text.strip().split("\n", 1)[0].strip()
     return first[:limit] + ("…" if len(first) > limit else "")
+
+
+def _num(v: float) -> str:
+    """Render whole numbers without a trailing .0 (ROI pixel coords are integral)."""
+    return str(int(v)) if float(v).is_integer() else str(v)
+
+
+def _with_roi(text: str, roi: dict | None) -> str:
+    """Append a grounding note so the model (and the echo double) can cite the ROI."""
+    if not roi:
+        return text
+    return (
+        f"{text}\n\n[Region of interest on the slide — {roi.get('kind', 'rect')} at "
+        f"x={_num(roi['x'])}, y={_num(roi['y'])}, "
+        f"width={_num(roi['width'])}px, height={_num(roi['height'])}px (image pixels).]"
+    )
 
 
 async def _iter_echo_tokens(text: str) -> AsyncIterator[tuple[str, str]]:
@@ -52,11 +79,61 @@ async def _iter_echo_tokens(text: str) -> AsyncIterator[tuple[str, str]]:
         yield word, acc
 
 
+# ── Plan compilation (increment 4) ───────────────────────────────────────────────
+
+
+def _scope(conv: dict, roi: dict | None) -> dict:
+    """The spatial scope a plan is grounded to: the active slide and any bound ROI."""
+    return {"item_id": conv.get("item_id"), "roi": roi}
+
+
+def _compile_steps(raw_steps: list[dict], registry: Registry) -> list[dict]:
+    """Normalize planner output: sequential step numbers, registry category, candidate pool."""
+    steps = []
+    for i, s in enumerate(raw_steps, start=1):
+        name = s.get("tool", "")
+        tool = registry.get(name)
+        steps.append({
+            "n": i,
+            "tool": name,
+            "category": tool["category"] if tool else s.get("category"),
+            "args": s.get("args") or {},
+            "candidates": s.get("candidates") or [name],
+        })
+    return steps
+
+
+def _envelope(steps: list[dict], registry: Registry) -> dict:
+    """The cost/time envelope shown on the plan card, so the human gates with real info."""
+    est, devices = 0, set()
+    for s in steps:
+        tool = registry.get(s["tool"])
+        if tool:
+            est += int(tool.get("est_seconds", 0))
+            devices.add(tool.get("device", "cpu-stub"))
+    device = devices.pop() if len(devices) == 1 else "mixed"
+    return {"tools": len(steps), "est_seconds": est, "device": device, "mode": "research"}
+
+
+def _plan_guidance(errors: list[str], scope: dict) -> str:
+    """Turn a validation failure into a friendly next step instead of a broken card."""
+    if not scope.get("roi") and any("roi" in e for e in errors):
+        return ("To count or measure cells I need a region on the slide. Click the "
+                "Region button, draw a box, then ask again.")
+    return "I couldn't turn that into a runnable plan yet: " + errors[0]
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     """Unauthenticated liveness probe. `chat` tells the UI which backend is live."""
     chat = "claude" if get_settings().anthropic_api_key else "echo"
-    return {"status": "ok", "service": "copilot", "version": "0.3.0", "chat": chat}
+    return {"status": "ok", "service": "copilot", "version": "0.4.0", "chat": chat}
+
+
+@router.get("/tools")
+async def list_tools(user: dict = Depends(require_user)) -> dict:
+    """The tool catalog the planner draws from (increment 4)."""
+    return {"tools": _REGISTRY.public()}
 
 
 class EchoRequest(BaseModel):
@@ -116,11 +193,22 @@ async def get_conversation(
     if conv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
     conv["turns"] = await store.get_turns(conversation_id=conversation_id)
+    conv["plans"] = await store.get_plans(conversation_id=conversation_id)
     return conv
+
+
+class Roi(BaseModel):
+    kind: str = "rect"
+    x: float
+    y: float
+    width: float
+    height: float
+    unit: str = "px"
 
 
 class MessageRequest(BaseModel):
     text: str = Field(..., min_length=1)
+    roi: Roi | None = None
 
 
 @router.post("/conversations/{conversation_id}/messages")
@@ -130,12 +218,15 @@ async def post_message(
     user: dict = Depends(require_user),
     store: ConversationStore = Depends(get_store),
     responder: Responder = Depends(get_responder),
+    planner: Planner = Depends(get_planner),
 ) -> EventSourceResponse:
-    """Persist the user turn, stream the model reply, then persist the assistant turn.
+    """Persist the user turn, then either propose a plan or stream a chat reply.
 
-    The user turn is saved *before* streaming, so a reload shows the message even if
-    the stream is interrupted. The reply comes from the injected Responder (Claude, or
-    echo when unkeyed); the SSE contract (start/token/done, plus error) is stable.
+    The user turn is saved *before* the response, so a reload shows it even if the
+    stream is interrupted. The planner decides: a quantitative ask yields a validated,
+    persisted **plan** (SSE `plan` frame — nothing runs until a human approves it);
+    anything else streams from the Responder (Claude or echo). The SSE contract
+    (start/token/done, plus error and now plan) is stable.
     """
     conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
     if conv is None:
@@ -143,13 +234,65 @@ async def post_message(
     login = user.get("login") or _uid(user)
     if not conv.get("title"):
         await store.set_title_if_empty(conversation_id=conversation_id, title=_snippet(body.text))
-    await store.add_turn(conversation_id=conversation_id, role="user", content=body.text)
+    roi = body.roi.model_dump() if body.roi else None
+    turn_id = await store.add_turn(
+        conversation_id=conversation_id, role="user", content=body.text, roi=roi
+    )
 
-    # Full history (incl. the turn just saved) is the model context.
+    # Full history (incl. the turn just saved) is the model context; any ROI bound to a
+    # turn is folded into that message so the model can cite its coordinates.
     turns = await store.get_turns(conversation_id=conversation_id)
-    history = [{"role": t["role"], "content": t["text"]} for t in turns]
+    history = [{"role": t["role"], "content": _with_roi(t["text"], t.get("roi"))} for t in turns]
+    scope = _scope(conv, roi)
 
-    async def event_stream():
+    # ── Plan path: propose → validate → persist (nothing runs; a human gates it) ──
+    # A planner failure must never break the turn — degrade to a plain chat reply.
+    try:
+        raw_plan = await planner.propose(
+            text=body.text, history=history, scope=scope, registry=_REGISTRY
+        )
+    except Exception:  # noqa: BLE001 — any planner error falls back to chat
+        logger.exception("planner.propose failed for conversation %s", conversation_id)
+        raw_plan = None
+    if raw_plan is not None:
+        steps = _compile_steps(raw_plan.get("steps") or [], _REGISTRY)
+        errors = validate_plan({"scope": scope, "steps": steps}, _REGISTRY)
+        if not errors:
+            digest = plan_digest(steps, scope, _REGISTRY.version)
+            plan = await store.create_plan(
+                conversation_id=conversation_id, turn_id=turn_id, digest=digest,
+                steps=steps, scope=scope, envelope=_envelope(steps, _REGISTRY),
+                reason=raw_plan.get("reason") or "",
+            )
+
+            async def plan_stream():
+                yield sse_json({"type": "start", "actor": login,
+                                "conversation_id": conversation_id})
+                yield sse_json({"type": "plan", "conversation_id": conversation_id, **plan})
+                yield sse_json({"type": "done", "conversation_id": conversation_id})
+
+            return EventSourceResponse(plan_stream())
+
+        # Invalid plan → a friendly next step (persisted), never a broken card.
+        guidance = _plan_guidance(errors, scope)
+        await store.add_turn(
+            conversation_id=conversation_id, role="assistant", content=guidance
+        )
+
+        async def guide_stream():
+            yield sse_json({"type": "start", "actor": login,
+                            "conversation_id": conversation_id})
+            acc = ""
+            for word in guidance.split():
+                acc = f"{acc} {word}".strip()
+                yield sse_json({"type": "token", "text": f"{word} ", "full": acc})
+            yield sse_json({"type": "done", "text": guidance,
+                            "conversation_id": conversation_id})
+
+        return EventSourceResponse(guide_stream())
+
+    # ── Chat path: stream from the Responder, persist the assistant turn ──
+    async def chat_stream():
         yield sse_json({"type": "start", "actor": login, "conversation_id": conversation_id})
         acc = ""
         try:
@@ -173,7 +316,53 @@ async def post_message(
         await store.add_turn(conversation_id=conversation_id, role="assistant", content=reply)
         yield sse_json({"type": "done", "text": reply, "conversation_id": conversation_id})
 
-    return EventSourceResponse(event_stream())
+    return EventSourceResponse(chat_stream())
+
+
+# ── Plan approval gate (increment 4) ─────────────────────────────────────────────
+
+
+async def _transition_plan(
+    store: ConversationStore, user: dict, conversation_id: int, digest: str, new_state: str
+) -> dict:
+    """Owner-scoped state transition for a plan: 404 if absent, 409 if not awaiting."""
+    conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
+    if conv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    existing = await store.get_plan(conversation_id=conversation_id, digest=digest)
+    if existing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found")
+    updated = await store.set_plan_state(
+        conversation_id=conversation_id, digest=digest, state=new_state,
+        expected=("AWAITING_APPROVAL",),
+    )
+    if updated is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Plan is not awaiting approval (state: {existing['state']}).",
+        )
+    return updated
+
+
+@router.post("/conversations/{conversation_id}/plan/{digest}/approve")
+async def approve_plan(
+    conversation_id: int,
+    digest: str,
+    user: dict = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+) -> dict:
+    """Freeze the plan as approved. Execution lands at increment 5; this only gates."""
+    return await _transition_plan(store, user, conversation_id, digest, "APPROVED")
+
+
+@router.post("/conversations/{conversation_id}/plan/{digest}/reject")
+async def reject_plan(
+    conversation_id: int,
+    digest: str,
+    user: dict = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+) -> dict:
+    return await _transition_plan(store, user, conversation_id, digest, "REJECTED")
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

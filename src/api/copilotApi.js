@@ -77,14 +77,33 @@ export async function deleteConversation(id) {
   throw new Error(describeError(r.status, detail, 'Delete conversation'));
 }
 
+// Approve / reject a proposed plan (increment 4). Returns the updated plan; the state
+// gate is server-side (404 if the plan is gone, 409 if it is no longer awaiting).
+export async function approvePlan(conversationId, digest) {
+  const r = await fetch(
+    `${COPILOT_BASE}/conversations/${conversationId}/plan/${encodeURIComponent(digest)}/approve`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  return asJson(r, 'Approve plan');
+}
+
+export async function rejectPlan(conversationId, digest) {
+  const r = await fetch(
+    `${COPILOT_BASE}/conversations/${conversationId}/plan/${encodeURIComponent(digest)}/reject`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  return asJson(r, 'Reject plan');
+}
+
 // POST a message into a conversation and stream SSE `data:` frames to onEvent({type,...}).
 // The server persists the user turn before streaming and the assistant turn at the end.
-// Frame contract (start/token/done) is stable across increments.
-export async function streamMessage({ conversationId, text, onEvent, signal }) {
+// A quantitative ask yields a `plan` frame instead of tokens (increment 4).
+// Frame contract (start/token/plan/done/error) is stable across increments.
+export async function streamMessage({ conversationId, text, roi = null, onEvent, signal }) {
   const r = await fetch(`${COPILOT_BASE}/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(roi ? { text, roi } : { text }),
     signal,
   });
   if (!r.ok || !r.body) {

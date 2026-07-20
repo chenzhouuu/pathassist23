@@ -27,6 +27,7 @@ export default function AnnotationCanvas({ viewer }) {
     visibleAnnotations,
     selectedAnnotation,
     roiSelectResult, setRoiSelectResult, clearRoiSelectResult,
+    shownRoi,
     ki67RoiPending, setKi67RoiPending,
     ki67PendingModel, setKi67PendingModel,
     setKi67Analyzing,
@@ -364,7 +365,19 @@ export default function AnnotationCanvas({ viewer }) {
       const previewColor = drawingMode === 'roi-select' ? '#4da6ff'   : (drawColor || ANN_COLORS[0]);
       renderDrawingPreview(ctx, previewMode, ds.current, osd, previewColor);
     }
-  }, [annotations, visibleAnnotations, selectedAnnotation, drawingMode, drawColor, viewer, syncCanvasSize]);
+
+    // Overlay for the Copilot's shown region — reuses the same dashed-rect renderer so a
+    // revealed region tracks pan/zoom. Set while composing and by clicking a coordinate
+    // chip; cleared on send / dismiss / slide change.
+    if (shownRoi) {
+      const { x, y, width, height } = shownRoi;
+      renderDrawingPreview(
+        ctx, 'rectangle',
+        { active: true, start: [x, y], cursor: [x + width, y + height] },
+        osd, '#4da6ff',
+      );
+    }
+  }, [annotations, visibleAnnotations, selectedAnnotation, drawingMode, drawColor, shownRoi, viewer, syncCanvasSize]);
 
   // ── Attach OSD events ───────────────────────────────────────────────────────
   useEffect(() => {

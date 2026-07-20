@@ -80,7 +80,8 @@ export const useStore = create((set, get) => ({
     set({ activeFolder: folder, breadcrumb: newCrumb });
   },
   clearActiveNavigation: () =>
-    set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [] }),
+    set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [],
+          copilotRoi: null, shownRoi: null, roiSelectResult: null }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -95,6 +96,7 @@ export const useStore = create((set, get) => ({
       agentTrace: [], agentNavTrail: [], agentFinal: null, agentHeatmap: null,
       agentStatus: null, agentCacheKey: null, agentRunning: false, agentError: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
+      copilotRoi: null, shownRoi: null, roiSelectResult: null,   // drop any grounded/shown region from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -121,6 +123,7 @@ export const useStore = create((set, get) => ({
       selectedAnnotation: null,
       drawingMode: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
+      copilotRoi: null, shownRoi: null, roiSelectResult: null,   // drop any grounded/shown region from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -177,9 +180,20 @@ export const useStore = create((set, get) => ({
 
   // ROI selection: triggered by Analysis panel "Draw ROI" button;
   // AnnotationCanvas captures the rectangle and calls setRoiSelectResult.
+  // This is a transient handoff mailbox — "a box was just drawn" — consumed once.
   roiSelectResult: null,                             // { x, y, width, height } in image pixels
   setRoiSelectResult: (r) => set({ roiSelectResult: r }),
   clearRoiSelectResult: () => set({ roiSelectResult: null }),
+
+  // Copilot region state, split into two concerns:
+  //  - copilotRoi: the region attached to the NEXT message (the composer chip). Cleared on send.
+  //  - shownRoi:   the region currently PAINTED on the viewer overlay (AnnotationCanvas). Driven
+  //                by clicking a coordinate chip to reveal a region; independent of attachment.
+  // Both are in image pixels and both are dropped on slide change.
+  copilotRoi: null,                                  // { x, y, width, height } | null
+  setCopilotRoi: (r) => set({ copilotRoi: r }),
+  shownRoi: null,                                    // { x, y, width, height } | null
+  setShownRoi: (r) => set({ shownRoi: r }),
 
   // ── Projects ──────────────────────────────────────────────────────────────
   activeProject: null,
@@ -278,6 +292,24 @@ export const useStore = create((set, get) => ({
     msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], text };
     return { copilotMessages: msgs };
   }),
+  // Replace the last message wholesale — used to swap the empty assistant placeholder
+  // for a plan card when a `plan` frame arrives (increment 4).
+  setLastCopilotMessage:    (msg)  => set((s) => {
+    if (!s.copilotMessages.length) return {};
+    const msgs = s.copilotMessages.slice();
+    msgs[msgs.length - 1] = msg;
+    return { copilotMessages: msgs };
+  }),
+  // Only one plan is ever live: a new proposal expires prior awaiting/approved cards.
+  expireCopilotPlans:       ()     => set((s) => ({
+    copilotMessages: s.copilotMessages.map((m) =>
+      m.role === 'plan' && (m.plan.state === 'AWAITING_APPROVAL' || m.plan.state === 'APPROVED')
+        ? { ...m, plan: { ...m.plan, state: 'EXPIRED' } } : m),
+  })),
+  updateCopilotPlanState:   (digest, state) => set((s) => ({
+    copilotMessages: s.copilotMessages.map((m) =>
+      m.role === 'plan' && m.plan.digest === digest ? { ...m, plan: { ...m.plan, state } } : m),
+  })),
   setCopilotConversationId: (id)   => set({ copilotConversationId: id }),
   setCopilotStreaming:      (v)    => set({ copilotStreaming: v }),
   setCopilotError:          (e)    => set({ copilotError: e }),

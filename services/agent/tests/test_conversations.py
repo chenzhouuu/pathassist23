@@ -55,6 +55,20 @@ def test_first_message_auto_titles_and_counts(client: TestClient):
     assert row["turn_count"] == 2
 
 
+def test_roi_binds_to_turn_and_reaches_model(client: TestClient):
+    cid = client.post("/api/copilot/conversations", json={"item_id": "s"}).json()["id"]
+    r = client.post(
+        f"/api/copilot/conversations/{cid}/messages",
+        json={"text": "what's here?", "roi": {"x": 10, "y": 20, "width": 30, "height": 40}},
+    )
+    assert r.status_code == 200
+    assert "width=30px" in r.text  # ROI note folded into model context → echoed back
+
+    turns = client.get(f"/api/copilot/conversations/{cid}").json()["turns"]
+    assert turns[0]["roi"]["width"] == 30      # ROI bound to the user turn
+    assert turns[1]["roi"] is None             # assistant turn carries none
+
+
 def test_delete_conversation(client: TestClient):
     cid = client.post("/api/copilot/conversations", json={"item_id": "s"}).json()["id"]
     assert client.delete(f"/api/copilot/conversations/{cid}").status_code == 204

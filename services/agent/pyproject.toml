@@ -12,6 +12,7 @@ dependencies = [
     "sse-starlette>=3.4.5",
     "asyncpg>=0.29",
     "anthropic>=0.40",
+    "jsonschema>=4.21",
 ]
 
 [dependency-groups]

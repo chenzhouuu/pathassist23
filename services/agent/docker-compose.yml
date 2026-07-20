@@ -30,7 +30,7 @@ services:
       # MUST match the Girder your viewer is signed into (frontend .env.local
       # VITE_GIRDER_BASE), or tokens issued there are rejected here → 401.
       # Override in services/agent/.env (gitignored).
-      AGENT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-https://lymphoma.dev.pathassist.health/api/v1}
+      AGENT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
       AGENT_CORS_ORIGINS: '["*"]'
       AGENT_DATABASE_URL: ${AGENT_DATABASE_URL:-postgresql://copilot:copilot@db:5432/copilot}
       # Set AGENT_ANTHROPIC_API_KEY in services/agent/.env to stream real Claude

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..chat import build_responder
 from ..common.config import get_settings
+from ..plan import build_planner
 from ..store import PgStore
 from .routes import router
 
@@ -32,7 +33,7 @@ def create_app() -> FastAPI:
     runs it via ``agent.gateway.app:create_app --factory`` (see Dockerfile).
     """
     settings = get_settings()
-    app = FastAPI(title="PathAgent Copilot Gateway", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="PathAgent Copilot Gateway", version="0.4.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -41,5 +42,6 @@ def create_app() -> FastAPI:
     )
     app.state.settings = settings
     app.state.responder = build_responder(settings)  # Claude when keyed, else echo
+    app.state.planner = build_planner(settings)      # Claude when keyed, else stub
     app.include_router(router)
     return app
