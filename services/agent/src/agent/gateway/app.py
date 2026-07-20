@@ -33,7 +33,7 @@ def create_app() -> FastAPI:
     runs it via ``agent.gateway.app:create_app --factory`` (see Dockerfile).
     """
     settings = get_settings()
-    app = FastAPI(title="PathAgent Copilot Gateway", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="PathAgent Copilot Gateway", version="0.6.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

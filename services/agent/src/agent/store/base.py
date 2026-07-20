@@ -20,6 +20,12 @@ client:
                   "created_at": iso8601, "updated_at": iso8601}
                  status ∈ {RUNNING, DONE, FAILED}; produced artifacts are fetched
                  separately via get_artifact (kept off the run dict — they can be large)
+  claim        → {"id": int, "conversation_id": int, "run_id": int, "plan_digest": str,
+                  "subject": str, "predicate": str, "value": float|None, "unit": str,
+                  "scope": dict, "metrics": dict, "evidence": list, "method_versions": dict,
+                  "status": str, "created_at": iso8601}
+                 the durable, evidence-bound result of a run; evidence entries are opaque
+                 ArtifactRefs {"run_id": int, "key": str} for get_artifact
 """
 
 from abc import ABC, abstractmethod
@@ -106,3 +112,14 @@ class ConversationStore(ABC):
     ) -> dict | None:
         """Return the named artifact of a run, iff the run belongs to `conversation_id`
         (owner scoping) and the key exists; else None."""
+
+    # ── Claims (increment 6a) ────────────────────────────────────────────────────
+
+    @abstractmethod
+    async def create_claim(self, *, conversation_id: int, run_id: int, claim: dict) -> dict:
+        """Persist a Claim (a run's durable, evidence-bound result) and return it with its
+        id. `claim` is the dict produced by the deterministic claim builder."""
+
+    @abstractmethod
+    async def get_claims(self, *, conversation_id: int) -> list[dict]:
+        """Return the conversation's claims in chronological order (for reload rehydration)."""

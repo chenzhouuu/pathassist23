@@ -23,9 +23,11 @@ class MemoryStore(ConversationStore):
         self._turns: dict[int, list[dict]] = {}
         self._plans: dict[int, list[dict]] = {}
         self._runs: dict[int, dict] = {}
+        self._claims: dict[int, list[dict]] = {}
         self._seq = 0
         self._turn_seq = 0
         self._run_seq = 0
+        self._claim_seq = 0
 
     @staticmethod
     def _public(conv: dict) -> dict:
@@ -80,6 +82,7 @@ class MemoryStore(ConversationStore):
         del self._conv[conversation_id]
         self._turns.pop(conversation_id, None)
         self._plans.pop(conversation_id, None)
+        self._claims.pop(conversation_id, None)
         return True
 
     async def create_plan(self, *, conversation_id, turn_id, digest, steps, scope,
@@ -142,6 +145,22 @@ class MemoryStore(ConversationStore):
         if run is None or run["conversation_id"] != conversation_id:
             return None
         return run["artifacts"].get(key)
+
+    async def create_claim(self, *, conversation_id, run_id, claim):
+        self._claim_seq += 1
+        stored = {
+            "id": self._claim_seq, "conversation_id": conversation_id, "run_id": run_id,
+            "plan_digest": claim["plan_digest"], "subject": claim["subject"],
+            "predicate": claim["predicate"], "value": claim["value"], "unit": claim["unit"],
+            "scope": claim["scope"], "metrics": claim["metrics"],
+            "evidence": claim["evidence"], "method_versions": claim["method_versions"],
+            "status": claim["status"], "created_at": _TS,
+        }
+        self._claims.setdefault(conversation_id, []).append(stored)
+        return dict(stored)
+
+    async def get_claims(self, *, conversation_id):
+        return [dict(c) for c in self._claims.get(conversation_id, [])]
 
 
 @pytest.fixture

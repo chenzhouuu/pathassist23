@@ -93,7 +93,7 @@ export default function CopilotPanel() {
     setCopilotConversationId, setCopilotStreaming, setCopilotError, resetCopilot,
     setDrawingMode, roiSelectResult, clearRoiSelectResult,
     copilotRoi, setCopilotRoi, shownRoi, setShownRoi, viewer,
-    setCopilotNuclei, clearCopilotNuclei,
+    setCopilotNuclei, clearCopilotNuclei, showNucleiOverlay, toggleNucleiOverlay,
   } = useStore();
   const [input, setInput] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -144,6 +144,32 @@ export default function CopilotPanel() {
     if (viewer) focusRegion(viewer, roi);
   }, [shownRoi, setShownRoi, viewer]);
 
+  // Rehydrate persisted Claims (increment 6a): re-seed each approved plan's run trace to
+  // "done" (so its card shows the Claim, not a Run button) and restore the nuclei overlay
+  // from the latest claim's evidence — so a reload brings back the result + overlay.
+  const rehydrateClaims = useCallback((full) => {
+    const claims = full.claims || [];
+    const plansByDigest = {};
+    (full.plans || []).forEach((p) => { plansByDigest[p.digest] = p; });
+    const runs = {};
+    claims.forEach((c) => {
+      const steps = {};
+      (plansByDigest[c.plan_digest]?.steps || []).forEach((s) => { steps[s.n] = 'done'; });
+      runs[c.plan_digest] = {
+        status: 'done', runId: c.run_id, result: c.metrics || {}, steps, claim: c,
+      };
+    });
+    setRunByDigest(runs);
+    const withNuclei = claims.filter((c) => (c.evidence || []).some((e) => e.key === 'nuclei'));
+    const last = withNuclei[withNuclei.length - 1];
+    if (last) {
+      const ref = last.evidence.find((e) => e.key === 'nuclei');
+      fetchArtifact(full.id, ref.run_id, 'nuclei').then((n) => setCopilotNuclei(n)).catch(() => {});
+    } else {
+      clearCopilotNuclei();
+    }
+  }, [setCopilotNuclei, clearCopilotNuclei]);
+
   // Reset the local "awaiting a box" flag + run traces when the slide changes; the grounded
   // copilotRoi and nuclei overlay are cleared at the store level (setActiveItem / openCaseItem).
   useEffect(() => { setAwaitingRoi(false); setRunByDigest({}); }, [itemId]);
@@ -179,6 +205,7 @@ export default function CopilotPanel() {
           if (cancelled) return;
           setCopilotConversationId(full.id);
           setCopilotMessages(buildMessages(full));
+          rehydrateClaims(full);
         } else {
           setCopilotConversationId(null);
           setCopilotMessages([]);
@@ -190,7 +217,7 @@ export default function CopilotPanel() {
       }
     })();
     return () => { cancelled = true; };
-  }, [itemId, setCopilotError, setCopilotConversationId, setCopilotMessages]);
+  }, [itemId, setCopilotError, setCopilotConversationId, setCopilotMessages, rehydrateClaims]);
 
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -276,7 +303,8 @@ export default function CopilotPanel() {
           patch((r) => ({ ...r, status: 'running', runId: evt.run_id,
             steps: { ...(r.steps || {}), [evt.n]: evt.status } }));
         } else if (evt.type === 'run_done') {
-          patch((r) => ({ ...r, status: 'done', runId: evt.run_id, result: evt.result }));
+          patch((r) => ({ ...r, status: 'done', runId: evt.run_id,
+            result: evt.result, claim: evt.claim }));
           const ref = (evt.artifacts || []).find((a) => a.key === 'nuclei');
           if (ref) {
             fetchArtifact(convId, evt.run_id, 'nuclei')
@@ -344,6 +372,7 @@ export default function CopilotPanel() {
       const full = await getConversation(id);
       setCopilotConversationId(full.id);
       setCopilotMessages(buildMessages(full));   // same builder as reload → interleaves plan cards by turn_id
+      rehydrateClaims(full);
     } catch (err) {
       setCopilotError(err.message || 'Could not open conversation');
     }
@@ -428,10 +457,12 @@ export default function CopilotPanel() {
               plan={m.plan}
               busy={planBusy}
               run={runByDigest[m.plan.digest]}
+              showOverlay={showNucleiOverlay}
               onApprove={(d) => resolvePlan(d, 'approve')}
               onReject={(d) => resolvePlan(d, 'reject')}
               onRun={runPlan}
               onShowRoi={showRoi}
+              onToggleOverlay={toggleNucleiOverlay}
             />
           ) : (
             <Bubble
@@ -572,7 +603,8 @@ function Bubble({ role, text, roi, streaming, onShowRoi }) {
 
 // Plan card (inc 4) — the human gate. Numbered steps, tool/param chips, cost envelope,
 // Approve/Reject. Nothing runs on approve yet; only one plan is ever live (older → Expired).
-function PlanCard({ plan, busy, run, onApprove, onReject, onRun, onShowRoi }) {
+function PlanCard({ plan, busy, run, showOverlay, onApprove, onReject, onRun, onShowRoi,
+  onToggleOverlay }) {
   const meta = PLAN_STATE[plan.state] || { s: 'await', label: plan.state };
   const roi = plan.scope && plan.scope.roi;
   const env = plan.envelope || {};
@@ -642,11 +674,8 @@ function PlanCard({ plan, busy, run, onApprove, onReject, onRun, onShowRoi }) {
                   <span className="cp-run-line"><span className="cp-run-spin" />Running the plan…</span>
                 )}
                 {run.status === 'done' && run.result && (
-                  <span className="cp-run-line cp-run-ok">
-                    ✓ {run.result.count} {run.result.cell_class || 'cells'}
-                    {run.result.density != null && <> · {run.result.density} {run.result.density_unit}</>}
-                    {' '}— toggle the overlay from the viewer toolbar.
-                  </span>
+                  <ClaimCard result={run.result} claim={run.claim}
+                    showOverlay={showOverlay} onToggleOverlay={onToggleOverlay} />
                 )}
                 {run.status === 'error' && (
                   <span className="cp-run-line cp-run-err">Run failed: {run.error}</span>
@@ -665,6 +694,37 @@ function PlanCard({ plan, busy, run, onApprove, onReject, onRun, onShowRoi }) {
           {plan.state === 'EXPIRED' && <>Superseded by a newer plan — only the latest is runnable.</>}
         </div>
       )}
+    </div>
+  );
+}
+
+// Claim card (inc 6a) — the durable, evidence-bound result of a run. The number is the
+// authoritative tool output (the LLM never emits it); the evidence chip toggles the nuclei
+// overlay that grounds it. Rendered identically live (run_done frame) and after a reload
+// (rehydrated from the persisted claim), so the result survives a refresh.
+function ClaimCard({ result, claim, showOverlay, onToggleOverlay }) {
+  const count = result?.count;
+  const subject = result?.cell_class || claim?.subject || 'cells';
+  const density = result?.density;
+  const nNuclei = claim?.metrics?.count ?? count;
+  const hasOverlay = (claim?.evidence || []).some((e) => e.key === 'nuclei');
+  return (
+    <div className="cp-claim">
+      <div className="cp-claim-head">
+        <div className="cp-claim-value">{count}<span className="cp-claim-subject">{subject}</span></div>
+        {density != null && (
+          <div className="cp-claim-density">{density} <small>{result.density_unit}</small></div>
+        )}
+      </div>
+      <div className="cp-claim-foot">
+        {hasOverlay && (
+          <button type="button" className="cp-claim-evi" onClick={onToggleOverlay}
+            title="Toggle the nuclei overlay on the slide">
+            <span className="cp-claim-dot" />{nNuclei} nuclei · {showOverlay ? 'hide' : 'show'}
+          </button>
+        )}
+        <span className="cp-claim-ruo">research use only</span>
+      </div>
     </div>
   );
 }
@@ -793,6 +853,22 @@ const CP_CSS = `
 .cp-run-spin{width:11px;height:11px;border-radius:50%;border:2px solid rgba(251,191,36,.3);
   border-top-color:#fbbf24;animation:cp-spin .7s linear infinite}
 @keyframes cp-spin{to{transform:rotate(360deg)}}
+.cp-claim{display:flex;flex-direction:column;gap:7px;padding:1px 0}
+.cp-claim-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.cp-claim-value{font-size:20px;font-weight:700;color:#86efac;line-height:1;
+  display:flex;align-items:baseline;gap:6px}
+.cp-claim-subject{font-size:11px;font-weight:500;color:var(--muted)}
+.cp-claim-density{font-size:12px;color:var(--fg)}
+.cp-claim-density small{color:var(--muted)}
+.cp-claim-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cp-claim-evi{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:monospace;
+  color:#22d3ee;background:rgba(34,211,238,.10);border:1px solid rgba(34,211,238,.32);
+  border-radius:6px;padding:2px 7px;cursor:pointer;transition:background .12s}
+.cp-claim-evi:hover{background:rgba(34,211,238,.2)}
+.cp-claim-dot{width:6px;height:6px;border-radius:50%;background:#22d3ee;
+  box-shadow:0 0 5px rgba(34,211,238,.8)}
+.cp-claim-ruo{font-size:8.5px;letter-spacing:.4px;text-transform:uppercase;color:#f5a623;
+  font-family:monospace;opacity:.8}
 .cp-plan-frozen{flex:1;font-size:11px;color:var(--muted);align-self:center}
 .cp-plan-frozen code{font-family:monospace;font-size:10px;color:#c4b5fd}
 .cp-composer-shell{border-top:1px solid var(--border)}

@@ -56,8 +56,26 @@ CREATE TABLE IF NOT EXISTS run (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS claim (
+    id              BIGSERIAL PRIMARY KEY,
+    conversation_id BIGINT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+    run_id          BIGINT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+    plan_digest     TEXT NOT NULL,
+    subject         TEXT,
+    predicate       TEXT,
+    value           DOUBLE PRECISION,
+    unit            TEXT,
+    scope           JSONB,
+    metrics         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    evidence        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    method_versions JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status          TEXT NOT NULL DEFAULT 'asserted',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE INDEX IF NOT EXISTS turn_conversation_idx
     ON turn (conversation_id, id);
+CREATE INDEX IF NOT EXISTS claim_conversation_idx
+    ON claim (conversation_id, id);
 CREATE INDEX IF NOT EXISTS conversation_owner_idx
     ON conversation (girder_user, girder_item, updated_at DESC);
 CREATE INDEX IF NOT EXISTS plan_conversation_idx
@@ -70,6 +88,31 @@ CREATE INDEX IF NOT EXISTS run_conversation_idx
 
 _PLAN_COLS = "digest, state, steps, scope, envelope, reason, turn_id, created_at, updated_at"
 _RUN_COLS = "id, conversation_id, plan_digest, status, result, error, created_at, updated_at"
+_CLAIM_COLS = (
+    "id, conversation_id, run_id, plan_digest, subject, predicate, value, unit, "
+    "scope, metrics, evidence, method_versions, status, created_at"
+)
+
+
+def _claim(row: asyncpg.Record | None) -> dict | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "conversation_id": row["conversation_id"],
+        "run_id": row["run_id"],
+        "plan_digest": row["plan_digest"],
+        "subject": row["subject"],
+        "predicate": row["predicate"],
+        "value": row["value"],
+        "unit": row["unit"],
+        "scope": row["scope"],
+        "metrics": row["metrics"],
+        "evidence": row["evidence"],
+        "method_versions": row["method_versions"],
+        "status": row["status"],
+        "created_at": row["created_at"].isoformat(),
+    }
 
 
 def _run(row: asyncpg.Record | None) -> dict | None:
@@ -334,3 +377,25 @@ class PgStore(ConversationStore):
         if not artifacts:
             return None
         return artifacts.get(key)
+
+    async def create_claim(self, *, conversation_id: int, run_id: int, claim: dict) -> dict:
+        # value is DOUBLE PRECISION; coerce so an int count encodes cleanly (asyncpg is
+        # strict about float8 params).
+        value = claim["value"]
+        value = float(value) if value is not None else None
+        row = await self._pool.fetchrow(
+            "INSERT INTO claim (conversation_id, run_id, plan_digest, subject, predicate, "
+            "value, unit, scope, metrics, evidence, method_versions, status) "
+            f"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING {_CLAIM_COLS}",
+            conversation_id, run_id, claim["plan_digest"], claim["subject"],
+            claim["predicate"], value, claim["unit"], claim["scope"],
+            claim["metrics"], claim["evidence"], claim["method_versions"], claim["status"],
+        )
+        return _claim(row)  # type: ignore[return-value]
+
+    async def get_claims(self, *, conversation_id: int) -> list[dict]:
+        rows = await self._pool.fetch(
+            f"SELECT {_CLAIM_COLS} FROM claim WHERE conversation_id = $1 ORDER BY id",
+            conversation_id,
+        )
+        return [_claim(r) for r in rows]  # type: ignore[misc]

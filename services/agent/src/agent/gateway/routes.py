@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from ..chat import EchoResponder, Responder
+from ..claim import build_claim
 from ..common.config import get_settings
 from ..plan import Registry, load_registry, plan_digest, validate_plan
 from ..plan.planner import Planner, StubPlanner
@@ -128,7 +129,7 @@ def _plan_guidance(errors: list[str], scope: dict) -> str:
 async def health() -> dict[str, str]:
     """Unauthenticated liveness probe. `chat` tells the UI which backend is live."""
     chat = "claude" if get_settings().anthropic_api_key else "echo"
-    return {"status": "ok", "service": "copilot", "version": "0.5.0", "chat": chat}
+    return {"status": "ok", "service": "copilot", "version": "0.6.0", "chat": chat}
 
 
 @router.get("/tools")
@@ -195,6 +196,7 @@ async def get_conversation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
     conv["turns"] = await store.get_turns(conversation_id=conversation_id)
     conv["plans"] = await store.get_plans(conversation_id=conversation_id)
+    conv["claims"] = await store.get_claims(conversation_id=conversation_id)
     return conv
 
 
@@ -427,9 +429,16 @@ async def run_plan(
             return
         await store.finish_run(run_id=run["id"], status="DONE", result=values,
                                artifacts=artifacts)
+        # Build the durable, evidence-bound Claim (deterministic — the number comes from
+        # the tool result, never the LLM) and persist it so it survives a reload.
+        claim = build_claim(plan=plan, run_id=run["id"], values=values,
+                            artifacts=artifacts, registry_version=_REGISTRY.version)
+        saved = await store.create_claim(
+            conversation_id=conversation_id, run_id=run["id"], claim=claim)
         yield sse_json({
             "type": "run_done", "run_id": run["id"], "result": values,
             "artifacts": [{"key": k, "kind": a.get("kind", k)} for k, a in artifacts.items()],
+            "claim": saved,
         })
 
     return EventSourceResponse(run_stream())
