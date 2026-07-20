@@ -15,6 +15,11 @@ client:
                   "envelope": dict|None, "reason": str|None, "turn_id": int|None,
                   "created_at": iso8601, "updated_at": iso8601}
                  state ∈ {AWAITING_APPROVAL, APPROVED, REJECTED, EXPIRED}
+  run          → {"id": int, "conversation_id": int, "plan_digest": str,
+                  "status": str, "result": dict|None, "error": str|None,
+                  "created_at": iso8601, "updated_at": iso8601}
+                 status ∈ {RUNNING, DONE, FAILED}; produced artifacts are fetched
+                 separately via get_artifact (kept off the run dict — they can be large)
 """
 
 from abc import ABC, abstractmethod
@@ -79,3 +84,25 @@ class ConversationStore(ABC):
     ) -> dict | None:
         """Transition a plan's state iff its current state is in `expected`; return the
         updated plan, or None if it is not in an expected state (state conflict)."""
+
+    # ── Runs (increment 5) ───────────────────────────────────────────────────────
+
+    @abstractmethod
+    async def create_run(self, *, conversation_id: int, plan_digest: str) -> dict:
+        """Open a run (status RUNNING) for an approved plan; return it."""
+
+    @abstractmethod
+    async def finish_run(
+        self, *, run_id: int, status: str, result: dict, artifacts: dict,
+        error: str | None = None,
+    ) -> dict | None:
+        """Close a run: set its terminal `status`, scalar `result`, produced `artifacts`
+        (stored for later fetch) and optional `error`. Return the updated run, or None if
+        the run is unknown."""
+
+    @abstractmethod
+    async def get_artifact(
+        self, *, conversation_id: int, run_id: int, key: str
+    ) -> dict | None:
+        """Return the named artifact of a run, iff the run belongs to `conversation_id`
+        (owner scoping) and the key exists; else None."""

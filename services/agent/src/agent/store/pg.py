@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS plan (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS run (
+    id              BIGSERIAL PRIMARY KEY,
+    conversation_id BIGINT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
+    plan_digest     TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'RUNNING',
+    result          JSONB,
+    artifacts       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE INDEX IF NOT EXISTS turn_conversation_idx
     ON turn (conversation_id, id);
 CREATE INDEX IF NOT EXISTS conversation_owner_idx
@@ -53,9 +64,27 @@ CREATE INDEX IF NOT EXISTS plan_conversation_idx
     ON plan (conversation_id, id);
 CREATE INDEX IF NOT EXISTS plan_digest_idx
     ON plan (conversation_id, digest);
+CREATE INDEX IF NOT EXISTS run_conversation_idx
+    ON run (conversation_id, id);
 """
 
 _PLAN_COLS = "digest, state, steps, scope, envelope, reason, turn_id, created_at, updated_at"
+_RUN_COLS = "id, conversation_id, plan_digest, status, result, error, created_at, updated_at"
+
+
+def _run(row: asyncpg.Record | None) -> dict | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "conversation_id": row["conversation_id"],
+        "plan_digest": row["plan_digest"],
+        "status": row["status"],
+        "result": row["result"],
+        "error": row["error"],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+    }
 
 
 def _plan(row: asyncpg.Record | None) -> dict | None:
@@ -267,3 +296,41 @@ class PgStore(ConversationStore):
             list(expected),
         )
         return _plan(row)
+
+    async def create_run(self, *, conversation_id: int, plan_digest: str) -> dict:
+        row = await self._pool.fetchrow(
+            f"INSERT INTO run (conversation_id, plan_digest) VALUES ($1, $2) "
+            f"RETURNING {_RUN_COLS}",
+            conversation_id,
+            plan_digest,
+        )
+        return _run(row)  # type: ignore[return-value]
+
+    async def finish_run(
+        self, *, run_id: int, status: str, result: dict, artifacts: dict,
+        error: str | None = None,
+    ) -> dict | None:
+        row = await self._pool.fetchrow(
+            f"UPDATE run SET status = $2, result = $3, artifacts = $4, error = $5, "
+            f"updated_at = now() WHERE id = $1 RETURNING {_RUN_COLS}",
+            run_id,
+            status,
+            result,
+            artifacts,
+            error,
+        )
+        return _run(row)
+
+    async def get_artifact(
+        self, *, conversation_id: int, run_id: int, key: str
+    ) -> dict | None:
+        # Owner scoping: the run must belong to this conversation (which the route has
+        # already verified the caller owns).
+        artifacts = await self._pool.fetchval(
+            "SELECT artifacts FROM run WHERE id = $1 AND conversation_id = $2",
+            run_id,
+            conversation_id,
+        )
+        if not artifacts:
+            return None
+        return artifacts.get(key)

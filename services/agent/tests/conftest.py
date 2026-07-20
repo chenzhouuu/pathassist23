@@ -22,8 +22,10 @@ class MemoryStore(ConversationStore):
         self._conv: dict[int, dict] = {}
         self._turns: dict[int, list[dict]] = {}
         self._plans: dict[int, list[dict]] = {}
+        self._runs: dict[int, dict] = {}
         self._seq = 0
         self._turn_seq = 0
+        self._run_seq = 0
 
     @staticmethod
     def _public(conv: dict) -> dict:
@@ -112,6 +114,34 @@ class MemoryStore(ConversationStore):
                 p["updated_at"] = _TS
                 return dict(p)
         return None
+
+    @staticmethod
+    def _run_public(run: dict) -> dict:
+        return {k: v for k, v in run.items() if k != "artifacts"}
+
+    async def create_run(self, *, conversation_id, plan_digest):
+        self._run_seq += 1
+        rid = self._run_seq
+        self._runs[rid] = {
+            "id": rid, "conversation_id": conversation_id, "plan_digest": plan_digest,
+            "status": "RUNNING", "result": None, "error": None, "artifacts": {},
+            "created_at": _TS, "updated_at": _TS,
+        }
+        return self._run_public(self._runs[rid])
+
+    async def finish_run(self, *, run_id, status, result, artifacts, error=None):
+        run = self._runs.get(run_id)
+        if run is None:
+            return None
+        run.update(status=status, result=result, artifacts=artifacts, error=error,
+                   updated_at=_TS)
+        return self._run_public(run)
+
+    async def get_artifact(self, *, conversation_id, run_id, key):
+        run = self._runs.get(run_id)
+        if run is None or run["conversation_id"] != conversation_id:
+            return None
+        return run["artifacts"].get(key)
 
 
 @pytest.fixture

@@ -31,6 +31,7 @@ export default function ViewerToolbar({ viewer }) {
     setRightPanelTab, setRightPanelOpen,
     setLeftPanelTab, setLeftPanelOpen,
     activeItem, user, addPanel, hasRole,
+    copilotNuclei, showNucleiOverlay, toggleNucleiOverlay,
   } = useStore();
   const canAnnotate = !!user && hasRole('annotation-users');
   const [savingCapture, setSavingCapture] = useState(false);
@@ -244,6 +245,24 @@ export default function ViewerToolbar({ viewer }) {
 
         <div className="divider"/>
       </>}
+
+      {/* Copilot nuclei overlay toggle — only shown once a plan run has produced nuclei */}
+      {copilotNuclei && (
+        <>
+          <ToolBtn
+            title={`${showNucleiOverlay ? 'Hide' : 'Show'} nuclei overlay (${copilotNuclei.count} cells)`}
+            active={showNucleiOverlay}
+            color="#22d3ee"
+            onClick={toggleNucleiOverlay}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="7" cy="8" r="1.6"/><circle cx="15" cy="6" r="1.6"/>
+              <circle cx="12" cy="13" r="1.6"/><circle cx="18" cy="14" r="1.6"/>
+              <circle cx="8" cy="16" r="1.6"/>
+            </svg>
+          </ToolBtn>
+          <div className="divider"/>
+        </>
+      )}
 
       {/* Snapshot */}
       <ToolBtn title="Screenshot (Local)" onClick={snapshot}>

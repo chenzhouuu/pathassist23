@@ -8,6 +8,7 @@ import {
 import AnnotationCanvas from '../annotations/AnnotationCanvas.jsx';
 import ViewerToolbar from './ViewerToolbar.jsx';
 import MeasureTool from './MeasureTool.jsx';
+import NucleiOverlay from './NucleiOverlay.jsx';
 import { GIRDER_BASE } from '../../config/girder.js';
 import { hexToRgba } from '../annotations/annotationUtils.js';
 
@@ -460,6 +461,9 @@ export default function ViewerPanel() {
         {/* OSD container — always mounted */}
         <div ref={containerRef} id="osd-viewer" className="w-full h-full"
           style={{ opacity: status.state === 'ok' ? 1 : 0, transition:'opacity 0.3s' }}/>
+
+        {/* Copilot nuclei overlay (below the annotation canvas) */}
+        {activeItem && status.state === 'ok' && <NucleiOverlay viewer={osdRef}/>}
 
         {/* Annotation canvas */}
         {activeItem && status.state === 'ok' && <AnnotationCanvas viewer={osdRef}/>}

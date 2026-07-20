@@ -10,6 +10,7 @@ from ..chat import EchoResponder, Responder
 from ..common.config import get_settings
 from ..plan import Registry, load_registry, plan_digest, validate_plan
 from ..plan.planner import Planner, StubPlanner
+from ..run import invoke
 from ..store import ConversationStore
 from .auth import require_user
 from .sse import sse_json
@@ -127,7 +128,7 @@ def _plan_guidance(errors: list[str], scope: dict) -> str:
 async def health() -> dict[str, str]:
     """Unauthenticated liveness probe. `chat` tells the UI which backend is live."""
     chat = "claude" if get_settings().anthropic_api_key else "echo"
-    return {"status": "ok", "service": "copilot", "version": "0.4.0", "chat": chat}
+    return {"status": "ok", "service": "copilot", "version": "0.5.0", "chat": chat}
 
 
 @router.get("/tools")
@@ -363,6 +364,96 @@ async def reject_plan(
     store: ConversationStore = Depends(get_store),
 ) -> dict:
     return await _transition_plan(store, user, conversation_id, digest, "REJECTED")
+
+
+# ── Plan execution (increment 5) ─────────────────────────────────────────────────
+
+
+@router.post("/conversations/{conversation_id}/plan/{digest}/run")
+async def run_plan(
+    conversation_id: int,
+    digest: str,
+    user: dict = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+) -> EventSourceResponse:
+    """Execute an *approved* plan's steps, streaming per-step progress.
+
+    Auto-run: the UI opens this stream as soon as approval succeeds. Each step is one
+    stateless `invoke` (canned output at inc 5; real tools swap in at inc 7 unchanged).
+    Bulk output (nuclei geometry) is not streamed — the `run_done` frame carries artifact
+    handles the client fetches via GET .../runs/{id}/artifact/{key}, so this channel stays
+    light when a real tool emits millions of cells.
+    """
+    conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
+    if conv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    plan = await store.get_plan(conversation_id=conversation_id, digest=digest)
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found")
+    if plan["state"] != "APPROVED":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Plan must be approved before it can run (state: {plan['state']}).",
+        )
+    run = await store.create_run(conversation_id=conversation_id, plan_digest=digest)
+    steps = plan.get("steps") or []
+    scope = plan.get("scope")
+
+    async def run_stream():
+        yield sse_json({
+            "type": "run_start", "run_id": run["id"], "conversation_id": conversation_id,
+            "steps": [{"n": s["n"], "tool": s["tool"], "category": s.get("category")}
+                      for s in steps],
+        })
+        artifacts: dict = {}
+        values: dict = {}
+        try:
+            for s in steps:
+                yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
+                                "tool": s["tool"], "status": "running"})
+                await asyncio.sleep(0.3)  # let RUNNING show; real tools take much longer
+                res = invoke(s["tool"], s.get("args"), scope, artifacts)
+                artifacts.update(res.artifacts)
+                values.update(res.values)
+                yield sse_json({"type": "run_step", "run_id": run["id"], "n": s["n"],
+                                "tool": s["tool"], "status": "done",
+                                "produced": list(res.artifacts) + list(res.values)})
+        except Exception as exc:  # noqa: BLE001 — surface any tool failure to the client
+            logger.exception("run failed for conversation %s plan %s", conversation_id, digest)
+            await store.finish_run(run_id=run["id"], status="FAILED", result=values,
+                                   artifacts=artifacts, error=str(exc))
+            yield sse_json({"type": "run_error", "run_id": run["id"],
+                            "message": f"A tool failed while running ({type(exc).__name__})."})
+            return
+        await store.finish_run(run_id=run["id"], status="DONE", result=values,
+                               artifacts=artifacts)
+        yield sse_json({
+            "type": "run_done", "run_id": run["id"], "result": values,
+            "artifacts": [{"key": k, "kind": a.get("kind", k)} for k, a in artifacts.items()],
+        })
+
+    return EventSourceResponse(run_stream())
+
+
+@router.get("/conversations/{conversation_id}/runs/{run_id}/artifact/{key}")
+async def get_run_artifact(
+    conversation_id: int,
+    run_id: int,
+    key: str,
+    user: dict = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+) -> dict:
+    """Fetch a produced artifact (e.g. the nuclei geometry) — owner-scoped via the run's
+    conversation. The opaque ArtifactRef is (run_id, key)."""
+    conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
+    if conv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    artifact = await store.get_artifact(
+        conversation_id=conversation_id, run_id=run_id, key=key
+    )
+    if artifact is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+    return artifact
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

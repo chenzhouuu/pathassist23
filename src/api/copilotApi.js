@@ -95,6 +95,31 @@ export async function rejectPlan(conversationId, digest) {
   return asJson(r, 'Reject plan');
 }
 
+// Run an approved plan (increment 5) and stream per-step SSE frames to onEvent:
+//   run_start → run_step(running/done) → run_done({result, artifacts:[{key,kind}]}) | run_error.
+// The bulk output (nuclei geometry) is NOT in the stream — fetch it with fetchArtifact.
+export async function streamRun({ conversationId, digest, onEvent, signal }) {
+  const r = await fetch(
+    `${COPILOT_BASE}/conversations/${conversationId}/plan/${encodeURIComponent(digest)}/run`,
+    { method: 'POST', headers: authHeaders(), signal },
+  );
+  if (!r.ok || !r.body) {
+    let detail = '';
+    try { detail = (await r.text()).slice(0, 300); } catch { /* ignore */ }
+    throw new Error(describeError(r.status, detail, 'Run plan'));
+  }
+  await readSse(r.body, onEvent);
+}
+
+// Fetch a produced artifact by its opaque (runId, key) handle — e.g. the nuclei geometry.
+export async function fetchArtifact(conversationId, runId, key) {
+  const r = await fetch(
+    `${COPILOT_BASE}/conversations/${conversationId}/runs/${runId}/artifact/${encodeURIComponent(key)}`,
+    { headers: authHeaders() },
+  );
+  return asJson(r, 'Fetch artifact');
+}
+
 // POST a message into a conversation and stream SSE `data:` frames to onEvent({type,...}).
 // The server persists the user turn before streaming and the assistant turn at the end.
 // A quantitative ask yields a `plan` frame instead of tokens (increment 4).

@@ -81,7 +81,7 @@ export const useStore = create((set, get) => ({
   },
   clearActiveNavigation: () =>
     set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [],
-          copilotRoi: null, shownRoi: null, roiSelectResult: null }),
+          copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -96,7 +96,7 @@ export const useStore = create((set, get) => ({
       agentTrace: [], agentNavTrail: [], agentFinal: null, agentHeatmap: null,
       agentStatus: null, agentCacheKey: null, agentRunning: false, agentError: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null,   // drop any grounded/shown region from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,   // drop grounded/shown region + overlay from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -123,7 +123,7 @@ export const useStore = create((set, get) => ({
       selectedAnnotation: null,
       drawingMode: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null,   // drop any grounded/shown region from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,   // drop grounded/shown region + overlay from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -194,6 +194,14 @@ export const useStore = create((set, get) => ({
   setCopilotRoi: (r) => set({ copilotRoi: r }),
   shownRoi: null,                                    // { x, y, width, height } | null
   setShownRoi: (r) => set({ shownRoi: r }),
+
+  // Copilot nuclei overlay (increment 5): the geometry a plan run produced, painted by
+  // NucleiOverlay and toggled from the viewer toolbar. Setting new nuclei shows them.
+  copilotNuclei: null,                               // { points:[[x,y]], level0, count, ... } | null
+  showNucleiOverlay: true,
+  setCopilotNuclei: (n) => set({ copilotNuclei: n, showNucleiOverlay: true }),
+  clearCopilotNuclei: () => set({ copilotNuclei: null }),
+  toggleNucleiOverlay: () => set((s) => ({ showNucleiOverlay: !s.showNucleiOverlay })),
 
   // ── Projects ──────────────────────────────────────────────────────────────
   activeProject: null,

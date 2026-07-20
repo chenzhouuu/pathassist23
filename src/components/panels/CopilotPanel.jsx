@@ -13,7 +13,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import {
   streamMessage, listConversations, createConversation, getConversation, deleteConversation,
-  approvePlan, rejectPlan, checkHealth,
+  approvePlan, rejectPlan, streamRun, fetchArtifact, checkHealth,
 } from '../../api/copilotApi.js';
 import { focusRegion } from './agentViewerSync.js';
 
@@ -93,6 +93,7 @@ export default function CopilotPanel() {
     setCopilotConversationId, setCopilotStreaming, setCopilotError, resetCopilot,
     setDrawingMode, roiSelectResult, clearRoiSelectResult,
     copilotRoi, setCopilotRoi, shownRoi, setShownRoi, viewer,
+    setCopilotNuclei, clearCopilotNuclei,
   } = useStore();
   const [input, setInput] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -102,6 +103,7 @@ export default function CopilotPanel() {
   const [mode, setMode] = useState(null);             // 'claude' | 'echo' — which backend is live
   const [awaitingRoi, setAwaitingRoi] = useState(false);  // waiting for the user to draw a box
   const [planBusy, setPlanBusy] = useState(false);        // approve/reject request in flight
+  const [runByDigest, setRunByDigest] = useState({});     // digest → { status, steps, result, error, runId }
   // The grounded region (copilotRoi) lives in the store so the viewer can paint it too.
   const threadRef = useRef(null);
   const abortRef = useRef(null);
@@ -142,9 +144,9 @@ export default function CopilotPanel() {
     if (viewer) focusRegion(viewer, roi);
   }, [shownRoi, setShownRoi, viewer]);
 
-  // Reset the local "awaiting a box" flag when the slide changes; the grounded
-  // copilotRoi itself is cleared at the store level (setActiveItem / openCaseItem).
-  useEffect(() => { setAwaitingRoi(false); }, [itemId]);
+  // Reset the local "awaiting a box" flag + run traces when the slide changes; the grounded
+  // copilotRoi and nuclei overlay are cleared at the store level (setActiveItem / openCaseItem).
+  useEffect(() => { setAwaitingRoi(false); setRunByDigest({}); }, [itemId]);
 
   // Which chat backend is configured server-side, so the UI can label itself honestly.
   useEffect(() => {
@@ -259,8 +261,37 @@ export default function CopilotPanel() {
       addCopilotMessage, updateLastCopilotMessage, setLastCopilotMessage, expireCopilotPlans,
       setCopilotConversationId, setCopilotStreaming, setCopilotError, refreshList]);
 
+  // Run an approved plan (increment 5): stream per-step progress into runByDigest, and on
+  // completion fetch the nuclei artifact and hand it to the viewer overlay.
+  const runPlan = useCallback((digest) => {
+    const convId = copilotConversationId;
+    if (!convId) return;
+    setRunByDigest((m) => ({ ...m, [digest]: { status: 'running', steps: {}, result: null } }));
+    const patch = (fn) => setRunByDigest((m) => ({ ...m, [digest]: fn(m[digest] || {}) }));
+    streamRun({
+      conversationId: convId,
+      digest,
+      onEvent: (evt) => {
+        if (evt.type === 'run_step') {
+          patch((r) => ({ ...r, status: 'running', runId: evt.run_id,
+            steps: { ...(r.steps || {}), [evt.n]: evt.status } }));
+        } else if (evt.type === 'run_done') {
+          patch((r) => ({ ...r, status: 'done', runId: evt.run_id, result: evt.result }));
+          const ref = (evt.artifacts || []).find((a) => a.key === 'nuclei');
+          if (ref) {
+            fetchArtifact(convId, evt.run_id, 'nuclei')
+              .then((n) => setCopilotNuclei(n))
+              .catch((err) => setCopilotError(err.message));
+          }
+        } else if (evt.type === 'run_error') {
+          patch((r) => ({ ...r, status: 'error', error: evt.message }));
+        }
+      },
+    }).catch((err) => patch((r) => ({ ...r, status: 'error', error: err.message })));
+  }, [copilotConversationId, setCopilotNuclei, setCopilotError]);
+
   // Approve / reject the live plan. The gate is server-authoritative; we reflect the
-  // returned state into the card. Nothing runs on approve yet — execution is increment 5.
+  // returned state into the card. On approve, execution auto-starts (increment 5).
   const resolvePlan = useCallback(async (digest, action) => {
     if (!copilotConversationId || planBusy) return;
     setPlanBusy(true);
@@ -269,12 +300,13 @@ export default function CopilotPanel() {
       const fn = action === 'approve' ? approvePlan : rejectPlan;
       const updated = await fn(copilotConversationId, digest);
       updateCopilotPlanState(digest, updated.state);
+      if (action === 'approve' && updated.state === 'APPROVED') runPlan(digest);
     } catch (err) {
       setCopilotError(err.message || `Could not ${action} the plan`);
     } finally {
       setPlanBusy(false);
     }
-  }, [copilotConversationId, planBusy, updateCopilotPlanState, setCopilotError]);
+  }, [copilotConversationId, planBusy, updateCopilotPlanState, setCopilotError, runPlan]);
 
   const onKeyDown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
@@ -287,6 +319,8 @@ export default function CopilotPanel() {
     if (awaitingRoi) cancelRoi();
     setCopilotRoi(null);
     setShownRoi(null);
+    clearCopilotNuclei();
+    setRunByDigest({});
     resetCopilot();
     setHistoryOpen(false);
   };
@@ -302,6 +336,8 @@ export default function CopilotPanel() {
     if (awaitingRoi) cancelRoi();
     setCopilotRoi(null);
     setShownRoi(null);
+    clearCopilotNuclei();
+    setRunByDigest({});
     setHistoryOpen(false);
     setCopilotError(null);
     try {
@@ -391,8 +427,10 @@ export default function CopilotPanel() {
               key={i}
               plan={m.plan}
               busy={planBusy}
+              run={runByDigest[m.plan.digest]}
               onApprove={(d) => resolvePlan(d, 'approve')}
               onReject={(d) => resolvePlan(d, 'reject')}
+              onRun={runPlan}
               onShowRoi={showRoi}
             />
           ) : (
@@ -534,7 +572,7 @@ function Bubble({ role, text, roi, streaming, onShowRoi }) {
 
 // Plan card (inc 4) — the human gate. Numbered steps, tool/param chips, cost envelope,
 // Approve/Reject. Nothing runs on approve yet; only one plan is ever live (older → Expired).
-function PlanCard({ plan, busy, onApprove, onReject, onShowRoi }) {
+function PlanCard({ plan, busy, run, onApprove, onReject, onRun, onShowRoi }) {
   const meta = PLAN_STATE[plan.state] || { s: 'await', label: plan.state };
   const roi = plan.scope && plan.scope.roi;
   const env = plan.envelope || {};
@@ -551,7 +589,9 @@ function PlanCard({ plan, busy, onApprove, onReject, onShowRoi }) {
         {(plan.steps || []).map((s) => (
           <div className="cp-step" key={s.n}>
             <div className="cp-step-rail">
-              <span className="cp-step-dot">{s.n}</span>
+              <span className="cp-step-dot" data-run={run?.steps?.[s.n] || ''}>
+                {run?.steps?.[s.n] === 'done' ? '✓' : s.n}
+              </span>
               <span className="cp-step-line" />
             </div>
             <div className="cp-step-body">
@@ -596,8 +636,30 @@ function PlanCard({ plan, busy, onApprove, onReject, onShowRoi }) {
       ) : (
         <div className="cp-plan-resolved" data-s={meta.s}>
           {plan.state === 'APPROVED' && (
-            <>Approved — frozen as <code>{plan.digest}</code>. Nothing runs yet; execution lands
-              in the next increment.</>
+            run ? (
+              <div className="cp-run" data-s={run.status}>
+                {run.status === 'running' && (
+                  <span className="cp-run-line"><span className="cp-run-spin" />Running the plan…</span>
+                )}
+                {run.status === 'done' && run.result && (
+                  <span className="cp-run-line cp-run-ok">
+                    ✓ {run.result.count} {run.result.cell_class || 'cells'}
+                    {run.result.density != null && <> · {run.result.density} {run.result.density_unit}</>}
+                    {' '}— toggle the overlay from the viewer toolbar.
+                  </span>
+                )}
+                {run.status === 'error' && (
+                  <span className="cp-run-line cp-run-err">Run failed: {run.error}</span>
+                )}
+              </div>
+            ) : (
+              <div className="cp-plan-actions">
+                <span className="cp-plan-frozen">Approved — frozen as <code>{plan.digest}</code>.</span>
+                <button className="cp-plan-approve" onClick={() => onRun(plan.digest)} disabled={busy}>
+                  Run
+                </button>
+              </div>
+            )
           )}
           {plan.state === 'REJECTED' && <>Rejected. Ask again to propose a new plan.</>}
           {plan.state === 'EXPIRED' && <>Superseded by a newer plan — only the latest is runnable.</>}
@@ -633,7 +695,8 @@ const CP_CSS = `
   font-size:9px;font-weight:700;color:#0b0c12;background:#a78bfa}
 .cp-ribbon{font-size:9px;letter-spacing:.4px;color:#f5a623;background:rgba(245,166,35,.07);
   border-bottom:1px solid var(--border);padding:4px 12px;font-family:monospace}
-.cp-thread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.cp-thread{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:12px;display:flex;flex-direction:column;gap:10px;
+  scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.4) transparent}
 .cp-hint{color:var(--muted);font-size:12px}
 .cp-empty{color:var(--muted);font-size:12.5px;line-height:1.55;margin-top:6px;
   display:flex;flex-direction:column;gap:8px}
@@ -683,7 +746,12 @@ const CP_CSS = `
 .cp-step{display:flex;gap:9px;padding:7px 0}
 .cp-step-rail{display:flex;flex-direction:column;align-items:center;flex:none}
 .cp-step-dot{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-family:monospace;
-  font-size:9px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3)}
+  font-size:9px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);
+  transition:background .15s,color .15s,border-color .15s}
+.cp-step-dot[data-run="running"]{color:#fbbf24;background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.5);
+  animation:cp-pulse 1s ease-in-out infinite}
+.cp-step-dot[data-run="done"]{color:#86efac;background:rgba(34,197,94,.16);border-color:rgba(34,197,94,.5)}
+@keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 .cp-step-line{width:1.5px;flex:1;background:var(--border);margin:2px 0 -7px}
 .cp-step:last-child .cp-step-line{display:none}
 .cp-step-body{flex:1;min-width:0}
@@ -719,6 +787,14 @@ const CP_CSS = `
 .cp-plan-resolved code{font-family:monospace;font-size:10px;color:#c4b5fd}
 .cp-plan-resolved[data-s="approved"]{color:#86efac}
 .cp-plan-resolved[data-s="rejected"]{color:#fca5a5}
+.cp-run-line{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;line-height:1.5}
+.cp-run-ok{color:#86efac}
+.cp-run-err{color:#fca5a5}
+.cp-run-spin{width:11px;height:11px;border-radius:50%;border:2px solid rgba(251,191,36,.3);
+  border-top-color:#fbbf24;animation:cp-spin .7s linear infinite}
+@keyframes cp-spin{to{transform:rotate(360deg)}}
+.cp-plan-frozen{flex:1;font-size:11px;color:var(--muted);align-self:center}
+.cp-plan-frozen code{font-family:monospace;font-size:10px;color:#c4b5fd}
 .cp-composer-shell{border-top:1px solid var(--border)}
 .cp-roibar{padding:8px 10px 0;display:flex;align-items:center;gap:8px}
 .cp-roibtn{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:#c4b5fd;
@@ -740,7 +816,9 @@ const CP_CSS = `
 .cp-roilink{font-size:10.5px;color:var(--muted);background:none;border:none;cursor:pointer;
   text-decoration:underline;padding:0}
 .cp-composer{padding:10px;display:flex;gap:8px;align-items:flex-end}
-.cp-composer textarea{flex:1;resize:none;background:var(--bg2,#0d0e14);color:var(--fg);
+.cp-composer textarea{flex:1;resize:none;overflow-y:auto;max-height:160px;
+  scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.4) transparent;
+  background:var(--bg2,#0d0e14);color:var(--fg);
   border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;
   font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
 .cp-composer textarea:focus{border-color:rgba(139,92,246,.6);box-shadow:0 0 0 2px rgba(139,92,246,.15)}
@@ -772,9 +850,13 @@ const CP_CSS = `
 .cp-conv-trash{opacity:0}
 .cp-conv:hover .cp-conv-trash,.cp-conv:focus-within .cp-conv-trash{opacity:1}
 .cp-confirm{display:flex;align-items:center;gap:4px;font-size:10.5px;color:#f87171}
-.cp-list::-webkit-scrollbar,.cp-thread::-webkit-scrollbar{width:8px}
-.cp-list::-webkit-scrollbar-thumb,.cp-thread::-webkit-scrollbar-thumb{
-  background:rgba(148,163,184,.25);border-radius:8px}
+.cp-list::-webkit-scrollbar,.cp-thread::-webkit-scrollbar,.cp-composer textarea::-webkit-scrollbar{width:10px}
+.cp-list::-webkit-scrollbar-track,.cp-thread::-webkit-scrollbar-track,.cp-composer textarea::-webkit-scrollbar-track{
+  background:transparent}
+.cp-list::-webkit-scrollbar-thumb,.cp-thread::-webkit-scrollbar-thumb,.cp-composer textarea::-webkit-scrollbar-thumb{
+  background:rgba(148,163,184,.4);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+.cp-list::-webkit-scrollbar-thumb:hover,.cp-thread::-webkit-scrollbar-thumb:hover,
+.cp-composer textarea::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,.62);background-clip:padding-box}
 @keyframes cp-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes cp-slide{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
 @keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.3}}
