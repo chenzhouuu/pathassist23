@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -38,6 +38,18 @@ def get_artifacts(request: Request) -> ArtifactStore:
         store = InMemoryArtifactStore()
         request.app.state.artifacts = store
     return store
+
+
+def get_girder_token(
+    girder_token: str | None = Header(default=None, alias="Girder-Token"),
+) -> str | None:
+    """The caller's raw Girder token, threaded server-side to data tools (never the model)."""
+    return girder_token
+
+
+def get_cellvit_url() -> str | None:
+    """The configured CellViT service URL (None ⇒ run_segmentation keeps the canned stub)."""
+    return get_settings().cellvit_service_url or None
 
 
 def _uid(user: dict) -> str:
@@ -161,6 +173,8 @@ async def post_turn(
     store: ConversationStore = Depends(get_store),
     agent: AgentLoop = Depends(get_agent),
     artifacts: ArtifactStore = Depends(get_artifacts),
+    token: str | None = Depends(get_girder_token),
+    cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> EventSourceResponse:
     """Run one Claude-Code-style autonomous turn, streaming the typed event trace.
 
@@ -185,9 +199,11 @@ async def post_turn(
     scope = _scope(conv, roi)
     viewer = body.viewer.model_dump() if body.viewer else None
     # Server-tool execution context: bulk output is written to the artifact store and only
-    # a handle rides the stream (D4). The user's Girder token joins this context at R11.
+    # a handle rides the stream (D4). The Girder token + CellViT URL ride here server-side
+    # only (D3) — the model never sees either.
     ctx = ToolContext(
-        owner=_uid(user), conversation_id=conversation_id, artifacts=artifacts
+        owner=_uid(user), conversation_id=conversation_id, artifacts=artifacts,
+        girder_token=token, cellvit_url=cellvit_url,
     )
 
     async def turn_stream():

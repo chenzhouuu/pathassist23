@@ -155,3 +155,26 @@ def test_turn_artifact_fetch_scoped_to_owner(store):
 
     app.dependency_overrides[require_user] = lambda: {"_id": "intruder"}
     assert c.get(f"/api/copilot/conversations/{cid}/artifacts/{ref}").status_code == 404
+
+
+def test_turn_threads_token_and_service_url_into_ctx(client: TestClient):
+    """The Girder token + configured CellViT URL reach ToolContext (D3: server-side only)."""
+    from agent.gateway.routes import get_agent, get_cellvit_url, get_girder_token
+    from agent.loop.events import RunFinished
+
+    seen: dict = {}
+
+    class RecordingLoop:
+        async def run(self, *, text, history, scope, viewer=None, ctx=None,
+                      approved=False, abort=None):
+            seen["token"] = ctx.girder_token
+            seen["url"] = ctx.cellvit_url
+            yield RunFinished(run_id="r", text="ok")
+
+    client.app.dependency_overrides[get_agent] = lambda: RecordingLoop()
+    client.app.dependency_overrides[get_girder_token] = lambda: "tok-123"
+    client.app.dependency_overrides[get_cellvit_url] = lambda: "http://cellvit:8020"
+    cid = _conv(client)
+    client.post(f"/api/copilot/conversations/{cid}/turns", json={"text": "count here"})
+    assert seen["token"] == "tok-123"
+    assert seen["url"] == "http://cellvit:8020"

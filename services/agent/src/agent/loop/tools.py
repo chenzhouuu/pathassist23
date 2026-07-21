@@ -34,12 +34,15 @@ class LoopTool:
 @dataclass(frozen=True)
 class ToolContext:
     """Per-turn execution context for server-side data tools: who owns the turn, which
-    conversation it belongs to, and where bulk output is written (D4). The user's Girder
-    token joins here at R11 — the model never sees any of it."""
+    conversation it belongs to, where bulk output is written (D4), and the server-side
+    Girder token + CellViT service URL for real segmentation (R11). The token never enters
+    the model (D3)."""
 
     owner: str
     conversation_id: int
     artifacts: ArtifactStore | None = None
+    girder_token: str | None = None
+    cellvit_url: str | None = None
 
 
 @dataclass(frozen=True)

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-5"
     anthropic_max_tokens: int = 1024
 
+    # CellViT inference service (R11). Empty ⇒ run_segmentation keeps the canned stub.
+    cellvit_service_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
