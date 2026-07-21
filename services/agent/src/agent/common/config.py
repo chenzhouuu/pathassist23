@@ -12,8 +12,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AGENT_", env_file=".env", extra="ignore")
 
-    # The copilot authorizes every request against the same Girder the viewer uses.
-    girder_base: str = "https://lymphoma.dev.pathassist.health/api/v1"
+    # The copilot authorizes every request against the same Girder the viewer uses. This
+    # compile-time default is only a neutral local fallback — deployment sets AGENT_GIRDER_BASE
+    # (compose injects http://host.docker.internal:9080/api/v1).
+    girder_base: str = "http://localhost:9080/api/v1"
     cors_origins: list[str] = ["*"]
 
     # Control-plane store (increment 1). Default targets the compose `db` service;
