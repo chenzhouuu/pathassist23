@@ -157,6 +157,40 @@ def test_turn_artifact_fetch_scoped_to_owner(store):
     assert c.get(f"/api/copilot/conversations/{cid}/artifacts/{ref}").status_code == 404
 
 
+def test_get_turn_artifact_passes_caller_token_to_store(store):
+    from agent.gateway.app import create_app
+    from agent.gateway.auth import require_user
+    from agent.gateway.routes import get_agent, get_artifacts, get_store
+    from agent.loop import StubAgentLoop
+
+    class _TokenSpyStore:
+        def __init__(self):
+            self.seen_token = "UNSET"
+
+        async def put(self, **kwargs):
+            from agent.loop.artifacts import ArtifactHandle
+            return ArtifactHandle(kind="nuclei", ref="r1", count=0, summary="0", bbox=None)
+
+        async def get(self, *, owner, ref, token=None):
+            self.seen_token = token
+            return {"kind": "nuclei", "count": 0, "points": []}
+
+    spy = _TokenSpyStore()
+    app = create_app()
+    app.dependency_overrides[require_user] = lambda: {"_id": "u1", "login": "tester"}
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_agent] = lambda: StubAgentLoop()
+    app.dependency_overrides[get_artifacts] = lambda: spy
+    from starlette.testclient import TestClient
+    c = TestClient(app)
+    cid = c.post("/api/copilot/conversations", json={"item_id": "s1"}).json()["id"]
+
+    r = c.get(f"/api/copilot/conversations/{cid}/artifacts/anyref",
+              headers={"Girder-Token": "tok-42"})
+    assert r.status_code == 200
+    assert spy.seen_token == "tok-42"
+
+
 def test_turn_threads_token_and_service_url_into_ctx(client: TestClient):
     """The Girder token + configured CellViT URL reach ToolContext (D3: server-side only)."""
     from agent.gateway.routes import get_agent, get_cellvit_url, get_girder_token

@@ -240,17 +240,18 @@ async def get_turn_artifact(
     user: dict = Depends(require_user),
     store: ConversationStore = Depends(get_store),
     artifacts: ArtifactStore = Depends(get_artifacts),
+    token: str | None = Depends(get_girder_token),
 ) -> dict:
     """Fetch a turn artifact's bulk geometry out-of-band by its handle `ref` (D4).
 
-    Owner-scoped twice over: the conversation must be the caller's, and the store only
-    returns the payload to the owner who wrote it. At R11 the overlay fetches DSA
-    annotations directly from Girder instead; this gateway path is the in-memory stub.
+    Owner-scoped: the conversation must be the caller's. The caller's Girder token is
+    threaded to the store so the durable (DSA-annotation) backend can authorize the read
+    against Girder; the in-memory backend ignores it and scopes by owner.
     """
     conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
     if conv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
-    geometry = await artifacts.get(owner=_uid(user), ref=ref)
+    geometry = await artifacts.get(owner=_uid(user), ref=ref, token=token)
     if geometry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
     return geometry
