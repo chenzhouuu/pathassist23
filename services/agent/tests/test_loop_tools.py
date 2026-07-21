@@ -127,3 +127,16 @@ async def test_run_segmentation_real_path_needs_a_slide(monkeypatch):
     assert out.ok is False
     assert "slide" in out.summary.lower()
     assert fake.calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_segmentation_rejects_oversized_region(monkeypatch):
+    fake = _FakeSeg()
+    monkeypatch.setattr("agent.loop.tools.segment_region", fake)
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=InMemoryArtifactStore(),
+                      girder_token="tok", cellvit_url="http://cellvit")
+    big = {"x": 0, "y": 0, "width": 5000, "height": 5000}  # 25M px^2 > 4096*4096 cap
+    out = await run_server_tool(get_tool("run_segmentation"), {"bbox": big}, {"item_id": "s"}, ctx)
+    assert out.ok is False
+    assert "large" in out.summary.lower()
+    assert fake.calls == []  # never called the GPU service for an oversized region

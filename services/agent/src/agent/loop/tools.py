@@ -98,15 +98,21 @@ def _stub_nuclei_geometry(bbox: dict | None) -> dict:
     return {"kind": "nuclei", "count": len(points), "points": points}
 
 
+# A ceiling on the region a single interactive segmentation may cover (level-0 px^2). A
+# whole-slide-sized ROI would tie up the GPU for minutes; beyond this we ask the user to
+# zoom in. Whole-slide / async segmentation is deferred to R12.
+_MAX_SEG_AREA = 4096 * 4096
+
+
 async def run_server_tool(
     tool: LoopTool, args: dict, scope: dict, ctx: ToolContext | None = None
 ) -> ToolOutcome:
     """Execute a server-side data tool.
 
-    Stubbed at R8/R9 — no Girder call and no user token yet (that seam lands at R11). The
-    scope decides region-vs-whole-slide so the grounded summary matches what was analyzed.
-    When an ArtifactStore is in context, bulk output is written and only a **handle** is
-    returned (D4); without one (unit context) the tool degrades to a summary-only result.
+    The `run_segmentation` tool calls the CellViT service (R11) when one is configured on
+    the context, else returns a canned stub. The args/scope decide the region (D8); bulk
+    output is written to the ArtifactStore and only a **handle** rides the event (D4).
+    Without a store (unit context) the tool degrades to a summary-only result.
     """
     if tool.name == "run_segmentation":
         # region: explicit model-chosen bbox wins, else the drawn ROI (D8, gap ④).
@@ -125,6 +131,13 @@ async def run_server_tool(
                 return ToolOutcome(
                     ok=False,
                     summary="No slide is loaded to segment — open a slide and ask again.",
+                )
+            area = float(region.get("width", 0)) * float(region.get("height", 0))
+            if area > _MAX_SEG_AREA:
+                return ToolOutcome(
+                    ok=False,
+                    summary="That region is too large for interactive segmentation — zoom "
+                            "to a smaller area (about 4000x4000 pixels or less) and ask again.",
                 )
             try:
                 res = await segment_region(
