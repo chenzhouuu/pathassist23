@@ -10,7 +10,8 @@ from starlette.testclient import TestClient
 from agent.chat import EchoResponder
 from agent.gateway.app import create_app
 from agent.gateway.auth import require_user
-from agent.gateway.routes import get_planner, get_responder, get_store
+from agent.gateway.routes import get_agent, get_planner, get_responder, get_store
+from agent.loop import StubAgentLoop
 from agent.plan.planner import StubPlanner
 from agent.store.base import ConversationStore
 
@@ -208,10 +209,12 @@ def store() -> MemoryStore:
 @pytest.fixture
 def client(store: MemoryStore) -> TestClient:
     """A client with require_user stubbed, the in-memory store injected, and the echo
-    responder pinned so replies are deterministic regardless of AGENT_ANTHROPIC_API_KEY."""
+    responder / stub planner / stub agent loop pinned so behavior is deterministic and
+    keyless regardless of AGENT_ANTHROPIC_API_KEY (the real SDK loop is never spawned)."""
     app = create_app()
     app.dependency_overrides[require_user] = lambda: {"_id": "u1", "login": "tester"}
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_responder] = lambda: EchoResponder()
     app.dependency_overrides[get_planner] = lambda: StubPlanner()
+    app.dependency_overrides[get_agent] = lambda: StubAgentLoop()
     return TestClient(app)

@@ -9,6 +9,10 @@ from sse_starlette.sse import EventSourceResponse
 from ..chat import EchoResponder, Responder
 from ..claim import build_claim
 from ..common.config import get_settings
+from ..loop import AgentLoop, StubAgentLoop
+from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
+from ..loop.events import RunFinished
+from ..loop.tools import ToolContext
 from ..plan import Registry, load_registry, plan_digest, validate_plan
 from ..plan.planner import Planner, StubPlanner
 from ..run import invoke
@@ -42,6 +46,20 @@ def get_responder(request: Request) -> Responder:
 def get_planner(request: Request) -> Planner:
     """Resolve the process-wide planner; fall back to the deterministic stub if unset."""
     return getattr(request.app.state, "planner", None) or StubPlanner()
+
+
+def get_agent(request: Request) -> AgentLoop:
+    """Resolve the process-wide agent loop; fall back to the stub loop if unset (tests)."""
+    return getattr(request.app.state, "agent", None) or StubAgentLoop()
+
+
+def get_artifacts(request: Request) -> ArtifactStore:
+    """Resolve the process-wide artifact store (D4); fall back to in-memory if unset."""
+    store = getattr(request.app.state, "artifacts", None)
+    if store is None:
+        store = InMemoryArtifactStore()
+        request.app.state.artifacts = store
+    return store
 
 
 def _uid(user: dict) -> str:
@@ -323,6 +341,117 @@ async def post_message(
         yield sse_json({"type": "done", "text": reply, "conversation_id": conversation_id})
 
     return EventSourceResponse(chat_stream())
+
+
+# ── Autonomous agent turn (R7/R8 — the SDK-loop seam) ────────────────────────────
+
+
+class Viewport(BaseModel):
+    """The current OpenSeadragon viewport in level-0 pixels (D8) — injected so the loop
+    can ground a client-side viewer tool on where the user is actually looking."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+    unit: str = "px"
+
+
+class TurnRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    roi: Roi | None = None
+    viewer: Viewport | None = None
+    # The human's consent to run costly server tools on this (re-)turn — lifts the loop's
+    # default permission gate (D2). The frontend sets it when the user approves a gated tool.
+    approved: bool = False
+
+
+@router.post("/conversations/{conversation_id}/turns")
+async def post_turn(
+    conversation_id: int,
+    body: TurnRequest,
+    user: dict = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+    agent: AgentLoop = Depends(get_agent),
+    artifacts: ArtifactStore = Depends(get_artifacts),
+) -> EventSourceResponse:
+    """Run one Claude-Code-style autonomous turn, streaming the typed event trace.
+
+    The agent loop (a stub at R7, the Claude Agent SDK at R10) reasons, calls tools, and
+    answers in a single turn — there is no separate plan/approve/run. It emits typed
+    events (run · reasoning · tool_call · text) the frontend renders as a live trace with
+    tool cards. The user turn is persisted *before* streaming and the assistant's final
+    answer when the run finishes, so a reload survives an interrupted stream. This route
+    coexists with the legacy /messages plan flow during migration.
+    """
+    conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
+    if conv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    if not conv.get("title"):
+        await store.set_title_if_empty(conversation_id=conversation_id, title=_snippet(body.text))
+    roi = body.roi.model_dump() if body.roi else None
+    await store.add_turn(conversation_id=conversation_id, role="user", content=body.text, roi=roi)
+
+    # Full history (incl. the turn just saved) is the loop's context; any ROI bound to a
+    # turn is folded into that message so the model can cite its coordinates (D8).
+    turns = await store.get_turns(conversation_id=conversation_id)
+    history = [{"role": t["role"], "content": _with_roi(t["text"], t.get("roi"))} for t in turns]
+    scope = _scope(conv, roi)
+    viewer = body.viewer.model_dump() if body.viewer else None
+    # Server-tool execution context: bulk output is written to the artifact store and only
+    # a handle rides the stream (D4). The user's Girder token joins this context at R11.
+    ctx = ToolContext(
+        owner=_uid(user), conversation_id=conversation_id, artifacts=artifacts
+    )
+
+    async def turn_stream():
+        final = ""
+        try:
+            async for ev in agent.run(
+                text=body.text, history=history, scope=scope, viewer=viewer, ctx=ctx,
+                approved=body.approved,
+            ):
+                if isinstance(ev, RunFinished):
+                    final = ev.text
+                yield sse_json(ev.as_event())
+        except Exception as exc:  # noqa: BLE001 — surface any loop failure to the client
+            logger.exception("agent turn failed for conversation %s", conversation_id)
+            if final:
+                await store.add_turn(
+                    conversation_id=conversation_id, role="assistant", content=final
+                )
+            yield sse_json({
+                "type": "run_error",
+                "message": f"The agent loop failed ({type(exc).__name__}).",
+            })
+            return
+        if final:
+            await store.add_turn(conversation_id=conversation_id, role="assistant", content=final)
+
+    return EventSourceResponse(turn_stream())
+
+
+@router.get("/conversations/{conversation_id}/artifacts/{ref}")
+async def get_turn_artifact(
+    conversation_id: int,
+    ref: str,
+    user: dict = Depends(require_user),
+    store: ConversationStore = Depends(get_store),
+    artifacts: ArtifactStore = Depends(get_artifacts),
+) -> dict:
+    """Fetch a turn artifact's bulk geometry out-of-band by its handle `ref` (D4).
+
+    Owner-scoped twice over: the conversation must be the caller's, and the store only
+    returns the payload to the owner who wrote it. At R10/R11 the overlay fetches DSA
+    annotations directly from Girder instead; this gateway path is the R9 stub.
+    """
+    conv = await store.get_conversation(user=_uid(user), conversation_id=conversation_id)
+    if conv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    geometry = await artifacts.get(owner=_uid(user), ref=ref)
+    if geometry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+    return geometry
 
 
 # ── Plan approval gate (increment 4) ─────────────────────────────────────────────

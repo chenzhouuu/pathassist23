@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..chat import build_responder
 from ..common.config import get_settings
+from ..loop import build_agent
+from ..loop.artifacts import InMemoryArtifactStore
 from ..plan import build_planner
 from ..store import PgStore
 from .routes import router
@@ -43,5 +45,7 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.responder = build_responder(settings)  # Claude when keyed, else echo
     app.state.planner = build_planner(settings)      # Claude when keyed, else stub
+    app.state.agent = build_agent(settings)          # SDK loop when keyed, else stub
+    app.state.artifacts = InMemoryArtifactStore()    # R9: artifact handles (D4)
     app.include_router(router)
     return app
