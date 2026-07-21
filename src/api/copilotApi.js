@@ -1,10 +1,7 @@
-// src/api/copilotApi.js — PathAgent v2 Copilot gateway client.
-// Mirrors wsiAgentApi.js: env-configurable base + Girder-Token auth + raw fetch so
-// we can read the SSE stream from response.body. Distinct base from the older
-// pathagent gateway (/api/agent) so both coexist.
-//
-// Increment 1: conversations + turns persist. The panel loads history on mount,
-// lazily creates a conversation on first send, and streams replies over SSE.
+// src/api/copilotApi.js — Copilot gateway client.
+// Env-configurable base + Girder-Token auth + raw fetch so we can read the SSE stream
+// from response.body. The panel loads history on mount, lazily creates a conversation
+// on first send, and streams replies over SSE.
 const COPILOT_BASE = (import.meta.env.VITE_COPILOT_API_URL || '/api/copilot').replace(/\/$/, '');
 
 function authHeaders(extra = {}) {

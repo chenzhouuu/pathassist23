@@ -6,7 +6,6 @@ import AIPanel from './AIPanel.jsx';
 import PanelsPanel from './PanelsPanel.jsx';
 import AnalysisPanel from './AnalysisPanel.jsx';
 import PathChatPanel from './PathChatPanel.jsx';
-import PathAgentPanel from './PathAgentPanel.jsx';
 import CopilotPanel from './CopilotPanel.jsx';
 
 const MIN_W = 248;
@@ -65,10 +64,6 @@ export default function RightPanel() {
     { id:'chat',        label:'AskPA', show: hasRole('ai-users'), icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-      </svg> },
-    { id:'agent',       label:'PathAgent', show: hasRole('ai-users'), icon:
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
       </svg> },
     { id:'copilot',     label:'Copilot', show: hasRole('ai-users'), icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -142,7 +137,6 @@ export default function RightPanel() {
         {rightPanelTab === 'ai'          && <AIPanel/>}
         {rightPanelTab === 'analysis'    && <AnalysisPanel/>}
         {rightPanelTab === 'chat'        && <PathChatPanel/>}
-        {rightPanelTab === 'agent'       && <PathAgentPanel/>}
         {rightPanelTab === 'copilot'     && <CopilotPanel/>}
       </div>
     </div>
