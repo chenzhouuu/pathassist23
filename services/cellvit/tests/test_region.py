@@ -1,8 +1,6 @@
 import io
 
 import httpx
-import numpy as np
-import pytest
 from PIL import Image
 
 from cellvit_service.region import fetch_region
@@ -14,8 +12,7 @@ def _png_bytes(w: int, h: int) -> bytes:
     return buf.getvalue()
 
 
-@pytest.mark.asyncio
-async def test_fetch_region_requests_bbox_and_decodes_pixels():
+def test_fetch_region_requests_bbox_and_decodes_pixels():
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -25,8 +22,8 @@ async def test_fetch_region_requests_bbox_and_decodes_pixels():
                               headers={"Content-Type": "image/png"})
 
     transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport, base_url="http://g") as client:
-        region = await fetch_region(
+    with httpx.Client(transport=transport, base_url="http://g") as client:
+        region = fetch_region(
             girder_base="http://g", slide_ref="item1",
             bbox={"x": 100, "y": 200, "width": 64, "height": 48},
             token="tok", client=client,

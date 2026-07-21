@@ -2,17 +2,20 @@
 name = "cellvit-service"
 version = "0.1.0"
 requires-python = ">=3.11"
+# Flask, NOT FastAPI: cellvit is built for pydantic v1 and breaks under the pydantic v2 that
+# FastAPI pulls in. Flask has no pydantic dependency, so the real CellViT model runs in-process
+# with a warm singleton. torch + cellvit live only in the Dockerfile (imported lazily), so the
+# base env / CI stays GPU-free.
 dependencies = [
-    "fastapi>=0.111",
-    "uvicorn>=0.30",
+    "flask>=3.0",
     "httpx>=0.27",
     "numpy>=1.26",
     "pillow>=10.0",
-    "pydantic-settings>=2.0",
+    "tifffile>=2024.1",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]
@@ -23,4 +26,11 @@ packages = ["src/cellvit_service"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
-asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

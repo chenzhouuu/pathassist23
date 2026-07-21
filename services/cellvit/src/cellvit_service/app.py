@@ -1,5 +1,13 @@
-from fastapi import FastAPI, Request
-from pydantic import BaseModel, Field
+"""The CellViT inference service (Flask): region-read → infer → level-0 re-offset, over HTTP.
+
+Flask (not FastAPI) so the process carries no pydantic v2 — the real CellViT model needs
+pydantic v1 and runs in-process behind the `infer.segment_array` seam. The region reader and
+model are injectable via `app.config` (tests override them), defaulting to the real
+`fetch_region` / `segment_array`. Every bbox in / centroid out is level-0 slide pixels (D8).
+"""
+
+import httpx
+from flask import Flask, jsonify, request
 
 from .config import get_settings
 from .geometry import offset_points
@@ -7,42 +15,37 @@ from .infer import segment_array
 from .region import fetch_region
 
 
-class Bbox(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
-    kind: str = "rect"
-    unit: str = "px"
-
-
-class SegmentRequest(BaseModel):
-    slide_ref: str = Field(..., min_length=1)
-    bbox: Bbox
-    girder_token: str | None = None
-    classes: list[str] | None = None
-
-
-def create_app() -> FastAPI:
-    """The CellViT inference service. Region-read → infer → re-offset, over HTTP."""
-    app = FastAPI(title="CellViT Inference Service", version="0.1.0")
-    app.state.read_region = fetch_region   # injectable seams (tests override these)
-    app.state.segment = segment_array
+def create_app() -> Flask:
+    app = Flask(__name__)
+    app.config["READ_REGION"] = fetch_region   # injectable seams (tests override these)
+    app.config["SEGMENT"] = segment_array
 
     @app.get("/health")
-    async def health() -> dict:
-        return {"status": "ok", "service": "cellvit", "device": get_settings().device}
+    def health():
+        settings = get_settings()
+        return jsonify({"status": "ok", "service": "cellvit", "model": settings.model})
 
     @app.post("/segment")
-    async def segment(body: SegmentRequest, request: Request) -> dict:
+    def segment():
+        body = request.get_json(force=True, silent=True) or {}
+        slide_ref = body.get("slide_ref")
+        bbox = body.get("bbox")
+        if not slide_ref or not isinstance(bbox, dict):
+            return jsonify({"detail": "slide_ref and a bbox object are required"}), 400
+
         settings = get_settings()
-        bbox = body.bbox.model_dump()
-        region = await request.app.state.read_region(
-            girder_base=settings.girder_base, slide_ref=body.slide_ref,
-            bbox=bbox, token=body.girder_token,
-        )
-        local = request.app.state.segment(region.pixels, region.mpp)
+        try:
+            region = app.config["READ_REGION"](
+                girder_base=settings.girder_base, slide_ref=slide_ref,
+                bbox=bbox, token=body.get("girder_token"),
+            )
+        except httpx.HTTPError as exc:
+            return jsonify(
+                {"detail": f"could not read the slide region from Girder: {exc}"}
+            ), 502
+
+        local = app.config["SEGMENT"](region.pixels, region.mpp)
         centroids = offset_points(local, bbox["x"], bbox["y"], region.scale)
-        return {"count": len(centroids), "centroids": centroids, "bbox": bbox}
+        return jsonify({"count": len(centroids), "centroids": centroids, "bbox": bbox})
 
     return app
