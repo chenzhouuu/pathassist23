@@ -99,3 +99,31 @@ async def test_run_segmentation_service_no_region_is_error():
                       cellvit_url="http://cellvit")
     out = await run_server_tool(get_tool("run_segmentation"), {}, {"item_id": "item1"}, ctx)
     assert out.ok is False and "region" in out.summary.lower()
+
+
+async def _raise_boom(*, base_url, slide_ref, bbox, token, timeout=120.0, client=None):
+    raise RuntimeError("boom")
+
+
+@pytest.mark.asyncio
+async def test_run_segmentation_service_failure_is_ok_false(monkeypatch):
+    monkeypatch.setattr("agent.loop.tools.segment_region", _raise_boom)
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=InMemoryArtifactStore(),
+                      girder_token="tok", cellvit_url="http://cellvit")
+    scope = {"item_id": "item1", "roi": {"x": 10, "y": 20, "width": 30, "height": 40}}
+    out = await run_server_tool(get_tool("run_segmentation"), {}, scope, ctx)
+    assert out.ok is False
+    assert "segmentation failed" in out.summary
+
+
+@pytest.mark.asyncio
+async def test_run_segmentation_real_path_needs_a_slide(monkeypatch):
+    fake = _FakeSeg()
+    monkeypatch.setattr("agent.loop.tools.segment_region", fake)
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=InMemoryArtifactStore(),
+                      girder_token="tok", cellvit_url="http://cellvit")
+    scope = {"roi": {"x": 10, "y": 20, "width": 30, "height": 40}}  # no item_id
+    out = await run_server_tool(get_tool("run_segmentation"), {}, scope, ctx)
+    assert out.ok is False
+    assert "slide" in out.summary.lower()
+    assert fake.calls == []

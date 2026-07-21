@@ -13,10 +13,13 @@ This is the catalog of record for the loop; R10/R11 repoint the server executors
 models without touching the loop or the event contract.
 """
 
+import logging
 from dataclasses import dataclass
 
 from .artifacts import ArtifactHandle, ArtifactStore
 from .segmenter import segment_region
+
+logger = logging.getLogger(__name__)
 
 CLIENT = "client"
 SERVER = "server"
@@ -67,8 +70,9 @@ _TOOLS: dict[str, LoopTool] = {
         "Outline a bounding box on the slide, in level-0 pixels.",
     ),
     "run_segmentation": LoopTool(
-        "run_segmentation", SERVER, "Segment nuclei (stub)",
-        "Segment nuclei within the scope. Canned stub until CellViT++ lands at R10.",
+        "run_segmentation", SERVER, "Segment nuclei",
+        "Segment the nuclei in the region and count them; returns a nucleus count and "
+        "their locations.",
     ),
 }
 
@@ -116,12 +120,19 @@ async def run_server_tool(
                     summary="Whole-slide segmentation isn't available yet — draw a region "
                             "on the slide (or pan to one) and ask again.",
                 )
+            slide_ref = (scope or {}).get("item_id")
+            if not slide_ref:
+                return ToolOutcome(
+                    ok=False,
+                    summary="No slide is loaded to segment — open a slide and ask again.",
+                )
             try:
                 res = await segment_region(
-                    base_url=ctx.cellvit_url, slide_ref=(scope or {}).get("item_id"),
+                    base_url=ctx.cellvit_url, slide_ref=slide_ref,
                     bbox=region, token=ctx.girder_token,
                 )
             except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
+                logger.warning("run_segmentation failed", exc_info=True)
                 return ToolOutcome(ok=False, summary=f"segmentation failed ({type(exc).__name__})")
             if ctx.artifacts is None:
                 return ToolOutcome(ok=True, summary=f"segmented {res.count:,} nuclei in the region")
