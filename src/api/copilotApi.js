@@ -1,7 +1,7 @@
-// src/api/copilotApi.js — Copilot gateway client.
-// Env-configurable base + Girder-Token auth + raw fetch so we can read the SSE stream
-// from response.body. The panel loads history on mount, lazily creates a conversation
-// on first send, and streams replies over SSE.
+// src/api/copilotApi.js — Copilot gateway client (autonomous /turns flow).
+// Env-configurable base + Girder-Token auth + raw fetch so we can read the SSE stream from
+// response.body. The panel loads history on mount, lazily creates a conversation on first
+// send, and streams one autonomous agent turn (typed events) per message over SSE.
 const COPILOT_BASE = (import.meta.env.VITE_COPILOT_API_URL || '/api/copilot').replace(/\/$/, '');
 
 function authHeaders(extra = {}) {
@@ -56,7 +56,7 @@ export async function createConversation({ itemId = null, title = null } = {}) {
   return asJson(r, 'New conversation');
 }
 
-// Fetch a conversation plus its turns ({ id, item_id, title, ..., turns: [{role,text}] }).
+// Fetch a conversation plus its turns ({ id, item_id, title, ..., turns: [{role,text,roi}] }).
 export async function getConversation(id) {
   const r = await fetch(`${COPILOT_BASE}/conversations/${id}`, { headers: authHeaders() });
   return asJson(r, 'Load conversation');
@@ -74,66 +74,42 @@ export async function deleteConversation(id) {
   throw new Error(describeError(r.status, detail, 'Delete conversation'));
 }
 
-// Approve / reject a proposed plan (increment 4). Returns the updated plan; the state
-// gate is server-side (404 if the plan is gone, 409 if it is no longer awaiting).
-export async function approvePlan(conversationId, digest) {
-  const r = await fetch(
-    `${COPILOT_BASE}/conversations/${conversationId}/plan/${encodeURIComponent(digest)}/approve`,
-    { method: 'POST', headers: authHeaders() },
-  );
-  return asJson(r, 'Approve plan');
-}
-
-export async function rejectPlan(conversationId, digest) {
-  const r = await fetch(
-    `${COPILOT_BASE}/conversations/${conversationId}/plan/${encodeURIComponent(digest)}/reject`,
-    { method: 'POST', headers: authHeaders() },
-  );
-  return asJson(r, 'Reject plan');
-}
-
-// Run an approved plan (increment 5) and stream per-step SSE frames to onEvent:
-//   run_start → run_step(running/done) → run_done({result, artifacts:[{key,kind}]}) | run_error.
-// The bulk output (nuclei geometry) is NOT in the stream — fetch it with fetchArtifact.
-export async function streamRun({ conversationId, digest, onEvent, signal }) {
-  const r = await fetch(
-    `${COPILOT_BASE}/conversations/${conversationId}/plan/${encodeURIComponent(digest)}/run`,
-    { method: 'POST', headers: authHeaders(), signal },
-  );
-  if (!r.ok || !r.body) {
-    let detail = '';
-    try { detail = (await r.text()).slice(0, 300); } catch { /* ignore */ }
-    throw new Error(describeError(r.status, detail, 'Run plan'));
-  }
-  await readSse(r.body, onEvent);
-}
-
-// Fetch a produced artifact by its opaque (runId, key) handle — e.g. the nuclei geometry.
-export async function fetchArtifact(conversationId, runId, key) {
-  const r = await fetch(
-    `${COPILOT_BASE}/conversations/${conversationId}/runs/${runId}/artifact/${encodeURIComponent(key)}`,
-    { headers: authHeaders() },
-  );
-  return asJson(r, 'Fetch artifact');
-}
-
-// POST a message into a conversation and stream SSE `data:` frames to onEvent({type,...}).
-// The server persists the user turn before streaming and the assistant turn at the end.
-// A quantitative ask yields a `plan` frame instead of tokens (increment 4).
-// Frame contract (start/token/plan/done/error) is stable across increments.
-export async function streamMessage({ conversationId, text, roi = null, onEvent, signal }) {
-  const r = await fetch(`${COPILOT_BASE}/conversations/${conversationId}/messages`, {
+// Run one autonomous agent turn and stream its typed events to onEvent({type,...}):
+//   run_started → reasoning_delta* → (tool_call_start → tool_call_result)* → text_delta* →
+//   run_finished | run_error.
+// `roi` grounds the ask to a drawn region; `viewer` is the current viewport (both level-0 px)
+// so a client viewer tool can act on where the user is looking; `approved` lifts the tool
+// gate for a costly server tool on a re-run. Bulk geometry never rides the stream — a
+// tool_call_result carries only an artifact handle, fetched out-of-band via fetchTurnArtifact.
+export async function streamTurn({
+  conversationId, text, roi = null, viewer = null, approved = false, onEvent, signal,
+}) {
+  const body = { text };
+  if (roi) body.roi = roi;
+  if (viewer) body.viewer = viewer;
+  if (approved) body.approved = true;
+  const r = await fetch(`${COPILOT_BASE}/conversations/${conversationId}/turns`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(roi ? { text, roi } : { text }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!r.ok || !r.body) {
     let detail = '';
     try { detail = (await r.text()).slice(0, 300); } catch { /* ignore */ }
-    throw new Error(describeError(r.status, detail, 'Copilot message'));
+    throw new Error(describeError(r.status, detail, 'Copilot turn'));
   }
   await readSse(r.body, onEvent);
+}
+
+// Fetch a turn artifact's bulk geometry (e.g. the nuclei points) by its opaque handle ref,
+// owner-scoped server-side. The handle rode the tool_call_result; the geometry does not.
+export async function fetchTurnArtifact(conversationId, ref) {
+  const r = await fetch(
+    `${COPILOT_BASE}/conversations/${conversationId}/artifacts/${encodeURIComponent(ref)}`,
+    { headers: authHeaders() },
+  );
+  return asJson(r, 'Fetch artifact');
 }
 
 // Parse an SSE byte stream: split frames on the blank line, JSON-parse each `data:`.

@@ -1,21 +1,19 @@
 // src/components/panels/CopilotPanel.jsx
-// Copilot — PathAgent v2 conversational panel.
-// - inc 1: conversations + turns persist in Postgres, keyed by (Girder user, slide);
-//   History drawer to browse / switch / delete threads.
-// - inc 2: replies stream from Claude (or echo when unkeyed); mode pill + error frame.
-// - inc 3: "Region" grounds the next message to an ROI drawn on the slide (reuses the
-//   viewer's roi-select handshake); the ROI rides along and renders on the message.
-// - inc 4: a quantitative ask returns a Plan card (proposed steps + cost/time envelope)
-//   that the user must Approve before anything runs; older plans expire. Nothing executes
-//   yet — that's inc 5.
-// The run/claim UI lands in later increments; this file grows, the tab stays.
+// Copilot — the conversational panel over the autonomous /turns agent loop.
+// Each message runs ONE agent turn that streams typed events (reasoning · tool calls · text),
+// folded live into a render-ready trace (copilotTurn.js). The agent drives the viewer through
+// client tools (co-navigation) and measures through gated server tools; a gate denial surfaces
+// an inline "Approve & run" that re-sends the same ask with approval. Conversations persist
+// per (Girder user, slide); only the final answer text survives a reload, the trace is live.
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import {
-  streamMessage, listConversations, createConversation, getConversation, deleteConversation,
-  approvePlan, rejectPlan, streamRun, fetchArtifact, checkHealth,
+  streamTurn, fetchTurnArtifact, listConversations, createConversation,
+  getConversation, deleteConversation, checkHealth,
 } from '../../api/copilotApi.js';
-import { focusRegion } from './agentViewerSync.js';
+import { focusRegion, currentViewportBbox } from './agentViewerSync.js';
+import { initTrace, reduceTurnEvent } from './copilotTurn.js';
+import { Markdown } from './markdown.jsx';
 
 // ── tiny inline icons (stroke = currentColor) ───────────────────────────────────
 const Icon = ({ d, size = 14 }) => (
@@ -31,9 +29,19 @@ const TrashIcon = () => <Icon d={['M3 6h18', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2
   'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6']} size={13} />;
 const CheckIcon = () => <Icon d="M20 6 9 17l-5-5" size={13} />;
 const CloseIcon = () => <Icon d="M18 6 6 18M6 6l12 12" size={13} />;
-const MemoryIcon = ({ size = 12 }) => (
-  <Icon d={['M12 2 2 7l10 5 10-5-10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5']} size={size} />
+const ChevronIcon = ({ open }) => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
+    style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
+    <polyline points="9 6 15 12 9 18" />
+  </svg>
 );
+// client tool → a compass (co-navigation); server tool → a scan target (measurement)
+const CompassIcon = () => <Icon d={['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z',
+  'M16.24 7.76 14 14l-6.24 2.24L10 10z']} size={12} />;
+const ScanIcon = () => <Icon d={['M3 7V5a2 2 0 0 1 2-2h2', 'M17 3h2a2 2 0 0 1 2 2v2',
+  'M21 17v2a2 2 0 0 1-2 2h-2', 'M7 21H5a2 2 0 0 1-2-2v-2', 'M12 9v6', 'M9 12h6']} size={12} />;
+const ShieldIcon = ({ size = 12 }) => <Icon d={['M12 2 4 5v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V5z']} size={size} />;
 const RectIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinejoin="round" strokeDasharray="4 3">
@@ -43,32 +51,17 @@ const RectIcon = ({ size = 12 }) => (
 
 const r0 = (n) => Math.round(n);
 const fmtRoi = (r) => `${r0(r.width)}×${r0(r.height)} @ (${r0(r.x)}, ${r0(r.y)})`;
+const fmtInt = (n) => (typeof n === 'number' ? n.toLocaleString() : n);
 
-// Rebuild the thread from a hydrated conversation: turns as bubbles, with each plan card
-// slotted in right after the turn that triggered it (plan.turn_id).
+// Rebuild the thread from a hydrated conversation: turns → bubbles. The live trace is
+// ephemeral (only the assistant's final answer text persists), so a reload shows plain
+// bubbles; the rich trace appears only while a turn streams.
 function buildMessages(full) {
-  const turns = full.turns || [];
-  const plans = full.plans || [];
-  const byTurn = new Map();
-  const tail = [];
-  plans.forEach((p) => {
-    if (p.turn_id == null) { tail.push(p); return; }
-    const arr = byTurn.get(p.turn_id) || [];
-    arr.push(p);
-    byTurn.set(p.turn_id, arr);
-  });
-  const msgs = [];
-  turns.forEach((t) => {
-    msgs.push({ role: t.role, text: t.text, roi: t.roi });
-    (byTurn.get(t.id) || []).forEach((p) => msgs.push({ role: 'plan', plan: p }));
-  });
-  tail.forEach((p) => msgs.push({ role: 'plan', plan: p }));
-  return msgs;
+  return (full.turns || []).map((t) => ({ role: t.role, text: t.text, roi: t.roi }));
 }
 
-// The region a conversation is currently focused on: the most recent user turn's ROI,
-// stripped to the composer's { x, y, width, height } shape (turns store it as { kind, ... }).
-// Used to re-attach the sticky region when a slide/conversation is (re)opened.
+// The region a conversation is focused on: the most recent user turn's ROI, stripped to the
+// composer's { x, y, width, height } shape. Re-attaches the sticky region on (re)open.
 function lastUserTurnRoi(full) {
   const turns = full.turns || [];
   for (let i = turns.length - 1; i >= 0; i -= 1) {
@@ -80,13 +73,6 @@ function lastUserTurnRoi(full) {
   }
   return null;
 }
-
-const PLAN_STATE = {
-  AWAITING_APPROVAL: { s: 'await', label: 'Awaiting' },
-  APPROVED: { s: 'approved', label: 'Approved' },
-  REJECTED: { s: 'rejected', label: 'Rejected' },
-  EXPIRED: { s: 'expired', label: 'Expired' },
-};
 
 function relTime(iso) {
   const t = new Date(iso).getTime();
@@ -106,8 +92,7 @@ export default function CopilotPanel() {
   const {
     activeItem,
     copilotMessages, copilotConversationId, copilotStreaming, copilotError,
-    addCopilotMessage, setCopilotMessages, updateLastCopilotMessage, setLastCopilotMessage,
-    expireCopilotPlans, updateCopilotPlanState,
+    addCopilotMessage, setCopilotMessages, setLastCopilotMessage,
     setCopilotConversationId, setCopilotStreaming, setCopilotError, resetCopilot,
     setDrawingMode, roiSelectResult, clearRoiSelectResult,
     copilotRoi, setCopilotRoi, restoreCopilotRoi, shownRoi, setShownRoi, viewer,
@@ -118,14 +103,11 @@ export default function CopilotPanel() {
   const [conversations, setConversations] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [confirmId, setConfirmId] = useState(null);   // conversation pending delete-confirm
-  const [mode, setMode] = useState(null);             // 'claude' | 'echo' — which backend is live
+  const [mode, setMode] = useState(null);             // 'claude' | 'echo' — is the backend keyed
   const [awaitingRoi, setAwaitingRoi] = useState(false);  // waiting for the user to draw a box
-  const [planBusy, setPlanBusy] = useState(false);        // approve/reject request in flight
-  const [runByDigest, setRunByDigest] = useState({});     // digest → { status, steps, result, error, runId }
-  const [blackboard, setBlackboard] = useState([]);       // per-slide case memory (deduped facts)
-  // The grounded region (copilotRoi) lives in the store so the viewer can paint it too.
   const threadRef = useRef(null);
   const abortRef = useRef(null);
+  const traceRef = useRef(initTrace());   // the in-flight turn's accumulating trace
 
   const itemId = activeItem?._id || null;
 
@@ -152,8 +134,8 @@ export default function CopilotPanel() {
     }
   }, [awaitingRoi, roiSelectResult, clearRoiSelectResult, setCopilotRoi, setShownRoi]);
 
-  // Reveal a region on the viewer: pan/zoom to it and paint the box. Clicking the same
-  // region again hides it (toggle). Display only — never changes the pending attachment.
+  // Reveal a region on the viewer: pan/zoom to it and paint the box. Clicking the same region
+  // again hides it (toggle). Display only — never changes the pending attachment.
   const showRoi = useCallback((roi) => {
     if (!roi) return;
     const same = shownRoi && shownRoi.x === roi.x && shownRoi.y === roi.y
@@ -163,48 +145,7 @@ export default function CopilotPanel() {
     if (viewer) focusRegion(viewer, roi);
   }, [shownRoi, setShownRoi, viewer]);
 
-  // Reveal a blackboard fact's evidence on the slide: focus + paint its region, and pull its
-  // nuclei overlay. The fact carries its OWN conversation_id, so the artifact fetch stays
-  // owner-scoped even when the fact was asserted in a different thread on this slide.
-  const revealFact = useCallback((f) => {
-    if (f.scope?.roi) showRoi(f.scope.roi);
-    const ref = (f.evidence || []).find((e) => e.key === 'nuclei');
-    if (ref) {
-      fetchArtifact(f.conversation_id, ref.run_id, 'nuclei')
-        .then((n) => setCopilotNuclei(n))
-        .catch(() => {});
-    }
-  }, [showRoi, setCopilotNuclei]);
-
-  // Rehydrate persisted Claims (increment 6a): re-seed each approved plan's run trace to
-  // "done" (so its card shows the Claim, not a Run button) and restore the nuclei overlay
-  // from the latest claim's evidence — so a reload brings back the result + overlay.
-  const rehydrateClaims = useCallback((full) => {
-    const claims = full.claims || [];
-    const plansByDigest = {};
-    (full.plans || []).forEach((p) => { plansByDigest[p.digest] = p; });
-    const runs = {};
-    claims.forEach((c) => {
-      const steps = {};
-      (plansByDigest[c.plan_digest]?.steps || []).forEach((s) => { steps[s.n] = 'done'; });
-      runs[c.plan_digest] = {
-        status: 'done', runId: c.run_id, result: c.metrics || {}, steps, claim: c,
-      };
-    });
-    setRunByDigest(runs);
-    const withNuclei = claims.filter((c) => (c.evidence || []).some((e) => e.key === 'nuclei'));
-    const last = withNuclei[withNuclei.length - 1];
-    if (last) {
-      const ref = last.evidence.find((e) => e.key === 'nuclei');
-      fetchArtifact(full.id, ref.run_id, 'nuclei').then((n) => setCopilotNuclei(n)).catch(() => {});
-    } else {
-      clearCopilotNuclei();
-    }
-  }, [setCopilotNuclei, clearCopilotNuclei]);
-
-  // Reset the local "awaiting a box" flag + run traces when the slide changes; the grounded
-  // copilotRoi and nuclei overlay are cleared at the store level (setActiveItem / openCaseItem).
-  useEffect(() => { setAwaitingRoi(false); setRunByDigest({}); setBlackboard([]); }, [itemId]);
+  useEffect(() => { setAwaitingRoi(false); }, [itemId]);
 
   // Which chat backend is configured server-side, so the UI can label itself honestly.
   useEffect(() => {
@@ -221,7 +162,6 @@ export default function CopilotPanel() {
   }, [itemId]);
 
   // Hydrate for the current slide: list conversations + load the newest into the thread.
-  // A `cancelled` guard drops stale responses if the slide changes mid-fetch.
   useEffect(() => {
     if (!itemId) { setConversations([]); return undefined; }
     let cancelled = false;
@@ -237,15 +177,10 @@ export default function CopilotPanel() {
           if (cancelled) return;
           setCopilotConversationId(full.id);
           setCopilotMessages(buildMessages(full));
-          rehydrateClaims(full);
-          setBlackboard(full.blackboard || []);   // per-slide case memory
-          // Re-attach the sticky region: localStorage (staged box / explicit clear on this
-          // slide) wins; otherwise adopt the conversation's last-used region.
           restoreCopilotRoi(itemId, lastUserTurnRoi(full));
         } else {
           setCopilotConversationId(null);
           setCopilotMessages([]);
-          setBlackboard([]);
           restoreCopilotRoi(itemId, null);   // no conversation yet, but a staged box may persist
         }
       } catch (err) {
@@ -255,21 +190,23 @@ export default function CopilotPanel() {
       }
     })();
     return () => { cancelled = true; };
-  }, [itemId, setCopilotError, setCopilotConversationId, setCopilotMessages, rehydrateClaims,
-      restoreCopilotRoi]);
+  }, [itemId, setCopilotError, setCopilotConversationId, setCopilotMessages, restoreCopilotRoi]);
 
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [copilotMessages, copilotStreaming]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  // Run one agent turn: persist+render the user bubble, then stream typed events into a live
+  // trace. `textArg` (a re-run of a gated ask) overrides the composer; `approved` lifts the
+  // tool gate. Side effects ride the same events: client tools drive the viewer, a server
+  // tool's artifact handle pulls its geometry into the overlay.
+  const runTurn = useCallback(async ({ textArg = null, approved = false } = {}) => {
+    const text = (textArg ?? input).trim();
     if (!text || copilotStreaming || !itemId) return;
-    setInput('');
+    if (textArg == null) setInput('');
     setCopilotError(null);
     const roi = copilotRoi ? { kind: 'rect', ...copilotRoi } : null;
 
-    // Ensure a server conversation exists (lazy-create on first message).
     let convId = copilotConversationId;
     try {
       if (!convId) {
@@ -283,114 +220,61 @@ export default function CopilotPanel() {
     }
 
     addCopilotMessage({ role: 'user', text, roi });
-    addCopilotMessage({ role: 'assistant', text: '' });
-    // The region is STICKY: it rides on this message AND stays attached for follow-ups
-    // (and across refresh) until the user clears it. Only unpaint the viewer box; the
-    // composer chip remains as the "still grounded here" indicator.
-    setShownRoi(null);
+    traceRef.current = initTrace();
+    addCopilotMessage({ role: 'assistant', trace: traceRef.current });
+    setShownRoi(null);   // unpaint the composing box; the chip stays as the sticky indicator
     setCopilotStreaming(true);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      await streamMessage({
+      await streamTurn({
         conversationId: convId,
         text,
         roi,
+        viewer: currentViewportBbox(viewer),
+        approved,
         signal: ctrl.signal,
         onEvent: (evt) => {
-          if (evt.type === 'plan') {
-            expireCopilotPlans();   // a new proposal supersedes any prior live plan
-            setLastCopilotMessage({ role: 'plan', plan: {
-              digest: evt.digest, state: evt.state, steps: evt.steps, scope: evt.scope,
-              envelope: evt.envelope, reason: evt.reason, turn_id: evt.turn_id,
-            } });
-          } else if (evt.type === 'token' || evt.type === 'done') {
-            // A plan frame may have replaced the placeholder; only chat/guidance carry text.
-            if (evt.full != null || evt.text != null) {
-              updateLastCopilotMessage(evt.full ?? evt.text ?? '');
-            }
-          } else if (evt.type === 'error') {
-            setCopilotError(evt.message || 'The copilot backend failed mid-reply.');
-            updateLastCopilotMessage(evt.full || '(interrupted)');
+          traceRef.current = reduceTurnEvent(traceRef.current, evt);
+          setLastCopilotMessage({ role: 'assistant', trace: traceRef.current });
+          // Co-navigation: a client viewer tool moves the slide to where the agent is looking.
+          if (evt.type === 'tool_call_start' && evt.tool_class === 'client') {
+            const bbox = evt.args?.bbox;
+            if (bbox && viewer) { focusRegion(viewer, bbox); setShownRoi(bbox); }
+          }
+          // A server tool's artifact handle → pull the geometry out-of-band into the overlay.
+          if (evt.type === 'tool_call_result' && evt.artifact?.kind === 'nuclei') {
+            fetchTurnArtifact(convId, evt.artifact.ref)
+              .then((n) => setCopilotNuclei(n))
+              .catch(() => {});
           }
         },
       });
     } catch (err) {
       if (err.name !== 'AbortError') {
-        setCopilotError(err.message || 'Copilot request failed');
-        updateLastCopilotMessage('(no response)');
+        traceRef.current = reduceTurnEvent(traceRef.current,
+          { type: 'run_error', message: err.message || 'Copilot request failed' });
+        setLastCopilotMessage({ role: 'assistant', trace: traceRef.current });
       }
     } finally {
       setCopilotStreaming(false);
       abortRef.current = null;
       refreshList().catch(() => {});   // pick up the auto-title + turn count + new ordering
     }
-  }, [input, copilotStreaming, itemId, copilotConversationId, copilotRoi, setShownRoi,
-      addCopilotMessage, updateLastCopilotMessage, setLastCopilotMessage, expireCopilotPlans,
-      setCopilotConversationId, setCopilotStreaming, setCopilotError, refreshList]);
-
-  // Run an approved plan (increment 5): stream per-step progress into runByDigest, and on
-  // completion fetch the nuclei artifact and hand it to the viewer overlay.
-  const runPlan = useCallback((digest) => {
-    const convId = copilotConversationId;
-    if (!convId) return;
-    setRunByDigest((m) => ({ ...m, [digest]: { status: 'running', steps: {}, result: null } }));
-    const patch = (fn) => setRunByDigest((m) => ({ ...m, [digest]: fn(m[digest] || {}) }));
-    streamRun({
-      conversationId: convId,
-      digest,
-      onEvent: (evt) => {
-        if (evt.type === 'run_step') {
-          patch((r) => ({ ...r, status: 'running', runId: evt.run_id,
-            steps: { ...(r.steps || {}), [evt.n]: evt.status } }));
-        } else if (evt.type === 'run_done') {
-          patch((r) => ({ ...r, status: 'done', runId: evt.run_id,
-            result: evt.result, claim: evt.claim, cached: evt.cached }));
-          if (evt.blackboard) setBlackboard(evt.blackboard);   // live-refresh the case memory
-          const ref = (evt.artifacts || []).find((a) => a.key === 'nuclei');
-          if (ref) {
-            fetchArtifact(convId, evt.run_id, 'nuclei')
-              .then((n) => setCopilotNuclei(n))
-              .catch((err) => setCopilotError(err.message));
-          }
-        } else if (evt.type === 'run_error') {
-          patch((r) => ({ ...r, status: 'error', error: evt.message }));
-        }
-      },
-    }).catch((err) => patch((r) => ({ ...r, status: 'error', error: err.message })));
-  }, [copilotConversationId, setCopilotNuclei, setCopilotError]);
-
-  // Approve / reject the live plan. The gate is server-authoritative; we reflect the
-  // returned state into the card. On approve, execution auto-starts (increment 5).
-  const resolvePlan = useCallback(async (digest, action) => {
-    if (!copilotConversationId || planBusy) return;
-    setPlanBusy(true);
-    setCopilotError(null);
-    try {
-      const fn = action === 'approve' ? approvePlan : rejectPlan;
-      const updated = await fn(copilotConversationId, digest);
-      updateCopilotPlanState(digest, updated.state);
-      if (action === 'approve' && updated.state === 'APPROVED') runPlan(digest);
-    } catch (err) {
-      setCopilotError(err.message || `Could not ${action} the plan`);
-    } finally {
-      setPlanBusy(false);
-    }
-  }, [copilotConversationId, planBusy, updateCopilotPlanState, setCopilotError, runPlan]);
+  }, [input, copilotStreaming, itemId, copilotConversationId, copilotRoi, viewer, setShownRoi,
+      addCopilotMessage, setLastCopilotMessage, setCopilotConversationId, setCopilotStreaming,
+      setCopilotError, setCopilotNuclei, refreshList]);
 
   const onKeyDown = (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runTurn(); }
   };
 
-  // New conversation: clear the thread + drop the id so the next message lazily
-  // creates a fresh one. The prior conversation stays saved.
   const handleNew = () => {
     if (abortRef.current) abortRef.current.abort();
     if (awaitingRoi) cancelRoi();
     setCopilotRoi(null);
     setShownRoi(null);
     clearCopilotNuclei();
-    setRunByDigest({});
     resetCopilot();
     setHistoryOpen(false);
   };
@@ -406,16 +290,13 @@ export default function CopilotPanel() {
     if (awaitingRoi) cancelRoi();
     setShownRoi(null);
     clearCopilotNuclei();
-    setRunByDigest({});
     setHistoryOpen(false);
     setCopilotError(null);
     try {
       const full = await getConversation(id);
       setCopilotConversationId(full.id);
-      setCopilotMessages(buildMessages(full));   // same builder as reload → interleaves plan cards by turn_id
-      rehydrateClaims(full);
-      setBlackboard(full.blackboard || []);      // per-slide case memory (same across threads)
-      setCopilotRoi(lastUserTurnRoi(full));      // adopt this thread's region (persists it for the slide)
+      setCopilotMessages(buildMessages(full));
+      setCopilotRoi(lastUserTurnRoi(full));   // adopt this thread's region (persists per slide)
     } catch (err) {
       setCopilotError(err.message || 'Could not open conversation');
     }
@@ -447,7 +328,7 @@ export default function CopilotPanel() {
         <span className="cp-title">Copilot</span>
         {mode && (
           <span className="cp-mode" data-mode={mode} title={mode === 'claude'
-            ? 'Replies from Claude' : 'Echo fallback — set AGENT_ANTHROPIC_API_KEY for Claude'}>
+            ? 'Autonomous agent on Claude' : 'Echo fallback — set AGENT_ANTHROPIC_API_KEY for Claude'}>
             <i />{mode === 'claude' ? 'Claude' : 'echo'}
           </span>
         )}
@@ -467,9 +348,6 @@ export default function CopilotPanel() {
       {/* research-use ribbon */}
       <div className="cp-ribbon">RESEARCH USE ONLY · NOT A DIAGNOSTIC DEVICE</div>
 
-      {/* case memory (increment 6c): per-slide deduped facts, spans threads */}
-      <MemoryStrip facts={blackboard} onReveal={revealFact} />
-
       {/* thread */}
       <div ref={threadRef} className="cp-thread">
         {loadingHistory && copilotMessages.length === 0 && (
@@ -480,15 +358,11 @@ export default function CopilotPanel() {
             {itemId ? (
               <>
                 <div className="cp-empty-mark">◆</div>
-                {mode === 'echo' ? (
-                  <p>Start a conversation. I echo your message back for now — set
-                    <b> AGENT_ANTHROPIC_API_KEY</b> to switch replies to Claude. Either way your
-                    thread <b>persists</b>: reload and it's still here.</p>
-                ) : (
-                  <p>Ask about the tissue, staining, or analysis workflow for this slide. I reason
-                    with <b>Claude</b> — research use only, and I can't run image analysis on the
-                    pixels <i>yet</i> (that lands in a later release).</p>
-                )}
+                <p>Ask about this slide and I'll <b>act on it</b> — pan and zoom to a region,
+                  then run analysis to <b>measure</b>. Counts come only from the tools, never
+                  invented.</p>
+                <p className="cp-empty-eg">Try “What's in this region?” or draw a
+                  <RectIcon size={10} /> Region and ask “Count the nuclei here.”</p>
                 <p className="cp-empty-slide">Slide in context · <span>{activeItem.name}</span></p>
               </>
             ) : (
@@ -497,18 +371,16 @@ export default function CopilotPanel() {
           </div>
         )}
         {copilotMessages.map((m, i) => (
-          m.role === 'plan' ? (
-            <PlanCard
+          m.role === 'assistant' && m.trace ? (
+            <TurnTrace
               key={i}
-              plan={m.plan}
-              busy={planBusy}
-              run={runByDigest[m.plan.digest]}
+              trace={m.trace}
+              streaming={copilotStreaming && i === copilotMessages.length - 1}
               showOverlay={showNucleiOverlay}
-              onApprove={(d) => resolvePlan(d, 'approve')}
-              onReject={(d) => resolvePlan(d, 'reject')}
-              onRun={runPlan}
-              onShowRoi={showRoi}
               onToggleOverlay={toggleNucleiOverlay}
+              onShowRoi={showRoi}
+              onApprove={() => runTurn({ textArg: copilotMessages[i - 1]?.text, approved: true })}
+              canApprove={!copilotStreaming}
             />
           ) : (
             <Bubble
@@ -517,7 +389,6 @@ export default function CopilotPanel() {
               text={m.text}
               roi={m.roi}
               onShowRoi={showRoi}
-              streaming={copilotStreaming && i === copilotMessages.length - 1 && m.role === 'assistant'}
             />
           )
         ))}
@@ -558,7 +429,8 @@ export default function CopilotPanel() {
             placeholder={itemId ? 'Message the copilot…  (⌘/Ctrl + ⏎)' : 'Open a slide to begin'}
             disabled={!itemId}
           />
-          <button className="cp-send" onClick={send} disabled={!canSend} title="Send (⌘/Ctrl + ⏎)">
+          <button className="cp-send" onClick={() => runTurn()} disabled={!canSend}
+            title="Send (⌘/Ctrl + ⏎)">
             {copilotStreaming ? '…' : '➤'}
           </button>
         </div>
@@ -576,7 +448,6 @@ export default function CopilotPanel() {
               <PlusIcon /><span>New</span>
             </button>
           </div>
-
           <div className="cp-list">
             {conversations.length === 0 && (
               <div className="cp-hint" style={{ padding: '18px 14px' }}>
@@ -605,7 +476,6 @@ export default function CopilotPanel() {
                       {active && <span className="cp-conv-live">active</span>}
                     </div>
                   </div>
-
                   {confirming ? (
                     <div className="cp-confirm" onClick={(e) => e.stopPropagation()}>
                       <span>Delete?</span>
@@ -630,7 +500,7 @@ export default function CopilotPanel() {
   );
 }
 
-function Bubble({ role, text, roi, streaming, onShowRoi }) {
+function Bubble({ role, text, roi, onShowRoi }) {
   const isUser = role === 'user';
   return (
     <div className={`cp-bubble-wrap ${isUser ? 'is-user' : 'is-bot'}`}>
@@ -641,174 +511,109 @@ function Bubble({ role, text, roi, streaming, onShowRoi }) {
         </button>
       )}
       <div className={`cp-bubble ${isUser ? 'cp-bubble--user' : 'cp-bubble--bot'}`}>
-        {text}{streaming && <span className="cp-caret">▍</span>}
+        {isUser ? (text || '') : (text ? <Markdown text={text} /> : '…')}
       </div>
     </div>
   );
 }
 
-// Plan card (inc 4) — the human gate. Numbered steps, tool/param chips, cost envelope,
-// Approve/Reject. Nothing runs on approve yet; only one plan is ever live (older → Expired).
-function PlanCard({ plan, busy, run, showOverlay, onApprove, onReject, onRun, onShowRoi,
-  onToggleOverlay }) {
-  const meta = PLAN_STATE[plan.state] || { s: 'await', label: plan.state };
-  const roi = plan.scope && plan.scope.roi;
-  const env = plan.envelope || {};
-  const awaiting = plan.state === 'AWAITING_APPROVAL';
+// A live agent turn: collapsible reasoning, an ordered rail of tool cards (client = viewer
+// navigation, server = measurement, with gate + evidence affordances), and the answer.
+function TurnTrace({ trace, streaming, showOverlay, onToggleOverlay, onShowRoi, onApprove, canApprove }) {
+  const [showThinking, setShowThinking] = useState(true);   // thinking visible by default
+  const hasReasoning = !!trace.reasoning.trim();
+  const thinking = streaming && !trace.text && trace.steps.length === 0;
   return (
-    <div className="cp-plan" data-state={meta.s}>
-      <div className="cp-plan-top">
-        <span className="cp-plan-ic">◆</span>
-        <div className="cp-plan-h">Plan<small>digest {plan.digest}</small></div>
-        <span className="cp-plan-pill" data-s={meta.s}>{meta.label}</span>
-      </div>
+    <div className="cp-turn">
+      {thinking && !hasReasoning && (
+        <div className="cp-think-live"><span className="cp-think-dots"><i /><i /><i /></span>Thinking…</div>
+      )}
 
-      <div className="cp-plan-steps">
-        {(plan.steps || []).map((s) => (
-          <div className="cp-step" key={s.n}>
-            <div className="cp-step-rail">
-              <span className="cp-step-dot" data-run={run?.steps?.[s.n] || ''}>
-                {run?.steps?.[s.n] === 'done' ? '✓' : s.n}
-              </span>
-              <span className="cp-step-line" />
-            </div>
-            <div className="cp-step-body">
-              <div>
-                <span className="cp-step-tool">{s.tool}</span>
-                {s.category && <span className="cp-step-cat">{s.category}</span>}
-              </div>
-              {s.args && Object.keys(s.args).length > 0 && (
-                <div className="cp-params">
-                  {Object.entries(s.args).map(([k, v]) => (
-                    <span className="cp-param" key={k}><b>{k}</b>={String(v)}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="cp-plan-env">
-        {roi && (
-          <button type="button" className="cp-env-roi" onClick={() => onShowRoi?.(roi)}
-            title="Show this region on the slide"><RectIcon size={10} />{fmtRoi(roi)}</button>
-        )}
-        {env.tools != null && <span>{env.tools} tool{env.tools === 1 ? '' : 's'}</span>}
-        {env.est_seconds != null && <span>~{env.est_seconds}s</span>}
-        {env.device && <span>{env.device}</span>}
-        {env.mode && <span>{env.mode}</span>}
-      </div>
-
-      {plan.reason && <div className="cp-plan-reason">{plan.reason}</div>}
-
-      {awaiting ? (
-        <div className="cp-plan-actions">
-          <button className="cp-plan-approve" onClick={() => onApprove(plan.digest)} disabled={busy}>
-            Approve &amp; freeze
+      {hasReasoning && (
+        <div className="cp-think">
+          <button type="button" className="cp-think-toggle" onClick={() => setShowThinking((v) => !v)}>
+            <ChevronIcon open={showThinking} />
+            <span>Reasoning</span>
+            {streaming && !trace.text && <span className="cp-think-pulse" />}
           </button>
-          <button className="cp-plan-reject" onClick={() => onReject(plan.digest)} disabled={busy}>
-            Reject
+          {showThinking && <div className="cp-think-body">{trace.reasoning}</div>}
+        </div>
+      )}
+
+      {trace.steps.length > 0 && (
+        <div className="cp-steps">
+          {trace.steps.map((s) => (
+            <ToolCard key={s.id} step={s} showOverlay={showOverlay}
+              onToggleOverlay={onToggleOverlay} onShowRoi={onShowRoi} />
+          ))}
+        </div>
+      )}
+
+      {trace.text && (
+        <div className="cp-answer">
+          <Markdown text={trace.text} />{streaming && <span className="cp-caret">▍</span>}
+        </div>
+      )}
+
+      {trace.needsApproval && (
+        <div className="cp-approve">
+          <span className="cp-approve-note"><ShieldIcon size={11} />Analysis held for approval</span>
+          <button className="cp-approve-btn" onClick={onApprove} disabled={!canApprove}>
+            Approve &amp; run
           </button>
         </div>
-      ) : (
-        <div className="cp-plan-resolved" data-s={meta.s}>
-          {plan.state === 'APPROVED' && (
-            run ? (
-              <div className="cp-run" data-s={run.status}>
-                {run.status === 'running' && (
-                  <span className="cp-run-line"><span className="cp-run-spin" />Running the plan…</span>
-                )}
-                {run.status === 'done' && run.result && (
-                  <ClaimCard result={run.result} claim={run.claim} cached={run.cached}
-                    showOverlay={showOverlay} onToggleOverlay={onToggleOverlay} />
-                )}
-                {run.status === 'error' && (
-                  <span className="cp-run-line cp-run-err">Run failed: {run.error}</span>
-                )}
-              </div>
-            ) : (
-              <div className="cp-plan-actions">
-                <span className="cp-plan-frozen">Approved — frozen as <code>{plan.digest}</code>.</span>
-                <button className="cp-plan-approve" onClick={() => onRun(plan.digest)} disabled={busy}>
-                  Run
-                </button>
-              </div>
-            )
-          )}
-          {plan.state === 'REJECTED' && <>Rejected. Ask again to propose a new plan.</>}
-          {plan.state === 'EXPIRED' && <>Superseded by a newer plan — only the latest is runnable.</>}
-        </div>
+      )}
+
+      {trace.status === 'error' && trace.error && (
+        <div className="cp-turn-err">{trace.error}</div>
       )}
     </div>
   );
 }
 
-// Claim card (inc 6a) — the durable, evidence-bound result of a run. The number is the
-// authoritative tool output (the LLM never emits it); the evidence chip toggles the nuclei
-// overlay that grounds it. Rendered identically live (run_done frame) and after a reload
-// (rehydrated from the persisted claim), so the result survives a refresh.
-// Case memory (increment 6c): a compact strip of the slide's deduped current facts, above
-// the thread. Each fact is the latest Claim for a (subject, predicate); clicking it reveals
-// that fact's evidence (region + nuclei overlay) on the slide. Hidden when empty.
-function MemoryStrip({ facts, onReveal }) {
-  if (!facts || facts.length === 0) return null;
+// One tool call as a card: class-tinted icon, name, status, summary, and — for a server tool
+// that produced nuclei — an evidence chip that toggles the overlay; for a client tool, a link
+// back to the region it framed.
+function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
+  const isClient = step.toolClass === 'client';
+  const bbox = step.args?.bbox;
+  const hasNuclei = step.artifact?.kind === 'nuclei';
+  const st = step.gated ? 'gated' : step.status;
   return (
-    <div className="cp-bb">
-      <span className="cp-bb-label" title="What this slide's analyses have established so far">
-        <MemoryIcon /> Case memory
-      </span>
-      <div className="cp-bb-facts">
-        {facts.map((f, i) => {
-          const canReveal = !!f.scope?.roi || (f.evidence || []).some((e) => e.key === 'nuclei');
-          return (
-            <button key={`${f.subject}:${f.predicate}:${i}`} type="button" className="cp-bb-fact"
-              disabled={!canReveal} onClick={() => onReveal(f)}
-              title={canReveal ? 'Show this evidence on the slide' : undefined}>
-              <span className="cp-bb-subj">{f.subject}</span>
-              <span className="cp-bb-val">{f.value}<em>{f.unit}</em></span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ClaimCard({ result, claim, showOverlay, cached, onToggleOverlay }) {
-  const count = result?.count;
-  const subject = result?.cell_class || claim?.subject || 'cells';
-  const density = result?.density;
-  const nNuclei = claim?.metrics?.count ?? count;
-  const hasOverlay = (claim?.evidence || []).some((e) => e.key === 'nuclei');
-  return (
-    <div className="cp-claim">
-      <div className="cp-claim-head">
-        <div className="cp-claim-value">{count}<span className="cp-claim-subject">{subject}</span></div>
-        {density != null && (
-          <div className="cp-claim-density">{density} <small>{result.density_unit}</small></div>
-        )}
-      </div>
-      <div className="cp-claim-foot">
-        {hasOverlay && (
-          <button type="button" className="cp-claim-evi" onClick={onToggleOverlay}
-            title="Toggle the nuclei overlay on the slide">
-            <span className="cp-claim-dot" />{nNuclei} nuclei · {showOverlay ? 'hide' : 'show'}
-          </button>
-        )}
-        {cached && (
-          <span className="cp-claim-cached" title="Reused a prior identical run — no recomputation">
-            ⚡ reused
+    <div className="cp-tool" data-class={step.toolClass} data-st={st}>
+      <span className="cp-tool-ic">{isClient ? <CompassIcon /> : <ScanIcon />}</span>
+      <div className="cp-tool-body">
+        <div className="cp-tool-top">
+          <span className="cp-tool-name">{step.name}</span>
+          <span className="cp-tool-tag">{isClient ? 'viewer' : 'analysis'}</span>
+          <span className="cp-tool-status" data-st={st}>
+            {st === 'running' && <span className="cp-spin" />}
+            {st === 'ok' && <CheckIcon />}
+            {st === 'gated' && <ShieldIcon size={12} />}
+            {st === 'error' && <CloseIcon />}
           </span>
-        )}
-        <span className="cp-claim-ruo">research use only</span>
+        </div>
+        {step.summary && <div className="cp-tool-sum">{step.summary}</div>}
+        <div className="cp-tool-foot">
+          {isClient && bbox && (
+            <button type="button" className="cp-tool-roi" onClick={() => onShowRoi?.(bbox)}
+              title="Show this region on the slide"><RectIcon size={10} />{fmtRoi(bbox)}</button>
+          )}
+          {hasNuclei && (
+            <button type="button" className="cp-tool-evi" onClick={onToggleOverlay}
+              title="Toggle the nuclei overlay on the slide">
+              <span className="cp-tool-dot" />{fmtInt(step.artifact.count)} nuclei ·
+              {showOverlay ? ' hide' : ' show'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// Scoped styles — kept in-file so the panel is self-contained. Prefix `cp-` avoids
-// collisions with the app's Tailwind/theme layers; colors come from the theme vars.
+// Scoped styles — kept in-file so the panel is self-contained. Prefix `cp-` avoids collisions
+// with the app's Tailwind/theme layers; colors come from the theme vars.
 const CP_CSS = `
 .cp-header{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
 .cp-mark{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;
@@ -833,20 +638,6 @@ const CP_CSS = `
   font-size:9px;font-weight:700;color:#0b0c12;background:#a78bfa}
 .cp-ribbon{font-size:9px;letter-spacing:.4px;color:#f5a623;background:rgba(245,166,35,.07);
   border-bottom:1px solid var(--border);padding:4px 12px;font-family:monospace;flex-shrink:0}
-.cp-bb{display:flex;align-items:center;gap:8px;padding:6px 10px;flex-shrink:0;
-  border-bottom:1px solid var(--border);background:rgba(56,189,248,.05)}
-.cp-bb-label{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;letter-spacing:.3px;
-  text-transform:uppercase;color:#7dd3fc;white-space:nowrap;flex-shrink:0}
-.cp-bb-facts{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
-.cp-bb-facts::-webkit-scrollbar{display:none}
-.cp-bb-fact{display:inline-flex;align-items:baseline;gap:5px;white-space:nowrap;font-size:11px;
-  padding:2px 8px;border-radius:999px;border:1px solid rgba(56,189,248,.3);
-  background:rgba(56,189,248,.1);color:var(--fg);cursor:pointer}
-.cp-bb-fact:hover:not(:disabled){background:rgba(56,189,248,.2);border-color:rgba(56,189,248,.5)}
-.cp-bb-fact:disabled{cursor:default;opacity:.75}
-.cp-bb-subj{color:var(--muted)}
-.cp-bb-val{font-weight:700;color:#7dd3fc}
-.cp-bb-val em{font-style:normal;font-weight:400;color:var(--muted);font-size:9.5px;margin-left:2px}
 .cp-thread{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px;display:flex;flex-direction:column;gap:10px;
   scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.4) transparent}
 .cp-hint{color:var(--muted);font-size:12px}
@@ -856,6 +647,8 @@ const CP_CSS = `
 .cp-empty b{color:#c4b5fd;font-weight:600}
 .cp-empty-mark{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;
   color:#a78bfa;background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.25)}
+.cp-empty-eg{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.cp-empty-eg svg{vertical-align:-1px;margin:0 1px}
 .cp-empty-slide{font-size:11px;color:var(--muted)}
 .cp-empty-slide span{color:#a78bfa}
 .cp-bubble-wrap{display:flex;flex-direction:column;gap:4px;max-width:88%;animation:cp-in .22s ease both}
@@ -873,99 +666,79 @@ const CP_CSS = `
 .cp-caret{opacity:.6}
 .cp-error{font-size:11.5px;color:#f87171;background:rgba(248,113,113,.08);
   border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:7px 10px}
-.cp-plan{align-self:stretch;border:1px solid var(--border);border-radius:12px;
-  background:var(--surface,#171a26);overflow:hidden;animation:cp-in .22s ease both;
-  transition:opacity .25s,filter .25s}
-.cp-plan[data-state="expired"]{opacity:.55;filter:grayscale(.4)}
-.cp-plan-top{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--border)}
-.cp-plan-ic{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:10px;
-  color:#c4b5fd;background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.3)}
-.cp-plan-h{font-size:12.5px;font-weight:600;line-height:1.2}
-.cp-plan-h small{display:block;font-family:monospace;font-size:9.5px;color:var(--muted);
-  font-weight:400;margin-top:1px}
-.cp-plan-pill{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-family:monospace;
-  font-size:9px;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
-.cp-plan-pill::before{content:"";width:5px;height:5px;border-radius:50%}
-.cp-plan-pill[data-s="await"]{color:#f5a623;background:rgba(245,166,35,.12)}
-.cp-plan-pill[data-s="await"]::before{background:#f5a623;animation:cp-pulse 1.5s infinite}
-.cp-plan-pill[data-s="approved"]{color:#34d399;background:rgba(52,211,153,.12)}
-.cp-plan-pill[data-s="approved"]::before{background:#34d399}
-.cp-plan-pill[data-s="rejected"]{color:#f87171;background:rgba(248,113,113,.12)}
-.cp-plan-pill[data-s="rejected"]::before{background:#f87171}
-.cp-plan-pill[data-s="expired"]{color:#94a3b8;background:rgba(148,163,184,.12)}
-.cp-plan-pill[data-s="expired"]::before{background:#94a3b8}
-.cp-plan-steps{padding:4px 11px 6px}
-.cp-step{display:flex;gap:9px;padding:7px 0}
-.cp-step-rail{display:flex;flex-direction:column;align-items:center;flex:none}
-.cp-step-dot{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-family:monospace;
-  font-size:9px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);
-  transition:background .15s,color .15s,border-color .15s}
-.cp-step-dot[data-run="running"]{color:#fbbf24;background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.5);
-  animation:cp-pulse 1s ease-in-out infinite}
-.cp-step-dot[data-run="done"]{color:#86efac;background:rgba(34,197,94,.16);border-color:rgba(34,197,94,.5)}
-@keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.45}}
-.cp-step-line{width:1.5px;flex:1;background:var(--border);margin:2px 0 -7px}
-.cp-step:last-child .cp-step-line{display:none}
-.cp-step-body{flex:1;min-width:0}
-.cp-step-tool{font-size:12px;font-weight:600}
-.cp-step-cat{font-family:monospace;font-size:9px;color:#7dd3fc;background:rgba(77,166,255,.12);
-  border-radius:5px;padding:2px 5px;margin-left:6px}
-.cp-params{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
-.cp-param{font-family:monospace;font-size:10px;color:var(--fg);background:rgba(148,163,184,.1);
-  border:1px solid var(--border);border-radius:5px;padding:2px 6px}
-.cp-param b{color:#c4b5fd;font-weight:600}
-.cp-plan-env{display:flex;flex-wrap:wrap;gap:5px 12px;padding:8px 11px;border-top:1px dashed var(--border);
-  font-family:monospace;font-size:10px;color:var(--muted)}
-.cp-plan-env span{display:inline-flex;align-items:center;gap:4px}
-.cp-env-roi{display:inline-flex;align-items:center;gap:4px;font-family:monospace;font-size:10px;
-  color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);border-radius:6px;
-  padding:1px 6px;cursor:pointer;transition:background .12s}
-.cp-env-roi:hover{background:rgba(139,92,246,.24)}
-.cp-plan-reason{padding:9px 11px;font-size:11.5px;line-height:1.5;color:var(--muted);
-  border-top:1px solid var(--border)}
-.cp-plan-actions{display:flex;gap:8px;padding:10px 11px;border-top:1px solid var(--border)}
-.cp-plan-approve{flex:1;font-size:12px;font-weight:600;color:#fff;border:none;border-radius:8px;
-  padding:9px 12px;cursor:pointer;background:linear-gradient(160deg,#8b5cf6,#7c3aed);
-  transition:transform .12s,box-shadow .15s,opacity .15s}
-.cp-plan-approve:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(124,58,237,.4)}
-.cp-plan-approve:disabled{opacity:.5;cursor:default}
-.cp-plan-reject{font-size:12px;font-weight:600;color:var(--muted);background:transparent;
-  border:1px solid var(--border);border-radius:8px;padding:9px 14px;cursor:pointer;
-  transition:color .15s,border-color .15s}
-.cp-plan-reject:hover:not(:disabled){color:#f87171;border-color:rgba(248,113,113,.5)}
-.cp-plan-reject:disabled{opacity:.5;cursor:default}
-.cp-plan-resolved{padding:9px 11px;font-size:11px;line-height:1.5;color:var(--muted);
-  border-top:1px solid var(--border)}
-.cp-plan-resolved code{font-family:monospace;font-size:10px;color:#c4b5fd}
-.cp-plan-resolved[data-s="approved"]{color:#86efac}
-.cp-plan-resolved[data-s="rejected"]{color:#fca5a5}
-.cp-run-line{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;line-height:1.5}
-.cp-run-ok{color:#86efac}
-.cp-run-err{color:#fca5a5}
-.cp-run-spin{width:11px;height:11px;border-radius:50%;border:2px solid rgba(251,191,36,.3);
-  border-top-color:#fbbf24;animation:cp-spin .7s linear infinite}
-@keyframes cp-spin{to{transform:rotate(360deg)}}
-.cp-claim{display:flex;flex-direction:column;gap:7px;padding:1px 0}
-.cp-claim-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.cp-claim-value{font-size:20px;font-weight:700;color:#86efac;line-height:1;
-  display:flex;align-items:baseline;gap:6px}
-.cp-claim-subject{font-size:11px;font-weight:500;color:var(--muted)}
-.cp-claim-density{font-size:12px;color:var(--fg)}
-.cp-claim-density small{color:var(--muted)}
-.cp-claim-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.cp-claim-evi{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:monospace;
-  color:#22d3ee;background:rgba(34,211,238,.10);border:1px solid rgba(34,211,238,.32);
+
+/* agent turn */
+.cp-turn{align-self:stretch;display:flex;flex-direction:column;gap:8px;animation:cp-in .22s ease both}
+.cp-think-live{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.cp-think-dots{display:inline-flex;gap:3px}
+.cp-think-dots i{width:5px;height:5px;border-radius:50%;background:#a78bfa;animation:cp-bounce 1.2s infinite}
+.cp-think-dots i:nth-child(2){animation-delay:.15s}
+.cp-think-dots i:nth-child(3){animation-delay:.3s}
+.cp-think{border-left:2px solid rgba(139,92,246,.3);padding-left:9px}
+.cp-think-toggle{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted);
+  background:none;border:none;padding:0;cursor:pointer;transition:color .15s}
+.cp-think-toggle:hover{color:#c4b5fd}
+.cp-think-pulse{width:5px;height:5px;border-radius:50%;background:#a78bfa;animation:cp-pulse 1s infinite}
+.cp-think-body{margin-top:5px;font-size:11.5px;line-height:1.55;color:var(--muted);white-space:pre-wrap;
+  word-break:break-word}
+.cp-steps{display:flex;flex-direction:column;gap:7px}
+.cp-tool{display:flex;gap:9px;padding:9px 10px;border:1px solid var(--border);border-radius:10px;
+  background:var(--surface,#171a26);position:relative;overflow:hidden}
+.cp-tool::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2.5px}
+.cp-tool[data-class="client"]::before{background:linear-gradient(#38bdf8,#0ea5e9)}
+.cp-tool[data-class="server"]::before{background:linear-gradient(#a78bfa,#7c3aed)}
+.cp-tool[data-st="gated"]::before{background:linear-gradient(#fbbf24,#f59e0b)}
+.cp-tool[data-st="error"]::before{background:linear-gradient(#f87171,#ef4444)}
+.cp-tool-ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:none;
+  color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.28)}
+.cp-tool[data-class="client"] .cp-tool-ic{color:#7dd3fc;background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.3)}
+.cp-tool-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.cp-tool-top{display:flex;align-items:center;gap:7px}
+.cp-tool-name{font-family:monospace;font-size:11.5px;font-weight:600;color:var(--fg);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-tool-tag{font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
+  border:1px solid var(--border);border-radius:5px;padding:1px 5px;flex:none}
+.cp-tool-status{margin-left:auto;display:grid;place-items:center;width:16px;height:16px;flex:none}
+.cp-tool-status[data-st="ok"]{color:#34d399}
+.cp-tool-status[data-st="gated"]{color:#f5a623}
+.cp-tool-status[data-st="error"]{color:#f87171}
+.cp-spin{width:12px;height:12px;border-radius:50%;border:2px solid rgba(148,163,184,.3);
+  border-top-color:#a78bfa;animation:cp-spin .7s linear infinite}
+.cp-tool-sum{font-size:11px;line-height:1.45;color:var(--muted);word-break:break-word}
+.cp-tool[data-st="gated"] .cp-tool-sum{color:#b9975b}
+.cp-tool-foot{display:flex;flex-wrap:wrap;gap:6px}
+.cp-tool-roi,.cp-tool-evi{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:monospace;
   border-radius:6px;padding:2px 7px;cursor:pointer;transition:background .12s}
-.cp-claim-evi:hover{background:rgba(34,211,238,.2)}
-.cp-claim-dot{width:6px;height:6px;border-radius:50%;background:#22d3ee;
-  box-shadow:0 0 5px rgba(34,211,238,.8)}
-.cp-claim-cached{display:inline-flex;align-items:center;gap:3px;font-size:9px;font-family:monospace;
-  color:#fbbf24;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);
-  border-radius:6px;padding:1px 6px}
-.cp-claim-ruo{font-size:8.5px;letter-spacing:.4px;text-transform:uppercase;color:#f5a623;
-  font-family:monospace;opacity:.8}
-.cp-plan-frozen{flex:1;font-size:11px;color:var(--muted);align-self:center}
-.cp-plan-frozen code{font-family:monospace;font-size:10px;color:#c4b5fd}
+.cp-tool-roi{color:#7dd3fc;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3)}
+.cp-tool-roi:hover{background:rgba(56,189,248,.2)}
+.cp-tool-evi{color:#22d3ee;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.32)}
+.cp-tool-evi:hover{background:rgba(34,211,238,.2)}
+.cp-tool-dot{width:6px;height:6px;border-radius:50%;background:#22d3ee;box-shadow:0 0 5px rgba(34,211,238,.8)}
+.cp-answer{font-size:12.5px;line-height:1.55;color:var(--fg);padding:2px 1px;word-break:break-word}
+/* answer markdown */
+.cp-md-p{margin:0 0 6px;white-space:pre-wrap}
+.cp-answer>.cp-md-p:last-child{margin-bottom:0}
+.cp-md-ul,.cp-md-ol{margin:2px 0 6px;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.cp-md-ul li,.cp-md-ol li{line-height:1.5}
+.cp-answer strong{color:#e9e3ff;font-weight:600}
+.cp-answer em{color:#e2ddf3}
+.cp-md-code{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;
+  background:rgba(148,163,184,.14);border:1px solid var(--border);border-radius:4px;padding:1px 4px}
+.cp-md-pre{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;
+  background:var(--bg2,#0d0e14);border:1px solid var(--border);border-radius:8px;padding:8px 10px;
+  overflow-x:auto;margin:2px 0 6px;white-space:pre;color:var(--fg)}
+/* gate: a quiet inline affordance, not a loud card */
+.cp-approve{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:1px}
+.cp-approve-note{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+.cp-approve-btn{font-size:11.5px;font-weight:500;color:#c4b5fd;background:transparent;
+  border:1px solid rgba(139,92,246,.4);border-radius:7px;padding:4px 11px;cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s}
+.cp-approve-btn:hover:not(:disabled){background:rgba(139,92,246,.14);color:#ddd6fe;border-color:rgba(139,92,246,.6)}
+.cp-approve-btn:disabled{opacity:.45;cursor:default}
+.cp-turn-err{font-size:11.5px;color:#fca5a5;background:rgba(248,113,113,.08);
+  border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:7px 10px}
+
+/* composer */
 .cp-composer-shell{border-top:1px solid var(--border);flex-shrink:0}
 .cp-roibar{padding:8px 10px 0;display:flex;align-items:center;gap:8px}
 .cp-roibtn{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:#c4b5fd;
@@ -998,6 +771,8 @@ const CP_CSS = `
   background:linear-gradient(160deg,#8b5cf6,#7c3aed);transition:transform .12s,box-shadow .15s,opacity .15s}
 .cp-send:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(124,58,237,.4)}
 .cp-send:disabled{background:rgba(124,58,237,.35);cursor:default}
+
+/* history drawer */
 .cp-drawer{position:absolute;inset:0;background:var(--bg2,#0d0e14);display:flex;flex-direction:column;
   min-height:0;animation:cp-slide .2s ease both}
 .cp-drawer-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
@@ -1032,4 +807,6 @@ const CP_CSS = `
 @keyframes cp-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes cp-slide{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
 @keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes cp-spin{to{transform:rotate(360deg)}}
+@keyframes cp-bounce{0%,100%{transform:translateY(0);opacity:.5}50%{transform:translateY(-4px);opacity:1}}
 `;

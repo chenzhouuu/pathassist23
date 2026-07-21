@@ -293,36 +293,22 @@ export const useStore = create((set, get) => ({
   // Conversational thread with the greenfield services/agent gateway. Per-slide;
   // persisted in Postgres (increment 1) keyed by (girder user, slide item). The panel
   // hydrates copilotConversationId + copilotMessages from the store on mount.
-  copilotMessages: [],          // [{ role:'user'|'assistant', text }]
+  // Live turn: { role:'assistant', trace } (see copilotTurn.js). Persisted/reloaded turns:
+  // { role:'user'|'assistant', text, roi } — the trace is ephemeral, only the answer persists.
+  copilotMessages: [],
   copilotConversationId: null,  // active server conversation id (null → lazy-create on send)
   copilotStreaming: false,
   copilotError: null,
   addCopilotMessage:        (m)    => set((s) => ({ copilotMessages: [...s.copilotMessages, m] })),
   setCopilotMessages:       (msgs) => set({ copilotMessages: msgs }),
-  updateLastCopilotMessage: (text) => set((s) => {
-    if (!s.copilotMessages.length) return {};
-    const msgs = s.copilotMessages.slice();
-    msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], text };
-    return { copilotMessages: msgs };
-  }),
-  // Replace the last message wholesale — used to swap the empty assistant placeholder
-  // for a plan card when a `plan` frame arrives (increment 4).
+  // Replace the last message wholesale — used to fold each streamed event into the in-flight
+  // assistant turn's trace (and to swap the empty placeholder for it).
   setLastCopilotMessage:    (msg)  => set((s) => {
     if (!s.copilotMessages.length) return {};
     const msgs = s.copilotMessages.slice();
     msgs[msgs.length - 1] = msg;
     return { copilotMessages: msgs };
   }),
-  // Only one plan is ever live: a new proposal expires prior awaiting/approved cards.
-  expireCopilotPlans:       ()     => set((s) => ({
-    copilotMessages: s.copilotMessages.map((m) =>
-      m.role === 'plan' && (m.plan.state === 'AWAITING_APPROVAL' || m.plan.state === 'APPROVED')
-        ? { ...m, plan: { ...m.plan, state: 'EXPIRED' } } : m),
-  })),
-  updateCopilotPlanState:   (digest, state) => set((s) => ({
-    copilotMessages: s.copilotMessages.map((m) =>
-      m.role === 'plan' && m.plan.digest === digest ? { ...m, plan: { ...m.plan, state } } : m),
-  })),
   setCopilotConversationId: (id)   => set({ copilotConversationId: id }),
   setCopilotStreaming:      (v)    => set({ copilotStreaming: v }),
   setCopilotError:          (e)    => set({ copilotError: e }),
