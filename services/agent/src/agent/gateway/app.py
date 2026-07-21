@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..common.config import get_settings
 from ..loop import build_agent
 from ..loop.artifacts import InMemoryArtifactStore
+from ..loop.girder_annotations import GirderAnnotationStore
 from ..store import PgStore
 from .routes import router
 
@@ -42,6 +43,12 @@ def create_app() -> FastAPI:
     )
     app.state.settings = settings
     app.state.agent = build_agent(settings)          # SDK loop when keyed, else stub
-    app.state.artifacts = InMemoryArtifactStore()    # artifact handles (D4)
+    # Durable DSA-annotation store when real segmentation is on (nuclei survive reload and
+    # show in the Annotations panel); the in-memory stub otherwise (dev/tests, keyless).
+    app.state.artifacts = (
+        GirderAnnotationStore(settings.girder_base)
+        if settings.cellvit_service_url
+        else InMemoryArtifactStore()
+    )
     app.include_router(router)
     return app
