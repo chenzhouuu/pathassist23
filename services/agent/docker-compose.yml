@@ -37,11 +37,40 @@ services:
       # replies; with no key the copilot degrades to the echo responder.
       AGENT_ANTHROPIC_API_KEY: ${AGENT_ANTHROPIC_API_KEY:-}
       AGENT_ANTHROPIC_MODEL: ${AGENT_ANTHROPIC_MODEL:-claude-sonnet-5}
+      # The CellViT inference service (R11). Empty ⇒ run_segmentation keeps its canned stub.
+      AGENT_CELLVIT_SERVICE_URL: ${AGENT_CELLVIT_SERVICE_URL:-http://cellvit:8020}
     volumes:
       - ./src:/app/src        # live code — edit-and-reload during the increment loop
     command: >
       uv run uvicorn agent.gateway.app:create_app --factory
       --host 0.0.0.0 --port 8010 --reload
+
+  # CellViT-SAM-H nuclei segmentation (GPU). Flask service; the gateway reaches it by name.
+  cellvit:
+    build: ../cellvit
+    ports: ["8020:8020"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # CellViT's ray backend sizes its object store from system RAM and wants it on /dev/shm;
+    # Docker's default 64 MB shm is far too small. Give it real shm and let ray spill to disk
+    # rather than erroring when its (RAM-derived) target still exceeds shm.
+    shm_size: "8gb"
+    environment:
+      CELLVIT_MODEL: cellvit
+      RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE: "1"
+      # Same Girder as the gateway — the service reads region pixels with the user's token.
+      CELLVIT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
+      CELLVIT_CACHE: /weights-cache
+    volumes:
+      # Reuse the already-downloaded 2.7 GB SAM-H checkpoint instead of re-downloading.
+      - ${CELLVIT_WEIGHTS_DIR:-/home/chen/.cache/cellvit}:/weights-cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   copilot_pgdata:
