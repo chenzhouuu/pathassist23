@@ -5,6 +5,8 @@ command (executed in the browser, no auth) or a **server** data tool (run in the
 with the user's token; stubbed until R10/R11).
 """
 
+import pytest
+
 from agent.loop.artifacts import InMemoryArtifactStore
 from agent.loop.tools import CLIENT, SERVER, ToolContext, catalog, get_tool, run_server_tool
 
@@ -52,3 +54,48 @@ async def test_segmentation_is_summary_only_without_a_store():
     """No store (unit context) ⇒ the tool still grounds an answer, just no handle."""
     out = await run_server_tool(get_tool("run_segmentation"), {}, {"roi": None}, None)
     assert out.ok and out.artifact is None and "segmented" in out.summary
+
+
+class _FakeSeg:
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, *, base_url, slide_ref, bbox, token, timeout=120.0, client=None):
+        from agent.loop.segmenter import SegmentResult
+        self.calls.append({"base_url": base_url, "slide_ref": slide_ref, "bbox": bbox,
+                           "token": token})
+        return SegmentResult(count=3, points=[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+
+
+@pytest.mark.asyncio
+async def test_run_segmentation_uses_service_when_configured(monkeypatch):
+    fake = _FakeSeg()
+    monkeypatch.setattr("agent.loop.tools.segment_region", fake)
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=InMemoryArtifactStore(),
+                      girder_token="tok", cellvit_url="http://cellvit")
+    scope = {"item_id": "item1", "roi": {"x": 10, "y": 20, "width": 30, "height": 40}}
+    out = await run_server_tool(get_tool("run_segmentation"), {}, scope, ctx)
+    assert out.ok and out.artifact.count == 3
+    assert "3 nuclei" in out.summary
+    assert fake.calls[0]["slide_ref"] == "item1"
+    assert fake.calls[0]["bbox"]["width"] == 30  # fell back to scope.roi
+
+
+@pytest.mark.asyncio
+async def test_run_segmentation_prefers_bbox_arg(monkeypatch):
+    fake = _FakeSeg()
+    monkeypatch.setattr("agent.loop.tools.segment_region", fake)
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=InMemoryArtifactStore(),
+                      girder_token="tok", cellvit_url="http://cellvit")
+    scope = {"item_id": "item1", "roi": {"x": 10, "y": 20, "width": 30, "height": 40}}
+    arg_bbox = {"x": 500, "y": 600, "width": 128, "height": 128}
+    await run_server_tool(get_tool("run_segmentation"), {"bbox": arg_bbox}, scope, ctx)
+    assert fake.calls[0]["bbox"] == arg_bbox  # explicit arg wins over scope.roi
+
+
+@pytest.mark.asyncio
+async def test_run_segmentation_service_no_region_is_error():
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=InMemoryArtifactStore(),
+                      cellvit_url="http://cellvit")
+    out = await run_server_tool(get_tool("run_segmentation"), {}, {"item_id": "item1"}, ctx)
+    assert out.ok is False and "region" in out.summary.lower()

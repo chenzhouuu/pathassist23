@@ -43,7 +43,17 @@ _SCHEMAS: dict[str, dict] = {
     "highlight_roi": {
         "type": "object", "properties": {"bbox": _BBOX_SCHEMA}, "required": ["bbox"],
     },
-    "run_segmentation": {"type": "object", "properties": {}, "additionalProperties": False},
+    "run_segmentation": {
+        "type": "object",
+        "properties": {
+            "bbox": {
+                **_BBOX_SCHEMA,
+                "description": "Optional region to segment, in level-0 pixels. Omit to use "
+                               "the region already drawn on the slide.",
+            },
+        },
+        "additionalProperties": False,
+    },
 }
 
 

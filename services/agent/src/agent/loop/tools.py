@@ -16,6 +16,7 @@ models without touching the loop or the event contract.
 from dataclasses import dataclass
 
 from .artifacts import ArtifactHandle, ArtifactStore
+from .segmenter import segment_region
 
 CLIENT = "client"
 SERVER = "server"
@@ -104,14 +105,43 @@ async def run_server_tool(
     returned (D4); without one (unit context) the tool degrades to a summary-only result.
     """
     if tool.name == "run_segmentation":
-        roi = (scope or {}).get("roi")
-        where = "in the region" if roi else "across the slide"
+        # region: explicit model-chosen bbox wins, else the drawn ROI (D8, gap ④).
+        region = args.get("bbox") or (scope or {}).get("roi")
+
+        # Real path: a CellViT service is configured for this turn.
+        if ctx is not None and ctx.cellvit_url:
+            if region is None:
+                return ToolOutcome(
+                    ok=False,
+                    summary="Whole-slide segmentation isn't available yet — draw a region "
+                            "on the slide (or pan to one) and ask again.",
+                )
+            try:
+                res = await segment_region(
+                    base_url=ctx.cellvit_url, slide_ref=(scope or {}).get("item_id"),
+                    bbox=region, token=ctx.girder_token,
+                )
+            except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
+                return ToolOutcome(ok=False, summary=f"segmentation failed ({type(exc).__name__})")
+            if ctx.artifacts is None:
+                return ToolOutcome(ok=True, summary=f"segmented {res.count:,} nuclei in the region")
+            geometry = {"kind": "nuclei", "count": res.count, "points": res.points}
+            handle = await ctx.artifacts.put(
+                owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
+                bbox=region, geometry=geometry, summary=f"{res.count:,} nuclei",
+            )
+            return ToolOutcome(
+                ok=True, summary=f"segmented {res.count:,} nuclei in the region", artifact=handle
+            )
+
+        # Canned stub (no service configured / unit context) — honors the bbox arg too.
+        where = "in the region" if region else "across the slide"
         if ctx is None or ctx.artifacts is None:
             return ToolOutcome(ok=True, summary=f"segmented {_STUB_NUCLEI:,} nuclei {where}")
-        geometry = _stub_nuclei_geometry(roi)
+        geometry = _stub_nuclei_geometry(region)
         handle = await ctx.artifacts.put(
             owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
-            bbox=roi, geometry=geometry, summary=f"{geometry['count']:,} nuclei",
+            bbox=region, geometry=geometry, summary=f"{geometry['count']:,} nuclei",
         )
         return ToolOutcome(
             ok=True, summary=f"segmented {handle.count:,} nuclei {where}", artifact=handle
