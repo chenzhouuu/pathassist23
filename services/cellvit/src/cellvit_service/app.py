@@ -6,12 +6,14 @@ model are injectable via `app.config` (tests override them), defaulting to the r
 `fetch_region` / `segment_array`. Every bbox in / centroid out is level-0 slide pixels (D8).
 """
 
+import threading
+
 import httpx
 from flask import Flask, jsonify, request
 
 from .config import get_settings
 from .geometry import offset_points
-from .infer import segment_array
+from .infer import segment_array, warm_up
 from .region import fetch_region
 
 
@@ -19,6 +21,11 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config["READ_REGION"] = fetch_region   # injectable seams (tests override these)
     app.config["SEGMENT"] = segment_array
+
+    # Preload the GPU model in the background so /health is live immediately and the first
+    # real /segment doesn't pay the ~2.7 GB checkpoint load. No-op for the stub backend.
+    if get_settings().model == "cellvit":
+        threading.Thread(target=warm_up, name="cellvit-warmup", daemon=True).start()
 
     @app.get("/health")
     def health():
@@ -46,6 +53,8 @@ def create_app() -> Flask:
 
         local = app.config["SEGMENT"](region.pixels, region.mpp)
         centroids = offset_points(local, bbox["x"], bbox["y"], region.scale)
-        return jsonify({"count": len(centroids), "centroids": centroids, "bbox": bbox})
+        return jsonify({
+            "count": len(centroids), "centroids": centroids, "bbox": bbox, "mpp": region.mpp,
+        })
 
     return app
