@@ -156,6 +156,7 @@ async def run_server_tool(
             handle = await ctx.artifacts.put(
                 owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
                 bbox=region, geometry=geometry, summary=f"{res.count:,} nuclei",
+                item_id=slide_ref, token=ctx.girder_token,
             )
             return ToolOutcome(ok=True, summary=summary, artifact=handle)
 
@@ -167,6 +168,7 @@ async def run_server_tool(
         handle = await ctx.artifacts.put(
             owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
             bbox=region, geometry=geometry, summary=f"{geometry['count']:,} nuclei",
+            item_id=(scope or {}).get("item_id"), token=ctx.girder_token,
         )
         return ToolOutcome(
             ok=True, summary=f"segmented {handle.count:,} nuclei {where}", artifact=handle

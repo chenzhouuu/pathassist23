@@ -7,7 +7,9 @@ with the user's token; stubbed until R10/R11).
 
 import pytest
 
-from agent.loop.artifacts import InMemoryArtifactStore
+import agent.loop.tools as tools
+from agent.loop.artifacts import ArtifactHandle, InMemoryArtifactStore
+from agent.loop.segmenter import SegmentResult
 from agent.loop.tools import CLIENT, SERVER, ToolContext, catalog, get_tool, run_server_tool
 
 
@@ -141,3 +143,33 @@ async def test_run_segmentation_rejects_oversized_region(monkeypatch):
     assert out.ok is False
     assert "large" in out.summary.lower()
     assert fake.calls == []  # never called the GPU service for an oversized region
+
+
+class _SpyStore:
+    def __init__(self):
+        self.put_kwargs = None
+
+    async def put(self, **kwargs):
+        self.put_kwargs = kwargs
+        return ArtifactHandle(kind="nuclei", ref="r1", count=kwargs["geometry"]["count"],
+                              summary=kwargs["summary"], bbox=kwargs["bbox"])
+
+    async def get(self, **kwargs):
+        return None
+
+
+async def test_run_segmentation_threads_item_id_and_token_into_put(monkeypatch):
+    async def _fake_seg(*, base_url, slide_ref, bbox, token):
+        return SegmentResult(count=2, points=[[1.0, 2.0], [3.0, 4.0]], mpp=0.5)
+
+    monkeypatch.setattr(tools, "segment_region", _fake_seg)
+    spy = _SpyStore()
+    ctx = tools.ToolContext(owner="u1", conversation_id=1, artifacts=spy,
+                            girder_token="tok", cellvit_url="http://cellvit")
+    scope = {"item_id": "item9", "roi": {"x": 0, "y": 0, "width": 10, "height": 10}}
+
+    out = await tools.run_server_tool(tools.get_tool("run_segmentation"), {}, scope, ctx)
+
+    assert out.ok
+    assert spy.put_kwargs["item_id"] == "item9"
+    assert spy.put_kwargs["token"] == "tok"
