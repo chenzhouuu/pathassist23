@@ -49,11 +49,16 @@ class ArtifactStore(ABC):
         bbox: dict | None,
         geometry: dict,
         summary: str,
+        item_id: str | None = None,
+        token: str | None = None,
     ) -> ArtifactHandle:
-        """Store `geometry`, return a handle carrying only its metadata."""
+        """Store `geometry`, return a handle carrying only its metadata.
+
+        `item_id`/`token` are the Girder item and caller token a durable store needs; the
+        in-memory store ignores them (D3 — the token never enters the model)."""
 
     @abstractmethod
-    async def get(self, *, owner: str, ref: str) -> dict | None:
+    async def get(self, *, owner: str, ref: str, token: str | None = None) -> dict | None:
         """Return the stored geometry for the owner, or None if absent / not theirs."""
 
 
@@ -63,7 +68,8 @@ class InMemoryArtifactStore(ArtifactStore):
     def __init__(self) -> None:
         self._items: dict[str, dict] = {}
 
-    async def put(self, *, owner, conversation_id, kind, bbox, geometry, summary):
+    async def put(self, *, owner, conversation_id, kind, bbox, geometry, summary,
+                  item_id=None, token=None):
         ref = uuid.uuid4().hex
         points = geometry.get("points", [])
         count = geometry.get("count", len(points))
@@ -74,7 +80,7 @@ class InMemoryArtifactStore(ArtifactStore):
             kind=kind, ref=ref, count=count, summary=summary, bbox=bbox, size=size
         )
 
-    async def get(self, *, owner, ref):
+    async def get(self, *, owner, ref, token=None):
         rec = self._items.get(ref)
         if rec is None or rec["owner"] != owner:
             return None

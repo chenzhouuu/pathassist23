@@ -44,3 +44,16 @@ async def test_refs_are_unguessable_and_unique():
     b = await store.put(owner="u1", conversation_id=1, kind="nuclei", bbox=None,
                         geometry={"points": []}, summary="0")
     assert a.ref != b.ref and len(a.ref) >= 16
+
+
+async def test_put_and_get_accept_item_id_and_token_kwargs():
+    # The seam is uniform: callers always pass item_id/token; the in-memory store ignores them.
+    store = InMemoryArtifactStore()
+    handle = await store.put(
+        owner="u1", conversation_id=1, kind="nuclei", bbox=None,
+        geometry={"kind": "nuclei", "points": [[1, 2]]}, summary="1 nucleus",
+        item_id="item9", token="tok",
+    )
+    got = await store.get(owner="u1", ref=handle.ref, token="tok")
+    assert got["points"] == [[1, 2]]
+    assert await store.get(owner="intruder", ref=handle.ref, token="tok") is None
