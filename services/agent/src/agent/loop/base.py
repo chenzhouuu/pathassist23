@@ -2,9 +2,8 @@
 
 The turn route streams whatever an AgentLoop yields; it never talks to a model or the
 SDK directly. `StubAgentLoop` is the keyless framework-on-a-stub (one trivial tool);
-`SdkAgentLoop` (R10, once `claude-agent-sdk` is a dependency and its API is verified
-hands-on) drives the real Claude Agent SDK behind this identical interface — the
-typed-event contract and the route stay put. This mirrors the Responder/Planner seams.
+`SdkAgentLoop` drives the real Claude Agent SDK behind this identical interface — the
+typed-event contract and the route stay put. Selection is by key (see `build_agent`).
 """
 
 from abc import ABC, abstractmethod
