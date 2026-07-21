@@ -55,10 +55,11 @@ class GirderAnnotationStore(ArtifactStore):
         client, owns = self._acquire()
         try:
             resp = await client.get(f"/annotation/{ref}", headers=_auth(token))
-            if resp.status_code in (401, 403, 404):
-                return None  # not accessible to this token / gone
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                return None  # inaccessible, gone, or a Girder error — degrade, never raise
             data = resp.json()
+        except httpx.HTTPError:
+            return None  # Girder unreachable/timeout — the overlay just won't render
         finally:
             if owns:
                 await client.aclose()
@@ -66,7 +67,7 @@ class GirderAnnotationStore(ArtifactStore):
         points = [
             [float(el["center"][0]), float(el["center"][1])]
             for el in elements
-            if el.get("type") == "point" and el.get("center")
+            if el.get("type") == "point" and len(el.get("center") or ()) >= 2
         ]
         return {"kind": "nuclei", "count": len(points), "points": points}
 

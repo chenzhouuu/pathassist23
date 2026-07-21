@@ -61,3 +61,45 @@ async def test_get_returns_none_when_annotation_is_inaccessible():
         return httpx.Response(403, json={"message": "Access denied"})
 
     assert await _store(handler).get(owner="u1", ref="nope", token="tok") is None
+
+
+@pytest.mark.asyncio
+async def test_get_returns_none_on_server_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"message": "boom"})
+
+    assert await _store(handler).get(owner="u1", ref="x", token="tok") is None
+
+
+@pytest.mark.asyncio
+async def test_get_returns_none_on_transport_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("girder unreachable")
+
+    assert await _store(handler).get(owner="u1", ref="x", token="tok") is None
+
+
+@pytest.mark.asyncio
+async def test_get_is_defensive_about_malformed_elements():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"annotation": {"elements": [
+            {"type": "point", "center": [1.0, 2.0, 0]},
+            {"type": "polygon", "points": [[0, 0]]},   # non-point → skipped
+            {"type": "point", "center": [5]},          # too short → skipped
+            {"type": "point"},                          # no center → skipped
+        ]}})
+
+    got = await _store(handler).get(owner="u1", ref="x", token="tok")
+    assert got == {"kind": "nuclei", "count": 1, "points": [[1.0, 2.0]]}
+
+
+@pytest.mark.asyncio
+async def test_put_raises_on_write_failure_so_caller_can_degrade():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"message": "read-only"})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await _store(handler).put(
+            owner="u1", conversation_id=1, kind="nuclei", bbox=None,
+            geometry={"kind": "nuclei", "count": 1, "points": [[1, 2]]},
+            summary="1", item_id="item9", token="tok")

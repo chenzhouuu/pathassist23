@@ -173,3 +173,25 @@ async def test_run_segmentation_threads_item_id_and_token_into_put(monkeypatch):
     assert out.ok
     assert spy.put_kwargs["item_id"] == "item9"
     assert spy.put_kwargs["token"] == "tok"
+
+
+async def test_run_segmentation_survives_annotation_persist_failure(monkeypatch):
+    import agent.loop.tools as tools
+
+    async def _fake_seg(*, base_url, slide_ref, bbox, token):
+        return SegmentResult(count=5, points=[[1.0, 2.0]], mpp=0.5)
+
+    class _FailingStore:
+        async def put(self, **kwargs):
+            raise RuntimeError("girder write failed")
+
+        async def get(self, **kwargs):
+            return None
+
+    monkeypatch.setattr(tools, "segment_region", _fake_seg)
+    ctx = tools.ToolContext(owner="u1", conversation_id=1, artifacts=_FailingStore(),
+                            girder_token="tok", cellvit_url="http://cellvit")
+    scope = {"item_id": "item9", "roi": {"x": 0, "y": 0, "width": 10, "height": 10}}
+    out = await tools.run_server_tool(tools.get_tool("run_segmentation"), {}, scope, ctx)
+    assert out.ok
+    assert "5" in out.summary and out.artifact is None  # count kept, overlay dropped

@@ -36,7 +36,8 @@ class ArtifactStore(ABC):
     """Writes bulk tool output and hands back a light reference; reads it back by ref.
 
     Owner-scoped: `get` returns the payload only to the owner who wrote it (the `ref` is an
-    unguessable capability on top of that).
+    unguessable capability on top of that). The durable Girder-annotation backend instead
+    delegates authorization to Girder via the caller's token.
     """
 
     @abstractmethod

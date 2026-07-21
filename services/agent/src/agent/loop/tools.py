@@ -153,11 +153,15 @@ async def run_server_tool(
             if ctx.artifacts is None:
                 return ToolOutcome(ok=True, summary=summary)
             geometry = {"kind": "nuclei", "count": res.count, "points": res.points}
-            handle = await ctx.artifacts.put(
-                owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
-                bbox=region, geometry=geometry, summary=f"{res.count:,} nuclei",
-                item_id=slide_ref, token=ctx.girder_token,
-            )
+            try:
+                handle = await ctx.artifacts.put(
+                    owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
+                    bbox=region, geometry=geometry, summary=f"{res.count:,} nuclei",
+                    item_id=slide_ref, token=ctx.girder_token,
+                )
+            except Exception:  # noqa: BLE001 — persisting the overlay must not sink the count
+                logger.warning("persisting nuclei annotation failed", exc_info=True)
+                return ToolOutcome(ok=True, summary=summary)
             return ToolOutcome(ok=True, summary=summary, artifact=handle)
 
         # Canned stub (no service configured / unit context) — honors the bbox arg too.
@@ -165,11 +169,15 @@ async def run_server_tool(
         if ctx is None or ctx.artifacts is None:
             return ToolOutcome(ok=True, summary=f"segmented {_STUB_NUCLEI:,} nuclei {where}")
         geometry = _stub_nuclei_geometry(region)
-        handle = await ctx.artifacts.put(
-            owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
-            bbox=region, geometry=geometry, summary=f"{geometry['count']:,} nuclei",
-            item_id=(scope or {}).get("item_id"), token=ctx.girder_token,
-        )
+        try:
+            handle = await ctx.artifacts.put(
+                owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
+                bbox=region, geometry=geometry, summary=f"{geometry['count']:,} nuclei",
+                item_id=(scope or {}).get("item_id"), token=ctx.girder_token,
+            )
+        except Exception:  # noqa: BLE001 — persisting the overlay must not sink the count
+            logger.warning("persisting nuclei annotation failed", exc_info=True)
+            return ToolOutcome(ok=True, summary=f"segmented {geometry['count']:,} nuclei {where}")
         return ToolOutcome(
             ok=True, summary=f"segmented {handle.count:,} nuclei {where}", artifact=handle
         )
