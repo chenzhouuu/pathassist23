@@ -64,7 +64,7 @@ class _FakeSeg:
         from agent.loop.segmenter import SegmentResult
         self.calls.append({"base_url": base_url, "slide_ref": slide_ref, "bbox": bbox,
                            "token": token})
-        return SegmentResult(count=3, points=[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+        return SegmentResult(count=3, points=[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], mpp=0.5)
 
 
 @pytest.mark.asyncio
@@ -77,6 +77,7 @@ async def test_run_segmentation_uses_service_when_configured(monkeypatch):
     out = await run_server_tool(get_tool("run_segmentation"), {}, scope, ctx)
     assert out.ok and out.artifact.count == 3
     assert "3 nuclei" in out.summary
+    assert "0.5" in out.summary and "µm/px" in out.summary  # mpp surfaced for density
     assert fake.calls[0]["slide_ref"] == "item1"
     assert fake.calls[0]["bbox"]["width"] == 30  # fell back to scope.roi
 

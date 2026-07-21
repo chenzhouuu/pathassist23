@@ -13,10 +13,12 @@ import httpx
 
 @dataclass(frozen=True)
 class SegmentResult:
-    """Segmentation outcome: a nucleus count + level-0 ``[x, y]`` centroids."""
+    """Segmentation outcome: a nucleus count + level-0 ``[x, y]`` centroids, plus the slide's
+    native µm/px (``mpp``, None if the slide has no metadata) so the caller can ground density."""
 
     count: int
     points: list[list[float]]
+    mpp: float | None = None
 
 
 async def segment_region(
@@ -40,4 +42,9 @@ async def segment_region(
         if owns:
             await client.aclose()
     centroids = [[float(p[0]), float(p[1])] for p in data.get("centroids", [])]
-    return SegmentResult(count=int(data.get("count", len(centroids))), points=centroids)
+    mpp = data.get("mpp")
+    return SegmentResult(
+        count=int(data.get("count", len(centroids))),
+        points=centroids,
+        mpp=float(mpp) if mpp else None,
+    )

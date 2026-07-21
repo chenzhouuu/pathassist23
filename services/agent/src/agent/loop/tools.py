@@ -147,16 +147,17 @@ async def run_server_tool(
             except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
                 logger.warning("run_segmentation failed", exc_info=True)
                 return ToolOutcome(ok=False, summary=f"segmentation failed ({type(exc).__name__})")
+            # Ground density: give the model the slide's real µm/px so it stops assuming one.
+            mpp_note = f" (at {res.mpp:.3g} µm/px)" if res.mpp else ""
+            summary = f"segmented {res.count:,} nuclei in the region{mpp_note}"
             if ctx.artifacts is None:
-                return ToolOutcome(ok=True, summary=f"segmented {res.count:,} nuclei in the region")
+                return ToolOutcome(ok=True, summary=summary)
             geometry = {"kind": "nuclei", "count": res.count, "points": res.points}
             handle = await ctx.artifacts.put(
                 owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
                 bbox=region, geometry=geometry, summary=f"{res.count:,} nuclei",
             )
-            return ToolOutcome(
-                ok=True, summary=f"segmented {res.count:,} nuclei in the region", artifact=handle
-            )
+            return ToolOutcome(ok=True, summary=summary, artifact=handle)
 
         # Canned stub (no service configured / unit context) — honors the bbox arg too.
         where = "in the region" if region else "across the slide"
