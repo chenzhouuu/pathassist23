@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Impart DX · Dashboard Redesign Demo</title>
+  <style>
+    :root {
+      --canvas: #f5f6f2;
+      --surface: #ffffff;
+      --surface-soft: #f8faf7;
+      --ink: #17231f;
+      --ink-soft: #51605a;
+      --line: #dce4de;
+      --green: #176b51;
+      --green-dark: #0d513c;
+      --green-wash: #e3f1e9;
+      --amber: #9c6617;
+      --amber-wash: #fff4db;
+      --violet: #7054a0;
+      --violet-wash: #f1edfb;
+      --red: #a64238;
+      --red-wash: #faeae8;
+      --shadow: 0 10px 35px rgba(27, 45, 36, .06);
+      font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--ink); }
+    button { font: inherit; cursor: pointer; }
+    .app { min-height: 100vh; }
+    .topbar {
+      position: sticky; top: 0; z-index: 10; height: 72px;
+      display: flex; align-items: center; gap: 34px; padding: 0 max(24px, calc((100vw - 1240px) / 2));
+      border-bottom: 1px solid rgba(220, 228, 222, .9); background: rgba(245, 246, 242, .92);
+      backdrop-filter: blur(14px);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: -.03em; white-space: nowrap; }
+    .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--green); color: white; font-family: Georgia, serif; font-size: 18px; }
+    .nav { display: flex; gap: 3px; }
+    .nav button { border: 0; background: transparent; color: var(--ink-soft); padding: 8px 11px; border-radius: 7px; font-size: 14px; }
+    .nav button.active, .nav button:hover { color: var(--green-dark); background: var(--green-wash); }
+    .top-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .role-select { border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; color: var(--ink-soft); background: var(--surface); font-size: 13px; }
+    .icon-button { border: 0; background: transparent; width: 34px; height: 34px; border-radius: 50%; color: var(--ink-soft); font-size: 17px; }
+    .icon-button:hover { background: var(--surface); color: var(--ink); }
+    .avatar { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #d8e9df; color: var(--green-dark); font-size: 12px; font-weight: 800; }
+    main { max-width: 1240px; margin: 0 auto; padding: 47px 24px 60px; }
+    .intro { display: flex; justify-content: space-between; gap: 30px; align-items: end; padding-bottom: 38px; }
+    .eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 750; letter-spacing: .08em; color: var(--green); text-transform: uppercase; }
+    h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(29px, 4vw, 42px); line-height: 1.08; font-weight: 500; letter-spacing: -.04em; }
+    .intro p { max-width: 565px; margin: 12px 0 0; color: var(--ink-soft); font-size: 15px; line-height: 1.65; }
+    .primary { flex: none; display: inline-flex; align-items: center; gap: 9px; padding: 12px 16px; border: 1px solid var(--green); border-radius: 8px; background: var(--green); color: white; font-weight: 700; font-size: 14px; box-shadow: 0 4px 12px rgba(23,107,81,.16); }
+    .primary:hover { background: var(--green-dark); transform: translateY(-1px); }
+    .section { margin-top: 35px; }
+    .section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin-bottom: 15px; }
+    .section-title { font-size: 16px; font-weight: 750; letter-spacing: -.01em; }
+    .section-caption { color: var(--ink-soft); font-size: 13px; }
+    .link { padding: 0; border: 0; background: transparent; color: var(--green); font-size: 13px; font-weight: 700; }
+    .link:hover { text-decoration: underline; }
+    .focus-card { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+    .queue-row { display: grid; grid-template-columns: 9px minmax(180px, 1.5fr) 1.1fr 130px 115px 92px; align-items: center; gap: 20px; min-height: 78px; padding: 0 24px; border-bottom: 1px solid #edf1ed; }
+    .queue-row:last-child { border-bottom: 0; }
+    .queue-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+    .queue-dot.green { background: var(--green); }
+    .queue-dot.violet { background: var(--violet); }
+    .case { display: flex; flex-direction: column; gap: 4px; }
+    .case strong { font-size: 14px; }
+    .case span, .cell { color: var(--ink-soft); font-size: 13px; }
+    .status { width: fit-content; padding: 5px 8px; border-radius: 99px; font-size: 11px; font-weight: 750; }
+    .status.pending { color: var(--amber); background: var(--amber-wash); }
+    .status.progress { color: var(--violet); background: var(--violet-wash); }
+    .status.ready { color: var(--green); background: var(--green-wash); }
+    .open { width: fit-content; border: 0; background: transparent; color: var(--green); font-size: 13px; font-weight: 750; }
+    .open:hover { text-decoration: underline; }
+    .lower-grid { display: grid; grid-template-columns: minmax(0, 1.48fr) minmax(270px, .85fr); gap: 25px; }
+    .recent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .collection { min-height: 156px; display: flex; flex-direction: column; justify-content: space-between; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); transition: transform .15s ease, border-color .15s ease; }
+    .collection:hover { transform: translateY(-2px); border-color: #abc9b9; }
+    .collection-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .collection h3 { margin: 0; font-size: 14px; line-height: 1.35; }
+    .pin { color: var(--green); font-size: 15px; }
+    .collection small { color: var(--ink-soft); font-size: 12px; }
+    .collection-footer { display: flex; justify-content: space-between; color: var(--ink-soft); font-size: 12px; }
+    .overview { padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+    .overview-items { display: grid; gap: 17px; margin-top: 19px; }
+    .overview-item { display: flex; align-items: center; gap: 13px; }
+    .metric { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; font-size: 14px; font-weight: 800; }
+    .metric.green { background: var(--green-wash); color: var(--green); }
+    .metric.amber { background: var(--amber-wash); color: var(--amber); }
+    .metric.violet { background: var(--violet-wash); color: var(--violet); }
+    .overview-item strong { display: block; font-size: 15px; }
+    .overview-item span { display: block; margin-top: 2px; color: var(--ink-soft); font-size: 12px; }
+    .notice { display: flex; gap: 10px; align-items: flex-start; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+    .notice b { color: var(--ink); }
+    .toast { position: fixed; right: 24px; bottom: 24px; z-index: 20; display: none; padding: 12px 15px; border: 1px solid #b6d4c3; border-radius: 8px; background: var(--green-dark); color: #fff; box-shadow: 0 12px 28px rgba(13,81,60,.22); font-size: 13px; }
+    .toast.show { display: block; animation: rise .2s ease-out; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 850px) {
+      .topbar { gap: 10px; padding-inline: 16px; }
+      .nav { display: none; }
+      .intro { align-items: start; flex-direction: column; padding-bottom: 26px; }
+      main { padding-top: 34px; }
+      .lower-grid { grid-template-columns: 1fr; }
+      .queue-row { grid-template-columns: 8px 1fr auto; gap: 12px; padding: 14px 16px; min-height: 0; }
+      .queue-row .cell, .queue-row .status { display: none; }
+    }
+    @media (max-width: 540px) {
+      .role-select { max-width: 120px; }
+      .recent-grid { grid-template-columns: 1fr; }
+      .top-actions { gap: 4px; }
+      .top-actions .icon-button { display: none; }
+      h1 { font-size: 31px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">I</span><span>IMPART DX</span></div>
+      <nav class="nav" aria-label="Primary navigation">
+        <button class="active" data-action="Dashboard">Overview</button>
+        <button data-action="Images">Images</button>
+        <button data-action="Projects">Projects</button>
+        <button data-action="Second opinion">Second Opinion</button>
+      </nav>
+      <div class="top-actions">
+        <select class="role-select" id="roleSelect" aria-label="Preview role">
+          <option value="pathologist">Preview: Pathologist</option>
+          <option value="lab">Preview: Lab Administrator</option>
+          <option value="admin">Preview: System Administrator</option>
+        </select>
+        <button class="icon-button" data-action="Notifications" aria-label="Notifications">◌</button>
+        <button class="avatar" data-action="Account menu" aria-label="Account menu">CX</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow" id="eyebrow">Pathologist Workspace</p>
+          <h1 id="headline">Good afternoon, Chen.<br>Three cases are ready for your review.</h1>
+          <p id="introCopy">Start with the work that needs attention, or return to a recently used organization. This page keeps only the information needed for your next step.</p>
+        </div>
+        <button class="primary" id="primaryAction">Review pending cases <span>→</span></button>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div>
+            <div class="section-title" id="focusTitle">Work focus</div>
+            <div class="section-caption" id="focusCaption">Prioritized to help you start immediately.</div>
+          </div>
+          <button class="link" id="viewAll">View all →</button>
+        </div>
+        <div class="focus-card" id="queue"></div>
+      </section>
+
+      <div class="lower-grid">
+        <section class="section">
+          <div class="section-header">
+            <div>
+              <div class="section-title">Quick access</div>
+              <div class="section-caption">Recently used organizations and workspaces.</div>
+            </div>
+            <button class="link" data-action="All organizations">All organizations →</button>
+          </div>
+          <div class="recent-grid">
+            <article class="collection">
+              <div class="collection-top"><h3>GI Pathology<br>Research</h3><span class="pin">●</span></div>
+              <small>Last opened: today, 10:24</small>
+              <div class="collection-footer"><span>42 cases</span><span>186 slides</span></div>
+            </article>
+            <article class="collection">
+              <div class="collection-top"><h3>Breast Cancer<br>Service</h3><span class="pin">●</span></div>
+              <small>Last opened: yesterday</small>
+              <div class="collection-footer"><span>18 cases</span><span>94 slides</span></div>
+            </article>
+            <article class="collection">
+              <div class="collection-top"><h3>Hematopathology<br>Archive</h3><span class="pin">●</span></div>
+              <small>Last opened: July 17</small>
+              <div class="collection-footer"><span>26 cases</span><span>213 slides</span></div>
+            </article>
+          </div>
+        </section>
+
+        <aside class="section">
+          <div class="overview">
+            <div class="section-title">Today at a glance</div>
+            <div class="overview-items" id="overview"></div>
+            <div class="notice" id="notice"><span>●</span><span><b>Systems normal.</b> The latest image sync completed 8 minutes ago.</span></div>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const content = {
+      pathologist: {
+        eyebrow: "Pathologist Workspace",
+        headline: "Good afternoon, Chen.<br>Three cases are ready for your review.",
+        copy: "Start with the work that needs attention, or return to a recently used organization. This page keeps only the information needed for your next step.",
+        action: "Review pending cases",
+        focusTitle: "Work focus",
+        focusCaption: "Prioritized to help you start immediately.",
+        rows: [
+          ["amber", "CASE-24-0198", "Colorectal biopsy · GI Pathology", "Second opinion", "Today, 14:30", "Needs review", "pending"],
+          ["violet", "CASE-24-0201", "Breast core biopsy · Breast Cancer", "Peer review", "Today, 16:00", "In review", "progress"],
+          ["green", "CASE-24-0187", "Bone marrow biopsy · Hematopathology", "Report sign-off", "Tomorrow", "Ready to sign", "ready"]
+        ],
+        metrics: [["green", "3", "Pending cases"], ["amber", "1", "Due today"], ["violet", "8", "Completed this week"]]
+      },
+      lab: {
+        eyebrow: "Laboratory Operations",
+        headline: "Good afternoon, Chen.<br>Two import batches need attention.",
+        copy: "Complete intake checks and organization assignments so digital slides enter the clinical workflow quickly.",
+        action: "Start slide import",
+        focusTitle: "Import and assignment",
+        focusCaption: "Only batches and exceptions that need action are shown.",
+        rows: [
+          ["amber", "Batch JUL-2026-074", "137 slides · No organization assigned", "Assignment required", "18 minutes ago", "Needs attention", "pending"],
+          ["violet", "Batch JUL-2026-073", "86 slides · Breast Cancer", "Quality review", "Today, 13:45", "In progress", "progress"],
+          ["green", "Batch JUL-2026-070", "52 slides · GI Pathology", "Import complete", "Today, 10:08", "Ready to browse", "ready"]
+        ],
+        metrics: [["amber", "2", "Batches pending"], ["green", "275", "Slides imported today"], ["violet", "99.6%", "Weekly pass rate"]]
+      },
+      admin: {
+        eyebrow: "System Administration",
+        headline: "Good afternoon, Chen.<br>Your workspaces are running smoothly.",
+        copy: "Focus on organizations and workflows that need intervention. Routine metrics stay on the analytics page.",
+        action: "Create organization",
+        focusTitle: "Needs attention",
+        focusCaption: "Only items that require administrator action are shown.",
+        rows: [
+          ["amber", "Northwest Pathology", "New organization request · Setup incomplete", "Organization setup", "Today", "Needs attention", "pending"],
+          ["violet", "Breast Cancer Service", "Import queue exceeds its expected duration", "Monitoring", "26 minutes ago", "Being monitored", "progress"],
+          ["green", "GI Pathology Research", "Permission audit and sync completed", "Routine check", "Today, 09:12", "Healthy", "ready"]
+        ],
+        metrics: [["amber", "1", "Organization to configure"], ["green", "12", "Active organizations"], ["violet", "98.8%", "Service availability"]]
+      }
+    };
+
+    const $ = (id) => document.getElementById(id);
+    function render(role) {
+      const data = content[role];
+      $("eyebrow").textContent = data.eyebrow;
+      $("headline").innerHTML = data.headline;
+      $("introCopy").textContent = data.copy;
+      $("primaryAction").innerHTML = `${data.action} <span>→</span>`;
+      $("focusTitle").textContent = data.focusTitle;
+      $("focusCaption").textContent = data.focusCaption;
+      $("queue").innerHTML = data.rows.map(row => `
+        <div class="queue-row">
+          <span class="queue-dot ${row[0]}"></span>
+          <div class="case"><strong>${row[1]}</strong><span>${row[2]}</span></div>
+          <span class="cell">${row[3]}</span>
+          <span class="cell">${row[4]}</span>
+          <span class="status ${row[6]}">${row[5]}</span>
+          <button class="open" data-action="Open ${row[1]}">Open →</button>
+        </div>`).join("");
+      $("overview").innerHTML = data.metrics.map(item => `
+        <div class="overview-item">
+          <div class="metric ${item[0]}">${item[1]}</div>
+          <div><strong>${item[2]}</strong><span>View details and historical trends</span></div>
+        </div>`).join("");
+      $("notice").innerHTML = role === "admin"
+        ? "<span>●</span><span><b>Systems normal.</b> The latest image sync completed 8 minutes ago.</span>"
+        : "<span>●</span><span><b>Demo only:</b> All data is illustrative and does not represent actual patients or cases.</span>";
+    }
+    function toast(text) {
+      const el = $("toast"); el.textContent = `${text} (demo interaction)`; el.classList.add("show");
+      window.clearTimeout(window.toastTimer);
+      window.toastTimer = window.setTimeout(() => el.classList.remove("show"), 2200);
+    }
+    $("roleSelect").addEventListener("change", (event) => render(event.target.value));
+    document.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-action]")?.dataset.action;
+      if (action) toast(action);
+    });
+    $("primaryAction").addEventListener("click", () => toast($("primaryAction").textContent.trim()));
+    $("viewAll").addEventListener("click", () => toast("View all work items"));
+    render("pathologist");
+  </script>
+</body>
+</html>
