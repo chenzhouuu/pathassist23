@@ -9,7 +9,7 @@
 export function initTrace() {
   return {
     runId: null,
-    status: 'running',   // 'running' | 'done' | 'error'
+    status: 'running',   // 'running' | 'done' | 'error' | 'stopped'
     reasoning: '',
     text: '',
     steps: [],           // [{ id, name, toolClass, args, status, summary, artifact, gated }]
@@ -69,6 +69,11 @@ export function reduceTurnEvent(trace, evt) {
 
     case 'run_error':
       return { ...trace, status: 'error', error: evt.message || 'The agent run failed.' };
+
+    // The user aborted the in-flight turn. Terminal, but not an error: the partial trace
+    // (reasoning, tool cards, any streamed text) is kept as-is so the stop is legible.
+    case 'run_stopped':
+      return { ...trace, status: 'stopped' };
 
     default:
       return trace;

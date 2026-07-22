@@ -29,6 +29,11 @@ const TrashIcon = () => <Icon d={['M3 6h18', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2
   'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6']} size={13} />;
 const CheckIcon = () => <Icon d="M20 6 9 17l-5-5" size={13} />;
 const CloseIcon = () => <Icon d="M18 6 6 18M6 6l12 12" size={13} />;
+const StopIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </svg>
+);
 const ChevronIcon = ({ open }) => (
   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"
@@ -251,11 +256,13 @@ export default function CopilotPanel() {
         },
       });
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        traceRef.current = reduceTurnEvent(traceRef.current,
-          { type: 'run_error', message: err.message || 'Copilot request failed' });
-        setLastCopilotMessage({ role: 'assistant', trace: traceRef.current });
-      }
+      // A user Stop aborts the fetch (AbortError) — a clean, non-error terminal state; any
+      // other failure is a real run error. Both fold into the trace so the turn stops looking live.
+      const evt = err.name === 'AbortError'
+        ? { type: 'run_stopped' }
+        : { type: 'run_error', message: err.message || 'Copilot request failed' };
+      traceRef.current = reduceTurnEvent(traceRef.current, evt);
+      setLastCopilotMessage({ role: 'assistant', trace: traceRef.current });
     } finally {
       setCopilotStreaming(false);
       abortRef.current = null;
@@ -264,6 +271,13 @@ export default function CopilotPanel() {
   }, [input, copilotStreaming, itemId, copilotConversationId, copilotRoi, viewer, setShownRoi,
       addCopilotMessage, setLastCopilotMessage, setCopilotConversationId, setCopilotStreaming,
       setCopilotError, setCopilotNuclei, refreshList]);
+
+  // Stop the in-flight turn: abort the fetch. The SSE read throws AbortError, which runTurn
+  // folds into a `run_stopped` trace, reclaiming the UI at once. The server-side GPU analysis
+  // it already kicked off may still finish on its own — the abort just stops us waiting.
+  const stopTurn = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const onKeyDown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); runTurn(); }
@@ -429,10 +443,15 @@ export default function CopilotPanel() {
             placeholder={itemId ? 'Message the copilot…  (⌘/Ctrl + ⏎)' : 'Open a slide to begin'}
             disabled={!itemId}
           />
-          <button className="cp-send" onClick={() => runTurn()} disabled={!canSend}
-            title="Send (⌘/Ctrl + ⏎)">
-            {copilotStreaming ? '…' : '➤'}
-          </button>
+          {copilotStreaming ? (
+            <button className="cp-send cp-stop" onClick={stopTurn}
+              title="Stop the current turn">
+              <StopIcon />
+            </button>
+          ) : (
+            <button className="cp-send" onClick={() => runTurn()} disabled={!canSend}
+              title="Send (⌘/Ctrl + ⏎)">➤</button>
+          )}
         </div>
       </div>
 
@@ -562,6 +581,10 @@ function TurnTrace({ trace, streaming, showOverlay, onToggleOverlay, onShowRoi, 
             Approve &amp; run
           </button>
         </div>
+      )}
+
+      {trace.status === 'stopped' && (
+        <div className="cp-turn-stopped">Stopped.</div>
       )}
 
       {trace.status === 'error' && trace.error && (
@@ -737,6 +760,7 @@ const CP_CSS = `
 .cp-approve-btn:disabled{opacity:.45;cursor:default}
 .cp-turn-err{font-size:11.5px;color:#fca5a5;background:rgba(248,113,113,.08);
   border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:7px 10px}
+.cp-turn-stopped{font-size:11.5px;color:var(--muted);font-style:italic;padding:1px 2px}
 
 /* composer */
 .cp-composer-shell{border-top:1px solid var(--border);flex-shrink:0}
@@ -771,6 +795,8 @@ const CP_CSS = `
   background:linear-gradient(160deg,#8b5cf6,#7c3aed);transition:transform .12s,box-shadow .15s,opacity .15s}
 .cp-send:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(124,58,237,.4)}
 .cp-send:disabled{background:rgba(124,58,237,.35);cursor:default}
+.cp-stop{background:linear-gradient(160deg,#f87171,#ef4444);display:grid;place-items:center}
+.cp-stop:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(239,68,68,.4)}
 
 /* history drawer */
 .cp-drawer{position:absolute;inset:0;background:var(--bg2,#0d0e14);display:flex;flex-direction:column;

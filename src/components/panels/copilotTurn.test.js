@@ -93,6 +93,19 @@ describe('reduceTurnEvent', () => {
     expect(t.text).toBe('kept answer');
   });
 
+  it('marks the trace stopped when the user aborts the run, preserving the partial trace', () => {
+    const t = run([
+      { type: 'run_started', run_id: 'r1' },
+      { type: 'reasoning_delta', text: 'Segmenting…' },
+      { type: 'tool_call_start', tool_call_id: 's1', name: 'run_segmentation', tool_class: 'server' },
+      { type: 'run_stopped' },
+    ]);
+    expect(t.status).toBe('stopped');
+    expect(t.reasoning).toBe('Segmenting…');   // partial trace kept, not wiped
+    expect(t.steps).toHaveLength(1);
+    expect(t.error).toBeNull();
+  });
+
   it('captures a run_error terminal state', () => {
     const t = run([
       { type: 'run_started', run_id: 'r1' },
