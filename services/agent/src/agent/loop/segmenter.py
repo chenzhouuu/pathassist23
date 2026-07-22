@@ -6,19 +6,22 @@ event stream (D4). The Girder token is sent server-to-server and is never a mode
 (D3).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
 
 @dataclass(frozen=True)
 class SegmentResult:
-    """Segmentation outcome: a nucleus count + level-0 ``[x, y]`` centroids, plus the slide's
-    native µm/px (``mpp``, None if the slide has no metadata) so the caller can ground density."""
+    """Segmentation outcome: a nucleus count + level-0 ``[x, y]`` centroids, the slide's native
+    µm/px (``mpp``, None if unknown), the per-nucleus PanNuke class **name** (``classes``, aligned
+    with ``points``), and the per-class breakdown (``counts_by_type``, by name)."""
 
     count: int
     points: list[list[float]]
     mpp: float | None = None
+    classes: list[str] = field(default_factory=list)
+    counts_by_type: dict[str, int] = field(default_factory=dict)
 
 
 async def segment_region(
@@ -46,8 +49,17 @@ async def segment_region(
             await client.aclose()
     centroids = [[float(p[0]), float(p[1])] for p in data.get("centroids", [])]
     mpp = data.get("mpp")
+    # The single int->name translation point: map the wire's class ids through class_names, so
+    # every consumer past here sees a PanNuke name (D-F1). Degrade to empty when a service that
+    # predates typed counts (or the stub) omits them, keeping points usable.
+    class_names = data.get("class_names") or {}
+    names = [class_names.get(str(c)) for c in (data.get("classes") or [])]
+    if len(names) != len(centroids):
+        names = []
     return SegmentResult(
         count=int(data.get("count", len(centroids))),
         points=centroids,
         mpp=float(mpp) if mpp else None,
+        classes=names,
+        counts_by_type=data.get("counts_by_type") or {},
     )
