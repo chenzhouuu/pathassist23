@@ -26,7 +26,7 @@ def _client_with_fakes():
         return RegionImage(pixels=np.zeros((48, 64, 3), dtype=np.uint8), mpp=0.5, scale=1.0)
 
     def fake_segment(pixels, mpp):
-        return [[0.0, 0.0], [10.0, 20.0]]  # two region-local centroids
+        return [[0.0, 0.0], [10.0, 20.0]], [1, 2]  # (region-local centroids, PanNuke class ids)
 
     app.config["READ_REGION"] = fake_read_region
     app.config["SEGMENT"] = fake_segment
@@ -46,6 +46,31 @@ def test_segment_returns_level0_centroids_and_count():
     # region-local [0,0] and [10,20] re-offset by the bbox origin (scale 1)
     assert body["centroids"] == [[100.0, 200.0], [110.0, 220.0]]
     assert body["mpp"] == 0.5  # the slide's native µm/px, surfaced for density grounding
+
+
+def test_segment_returns_typed_counts_and_class_names():
+    app = create_app()
+
+    def fake_read_region(*, girder_base, slide_ref, bbox, token, client=None):
+        return RegionImage(pixels=np.zeros((48, 64, 3), dtype=np.uint8), mpp=0.5, scale=1.0)
+
+    def fake_segment(pixels, mpp):
+        return [[0.0, 0.0], [10.0, 20.0], [5.0, 5.0]], [1, 2, 1]  # two Neoplastic, one Inflammatory
+
+    app.config["READ_REGION"] = fake_read_region
+    app.config["SEGMENT"] = fake_segment
+    body = app.test_client().post("/segment", json={
+        "slide_ref": "s1", "bbox": {"x": 100, "y": 200, "width": 64, "height": 48},
+    }).get_json()
+
+    assert body["count"] == 3
+    assert body["centroids"] == [[100.0, 200.0], [110.0, 220.0], [105.0, 205.0]]
+    assert body["classes"] == [1, 2, 1]
+    assert body["counts_by_type"] == {"Neoplastic": 2, "Inflammatory": 1}
+    assert body["class_names"]["1"] == "Neoplastic" and len(body["class_names"]) == 5
+    # the alignment invariant the route asserts
+    assert body["count"] == len(body["centroids"]) == len(body["classes"])
+    assert sum(body["counts_by_type"].values()) == body["count"]
 
 
 def test_create_app_warms_up_when_model_is_cellvit(monkeypatch):

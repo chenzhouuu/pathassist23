@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request
 from .config import get_settings
 from .geometry import offset_points
 from .infer import segment_array, warm_up
+from .pannuke import TYPE_NAMES, name_for
 from .region import fetch_region
 
 
@@ -51,10 +52,26 @@ def create_app() -> Flask:
                 {"detail": f"could not read the slide region from Girder: {exc}"}
             ), 502
 
-        local = app.config["SEGMENT"](region.pixels, region.mpp)
-        centroids = offset_points(local, bbox["x"], bbox["y"], region.scale)
+        local_points, classes = app.config["SEGMENT"](region.pixels, region.mpp)
+        centroids = offset_points(local_points, bbox["x"], bbox["y"], region.scale)
+
+        counts_by_type: dict[str, int] = {}
+        for c in classes:
+            n = name_for(c)
+            counts_by_type[n] = counts_by_type.get(n, 0) + 1
+
+        # Alignment invariant (F2): a mismatch is an internal error, not a miscoloured overlay.
+        if not (len(centroids) == len(classes) == sum(counts_by_type.values())):
+            return jsonify({"detail": "internal: class/centroid misalignment"}), 500
+
         return jsonify({
-            "count": len(centroids), "centroids": centroids, "bbox": bbox, "mpp": region.mpp,
+            "count": len(centroids),
+            "centroids": centroids,
+            "classes": classes,
+            "counts_by_type": counts_by_type,
+            "class_names": {str(k): v for k, v in TYPE_NAMES.items()},
+            "bbox": bbox,
+            "mpp": region.mpp,
         })
 
     return app
