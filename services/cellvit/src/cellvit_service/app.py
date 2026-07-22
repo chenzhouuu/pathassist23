@@ -6,8 +6,6 @@ model are injectable via `app.config` (tests override them), defaulting to the r
 `fetch_region` / `segment_array`. Every bbox in / centroid out is level-0 slide pixels (D8).
 """
 
-import threading
-
 import httpx
 from flask import Flask, jsonify, request
 
@@ -22,10 +20,12 @@ def create_app() -> Flask:
     app.config["READ_REGION"] = fetch_region   # injectable seams (tests override these)
     app.config["SEGMENT"] = segment_array
 
-    # Preload the GPU model in the background so /health is live immediately and the first
-    # real /segment doesn't pay the ~2.7 GB checkpoint load. No-op for the stub backend.
+    # Preload the GPU model synchronously, ON THE WORKER'S MAIN THREAD. This must NOT run in a
+    # background thread: building the model starts ray, and ray initialized on a thread that
+    # then exits has its GCS torn down — every later /segment then fails to connect to GCS.
+    # Blocking worker startup by ~12s is the price; warm_up is best-effort and never raises.
     if get_settings().model == "cellvit":
-        threading.Thread(target=warm_up, name="cellvit-warmup", daemon=True).start()
+        warm_up()
 
     @app.get("/health")
     def health():
