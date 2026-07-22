@@ -20,11 +20,14 @@ def _isolate_settings_cache():
     get_settings.cache_clear()
 
 
-def test_default_model_is_the_stub_grid():
-    # 128x128 at stride 32 → 4x4 = 16 grid points (the deterministic stub)
-    pts = segment_array(np.zeros((128, 128, 3), dtype=np.uint8), mpp=None)
-    assert len(pts) == 16
-    assert pts[0] == [0.0, 0.0]
+def test_stub_segment_array_returns_aligned_points_and_classes():
+    # 128x128 at stride 32 → 4x4 = 16 grid points, each with a deterministic PanNuke class.
+    points, classes = segment_array(np.zeros((128, 128, 3), dtype=np.uint8), mpp=None)
+    assert len(points) == 16
+    assert points[0] == [0.0, 0.0]
+    assert len(classes) == len(points)     # two parallel, index-aligned arrays
+    assert all(1 <= c <= 5 for c in classes)
+    assert all(len(p) == 2 for p in points)   # xy stays 2-D
 
 
 def test_warm_up_is_noop_for_stub(monkeypatch):
@@ -69,7 +72,9 @@ def test_pad_to_min_is_a_noop_when_region_already_clears_the_patch():
     assert padded is region  # large regions tile correctly on their own — no padding, no copy
 
 
-def test_clip_to_region_drops_centroids_outside_the_original_region():
+def test_clip_to_region_drops_pad_hits_in_lockstep():
     pts = [[5.0, 5.0], [246.9, 191.9], [300.0, 10.0], [10.0, 500.0], [-1.0, 5.0]]
-    kept = _clip_to_region(pts, 247, 192)
-    assert kept == [[5.0, 5.0], [246.9, 191.9]]  # only the two inside [0,247) x [0,192)
+    classes = [1, 2, 3, 4, 5]
+    kept_pts, kept_cls = _clip_to_region(pts, classes, 247, 192)
+    assert kept_pts == [[5.0, 5.0], [246.9, 191.9]]  # only the two inside [0,247) x [0,192)
+    assert kept_cls == [1, 2]  # their classes rode along

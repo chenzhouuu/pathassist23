@@ -68,9 +68,17 @@ def _pad_to_min(pixels: np.ndarray, min_side: int) -> np.ndarray:
     return canvas
 
 
-def _clip_to_region(points: list[list[float]], w: int, h: int) -> list[list[float]]:
-    """Keep only centroids inside the original region ``[0, w) x [0, h)`` — drop pad-area hits."""
-    return [p for p in points if 0.0 <= p[0] < w and 0.0 <= p[1] < h]
+def _clip_to_region(
+    points: list[list[float]], classes: list[int], w: int, h: int
+) -> tuple[list[list[float]], list[int]]:
+    """Keep only centroids inside ``[0, w) x [0, h)`` — drop pad-area hits, class in lockstep."""
+    kept_pts: list[list[float]] = []
+    kept_cls: list[int] = []
+    for p, c in zip(points, classes, strict=True):
+        if 0.0 <= p[0] < w and 0.0 <= p[1] < h:
+            kept_pts.append(p)
+            kept_cls.append(c)
+    return kept_pts, kept_cls
 
 # CellViT-SAM-H loads a ~2.7 GB checkpoint, so build it once and reuse it across requests.
 # The lock makes the lazy build safe if warm-up and the first request race.
@@ -78,14 +86,20 @@ _MODEL = None
 _MODEL_LOCK = threading.Lock()
 
 
-def _stub_segment_array(pixels: np.ndarray, mpp: float | None) -> list[list[float]]:
-    """A deterministic 32-px grid over the region — no GPU, no model."""
+def _stub_segment_array(
+    pixels: np.ndarray, mpp: float | None
+) -> tuple[list[list[float]], list[int]]:
+    """A deterministic 32-px grid over the region, with a deterministic PanNuke class per point."""
     h, w = pixels.shape[:2]
-    return [
-        [float(x), float(y)]
-        for y in range(0, h, _STUB_STRIDE)
-        for x in range(0, w, _STUB_STRIDE)
-    ]
+    points: list[list[float]] = []
+    classes: list[int] = []
+    idx = 0
+    for y in range(0, h, _STUB_STRIDE):
+        for x in range(0, w, _STUB_STRIDE):
+            points.append([float(x), float(y)])
+            classes.append(1 + (idx % 5))   # cycles all five classes → typed path exercised in CI
+            idx += 1
+    return points, classes
 
 
 def _get_cellvit_model():
@@ -131,8 +145,10 @@ def warm_up() -> bool:
     return True
 
 
-def _cellvit_segment_array(pixels: np.ndarray, mpp: float | None) -> list[list[float]]:
-    """Real CellViT-SAM-H inference on a region ndarray → region-local ``[x, y]`` centroids.
+def _cellvit_segment_array(
+    pixels: np.ndarray, mpp: float | None
+) -> tuple[list[list[float]], list[int]]:
+    """Real CellViT-SAM-H inference → region-local ``[x, y]`` centroids + PanNuke class ids.
 
     CellViT has no region API, so the region is written as an OpenSlide-readable tiled TIFF
     (a mini-WSI) at ``mpp`` and run through ``process_wsi`` (which reuses CellViT's exact
@@ -161,13 +177,16 @@ def _cellvit_segment_array(pixels: np.ndarray, mpp: float | None) -> list[list[f
         det.process_wsi(wsi_path=str(tif), wsi_mpp=mpp, wsi_magnification=None)
         cells = json.load(open(workdir / stem / "cells.json"))["cells"]
         local = [[float(c["centroid"][0]), float(c["centroid"][1])] for c in cells]
-        return _clip_to_region(local, w, h)
+        classes = [int(c["type"]) for c in cells]
+        return _clip_to_region(local, classes, w, h)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def segment_array(pixels: np.ndarray, mpp: float | None) -> list[list[float]]:
-    """Return region-local ``[x, y]`` nucleus centroids for the region ``pixels``."""
+def segment_array(
+    pixels: np.ndarray, mpp: float | None
+) -> tuple[list[list[float]], list[int]]:
+    """Region-local ``[x, y]`` centroids + aligned PanNuke class ids for the region ``pixels``."""
     if get_settings().model == "cellvit":
         return _cellvit_segment_array(pixels, mpp)
     return _stub_segment_array(pixels, mpp)
