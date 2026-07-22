@@ -27,10 +27,13 @@ async def segment_region(
     slide_ref: str,
     bbox: dict,
     token: str | None,
-    timeout: float = 120.0,
+    timeout: float = 240.0,
     client: httpx.AsyncClient | None = None,
 ) -> SegmentResult:
-    """POST the ROI to the CellViT service; return its count + level-0 centroids."""
+    """POST the ROI to the CellViT service; return its count + level-0 centroids.
+
+    The timeout is generous because a 20x slide must be upsampled to the x40 model's mpp — a
+    slow arbitrary rescale — so a large region can take a few minutes on a contended GPU."""
     payload = {"slide_ref": slide_ref, "bbox": bbox, "girder_token": token}
     owns = client is None
     client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)

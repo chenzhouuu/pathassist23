@@ -64,6 +64,10 @@ services:
       # ray postprocessing actors OOM the GPU at the default batch of 8. 2 keeps peak GPU
       # memory in bounds on the shared A6000; raise it if the card is dedicated.
       CELLVIT_BATCH_SIZE: "2"
+      # The 20x->40x upsample is a "very slow" arbitrary rescale (no pyramid level exists for
+      # upsampling); on a large region it blocks past ray's default 60s GCS-connect deadline,
+      # which then tears the run down. Give ray a 300s deadline so slow rescales complete.
+      RAY_gcs_rpc_server_reconnect_timeout_s: "300"
       # Same Girder as the gateway — the service reads region pixels with the user's token.
       CELLVIT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
       CELLVIT_CACHE: /weights-cache
