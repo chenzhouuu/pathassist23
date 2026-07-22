@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # CellViT inference service (R11). Empty ⇒ run_segmentation keeps the canned stub.
     cellvit_service_url: str = ""
 
+    # pathvlm Perceptor service (Inc 2a). Empty ⇒ describe_region reports it isn't configured.
+    pathvlm_service_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

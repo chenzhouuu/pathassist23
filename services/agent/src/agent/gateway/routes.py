@@ -52,6 +52,11 @@ def get_cellvit_url() -> str | None:
     return get_settings().cellvit_service_url or None
 
 
+def get_pathvlm_url() -> str | None:
+    """The configured pathvlm Perceptor URL (None ⇒ describe_region is unavailable)."""
+    return get_settings().pathvlm_service_url or None
+
+
 def _uid(user: dict) -> str:
     """The stable Girder user id used to scope ownership."""
     return str(user.get("_id") or user.get("login"))
@@ -175,6 +180,7 @@ async def post_turn(
     artifacts: ArtifactStore = Depends(get_artifacts),
     token: str | None = Depends(get_girder_token),
     cellvit_url: str | None = Depends(get_cellvit_url),
+    pathvlm_url: str | None = Depends(get_pathvlm_url),
 ) -> EventSourceResponse:
     """Run one Claude-Code-style autonomous turn, streaming the typed event trace.
 
@@ -199,11 +205,11 @@ async def post_turn(
     scope = _scope(conv, roi)
     viewer = body.viewer.model_dump() if body.viewer else None
     # Server-tool execution context: bulk output is written to the artifact store and only
-    # a handle rides the stream (D4). The Girder token + CellViT URL ride here server-side
-    # only (D3) — the model never sees either.
+    # a handle rides the stream (D4). The Girder token + CellViT/pathvlm URLs ride here
+    # server-side only (D3) — the model never sees any of them.
     ctx = ToolContext(
         owner=_uid(user), conversation_id=conversation_id, artifacts=artifacts,
-        girder_token=token, cellvit_url=cellvit_url,
+        girder_token=token, cellvit_url=cellvit_url, pathvlm_url=pathvlm_url,
     )
 
     async def turn_stream():
