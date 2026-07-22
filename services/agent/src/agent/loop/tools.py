@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 from .artifacts import ArtifactHandle, ArtifactStore
+from .pannuke import PANNUKE_NAMES
 from .segmenter import segment_region
 
 logger = logging.getLogger(__name__)
@@ -89,13 +90,35 @@ def catalog() -> list[LoopTool]:
     return list(_TOOLS.values())
 
 
+def _counts_by_type(classes: list[str]) -> dict[str, int]:
+    """Per-class tally (by name) — the summary's numbers are always this, never model-computed."""
+    counts: dict[str, int] = {}
+    for name in classes:
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def _typed_summary(count: int, counts_by_type: dict[str, int]) -> str:
+    """Format a typed breakdown, e.g. '195 nuclei — 142 Neoplastic, 31 Inflammatory'.
+
+    Sorted desc by count; no classes → just the total. Numbers are always tool-derived."""
+    head = f"{count:,} nuclei"
+    if not counts_by_type:
+        return head
+    parts = [f"{n:,} {name}" for name, n in
+             sorted(counts_by_type.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return f"{head} — {', '.join(parts)}"
+
+
 def _stub_nuclei_geometry(bbox: dict | None) -> dict:
-    """A deterministic canned point set — the R10 CellViT executor returns real centroids.
+    """A deterministic canned point set with a deterministic PanNuke class (name) per point.
     Placed inside the bbox when one is given so the geometry is spatially plausible."""
     ox = float(bbox["x"]) if bbox else 0.0
     oy = float(bbox["y"]) if bbox else 0.0
     points = [[ox + (i % 64), oy + (i // 64)] for i in range(_STUB_NUCLEI)]
-    return {"kind": "nuclei", "count": len(points), "points": points}
+    classes = [PANNUKE_NAMES[i % 5] for i in range(_STUB_NUCLEI)]
+    return {"kind": "nuclei", "count": len(points), "points": points, "classes": classes}
 
 
 # A ceiling on the region a single interactive segmentation may cover (level-0 px^2). A
@@ -149,10 +172,11 @@ async def run_server_tool(
                 return ToolOutcome(ok=False, summary=f"segmentation failed ({type(exc).__name__})")
             # Ground density: give the model the slide's real µm/px so it stops assuming one.
             mpp_note = f" (at {res.mpp:.3g} µm/px)" if res.mpp else ""
-            summary = f"segmented {res.count:,} nuclei in the region{mpp_note}"
+            summary = f"segmented {_typed_summary(res.count, res.counts_by_type)}{mpp_note}"
             if ctx.artifacts is None:
                 return ToolOutcome(ok=True, summary=summary)
-            geometry = {"kind": "nuclei", "count": res.count, "points": res.points}
+            geometry = {"kind": "nuclei", "count": res.count, "points": res.points,
+                        "classes": res.classes}
             try:
                 handle = await ctx.artifacts.put(
                     owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
@@ -166,9 +190,11 @@ async def run_server_tool(
 
         # Canned stub (no service configured / unit context) — honors the bbox arg too.
         where = "in the region" if region else "across the slide"
-        if ctx is None or ctx.artifacts is None:
-            return ToolOutcome(ok=True, summary=f"segmented {_STUB_NUCLEI:,} nuclei {where}")
         geometry = _stub_nuclei_geometry(region)
+        counts = _counts_by_type(geometry["classes"])
+        summary = f"segmented {_typed_summary(geometry['count'], counts)} {where}"
+        if ctx is None or ctx.artifacts is None:
+            return ToolOutcome(ok=True, summary=summary)
         try:
             handle = await ctx.artifacts.put(
                 owner=ctx.owner, conversation_id=ctx.conversation_id, kind="nuclei",
@@ -177,10 +203,8 @@ async def run_server_tool(
             )
         except Exception:  # noqa: BLE001 — persisting the overlay must not sink the count
             logger.warning("persisting nuclei annotation failed", exc_info=True)
-            return ToolOutcome(ok=True, summary=f"segmented {geometry['count']:,} nuclei {where}")
-        return ToolOutcome(
-            ok=True, summary=f"segmented {handle.count:,} nuclei {where}", artifact=handle
-        )
+            return ToolOutcome(ok=True, summary=summary)
+        return ToolOutcome(ok=True, summary=summary, artifact=handle)
     return ToolOutcome(ok=False, summary=f"no server executor for {tool.name}")
 
 

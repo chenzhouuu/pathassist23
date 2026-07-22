@@ -195,3 +195,35 @@ async def test_run_segmentation_survives_annotation_persist_failure(monkeypatch)
     out = await tools.run_server_tool(tools.get_tool("run_segmentation"), {}, scope, ctx)
     assert out.ok
     assert "5" in out.summary and out.artifact is None  # count kept, overlay dropped
+
+
+def test_typed_summary_formats_breakdown_desc_and_degrades():
+    assert tools._typed_summary(195, {"Neoplastic": 142, "Inflammatory": 31, "Connective": 22}) == \
+        "195 nuclei — 142 Neoplastic, 31 Inflammatory, 22 Connective"
+    assert tools._typed_summary(195, {"Neoplastic": 195}) == "195 nuclei — 195 Neoplastic"
+    assert tools._typed_summary(195, {}) == "195 nuclei"
+
+
+async def test_stub_segmentation_geometry_carries_name_classes():
+    class _GeomSpyStore:
+        def __init__(self):
+            self.geometry = None
+
+        async def put(self, **kw):
+            self.geometry = kw["geometry"]
+            return ArtifactHandle(kind="nuclei", ref="r1", count=kw["geometry"]["count"],
+                                  summary=kw["summary"], bbox=kw["bbox"])
+
+        async def get(self, **kw):
+            return None
+
+    spy = _GeomSpyStore()
+    ctx = ToolContext(owner="u1", conversation_id=1, artifacts=spy)  # no cellvit_url → stub
+    scope = {"roi": {"x": 0, "y": 0, "width": 10, "height": 10}}
+    out = await run_server_tool(get_tool("run_segmentation"), {}, scope, ctx)
+
+    assert out.ok
+    names = {"Neoplastic", "Inflammatory", "Connective", "Dead", "Epithelial"}
+    assert set(spy.geometry["classes"]) <= names
+    assert len(spy.geometry["classes"]) == len(spy.geometry["points"])
+    assert "—" in out.summary  # typed breakdown, not a bare total
