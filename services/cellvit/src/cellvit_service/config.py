@@ -8,7 +8,9 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 
-_DEFAULT_GIRDER = "https://lymphoma.dev.pathassist.health/api/v1"
+# Neutral local fallback only — deployment sets CELLVIT_GIRDER_BASE (compose injects
+# http://host.docker.internal:9080/api/v1). Keep the default on port 9080.
+_DEFAULT_GIRDER = "http://localhost:9080/api/v1"
 
 
 @dataclass(frozen=True)

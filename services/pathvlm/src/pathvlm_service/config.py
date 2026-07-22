@@ -9,7 +9,9 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 
-_DEFAULT_GIRDER = "https://lymphoma.dev.pathassist.health/api/v1"
+# Neutral local fallback only — deployment sets PATHVLM_GIRDER_BASE (compose injects
+# http://host.docker.internal:9080/api/v1). Keep the default on port 9080.
+_DEFAULT_GIRDER = "http://localhost:9080/api/v1"
 
 # Perceptor input contract: what the Patho-R1 VLM is fed. Mirrors the frontend's wsiAnalysis
 # convention (512 px @ 10x); 20x is the default drill magnification for cell morphology.
