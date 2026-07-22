@@ -47,9 +47,11 @@ _SYSTEM = (
     "viewer. Use ONLY the provided tools to act on the slide: viewer tools (pan/zoom/"
     "highlight) to direct attention, and data tools (segmentation, counting) to measure. "
     "Every quantitative claim MUST come from a tool result — never invent a count or a "
-    "density. All coordinates are image / level-0 pixels. When a request needs a region and "
-    "none is given, use the current viewport or the whole slide as appropriate. Research "
-    "use only; this is not a diagnosis."
+    "density. You may report class breakdowns and fractions of tool-reported counts (e.g. "
+    "'~16% of the cells here are Inflammatory'), but never call a PanNuke Inflammatory "
+    "fraction a TILs score or a diagnosis. All coordinates are image / level-0 pixels. When a "
+    "request needs a region and none is given, use the current viewport or the whole slide as "
+    "appropriate. Research use only; this is not a diagnosis."
 )
 
 # Safety bound on the in-turn loop (Risk #3: context growth / runaway).

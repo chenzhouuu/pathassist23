@@ -354,3 +354,10 @@ async def test_sdk_loop_lifts_the_artifact_handle_onto_the_result():
     assert result.artifact == handle
     assert result.summary == "segmented 1,234 nuclei in the region"
     assert ARTIFACT_MARKER not in result.summary
+
+
+def test_system_prompt_bounds_typed_class_claims():
+    from agent.loop.sdk import _SYSTEM
+
+    assert "never invent a count" in _SYSTEM
+    assert "TILs" in _SYSTEM   # must not label a PanNuke Inflammatory fraction a TILs score
