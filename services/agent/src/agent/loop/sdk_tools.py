@@ -54,6 +54,28 @@ _SCHEMAS: dict[str, dict] = {
         },
         "additionalProperties": False,
     },
+    "describe_region": {
+        "type": "object",
+        "properties": {
+            "bbox": {
+                **_BBOX_SCHEMA,
+                "description": "Region to describe, in level-0 pixels. Omit to use the region "
+                               "already drawn on the slide.",
+            },
+            "magnification": {
+                "type": ["integer", "null"],
+                "description": "Objective power to view the region at (e.g. 5, 10, 20, 40). "
+                               "Higher = more detail, smaller field of view; clamped to the "
+                               "slide's native magnification. Omit for the default.",
+            },
+            "focus": {
+                "type": ["string", "null"],
+                "description": "Optional hint to direct the description, e.g. 'nuclear atypia' "
+                               "or 'mitotic figures'.",
+            },
+        },
+        "additionalProperties": False,
+    },
 }
 
 

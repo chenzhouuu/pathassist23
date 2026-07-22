@@ -21,6 +21,7 @@ _ALL = {
     "mcp__pathagent__pan_zoom_to_region",
     "mcp__pathagent__highlight_roi",
     "mcp__pathagent__run_segmentation",
+    "mcp__pathagent__describe_region",
 }
 
 

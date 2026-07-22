@@ -195,6 +195,7 @@ def test_build_options_configures_the_sdk_run():
         "mcp__pathagent__pan_zoom_to_region",
         "mcp__pathagent__highlight_roi",
         "mcp__pathagent__run_segmentation",
+        "mcp__pathagent__describe_region",
     }
     assert opts.system_prompt  # a persona is set
 

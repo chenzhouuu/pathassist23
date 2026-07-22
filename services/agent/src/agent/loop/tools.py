@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from .artifacts import ArtifactHandle, ArtifactStore
 from .pannuke import PANNUKE_NAMES
+from .pathvlm_client import describe_region as pathvlm_describe
 from .segmenter import segment_region
 
 logger = logging.getLogger(__name__)
@@ -39,15 +40,16 @@ class LoopTool:
 @dataclass(frozen=True)
 class ToolContext:
     """Per-turn execution context for server-side data tools: who owns the turn, which
-    conversation it belongs to, where bulk output is written (D4), and the server-side
-    Girder token + CellViT service URL for real segmentation (R11). The token never enters
-    the model (D3)."""
+    conversation it belongs to, where bulk output is written (D4), the server-side Girder
+    token, and the CellViT (segmentation) + pathvlm (Perceptor) service URLs. The token never
+    enters the model (D3)."""
 
     owner: str
     conversation_id: int
     artifacts: ArtifactStore | None = None
     girder_token: str | None = None
     cellvit_url: str | None = None
+    pathvlm_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,12 @@ _TOOLS: dict[str, LoopTool] = {
         "run_segmentation", SERVER, "Segment nuclei",
         "Segment the nuclei in the region and count them; returns a nucleus count and "
         "their locations.",
+    ),
+    "describe_region": LoopTool(
+        "describe_region", SERVER, "Describe region",
+        "Describe the tissue morphology in a region at a chosen magnification (objective "
+        "power, e.g. 20). Returns a Perceptor (Patho-R1) description; optionally pass a focus "
+        "to direct it.",
     ),
 }
 
@@ -205,6 +213,42 @@ async def run_server_tool(
             logger.warning("persisting nuclei annotation failed", exc_info=True)
             return ToolOutcome(ok=True, summary=summary)
         return ToolOutcome(ok=True, summary=summary, artifact=handle)
+
+    if tool.name == "describe_region":
+        # Perceptor (Patho-R1) morphology read. Summary-only in Inc 2a — the regions overlay
+        # (a rectangle artifact) is Inc 2c.
+        region = args.get("bbox") or (scope or {}).get("roi")
+        if region is None:
+            return ToolOutcome(
+                ok=False,
+                summary="Tell me which region to describe — draw one on the slide, pan to it, "
+                        "or pass a bounding box.",
+            )
+        if ctx is None or not ctx.pathvlm_url:
+            return ToolOutcome(
+                ok=False,
+                summary="The Perceptor service isn't configured, so I can't describe the region.",
+            )
+        slide_ref = (scope or {}).get("item_id")
+        if not slide_ref:
+            return ToolOutcome(
+                ok=False, summary="No slide is loaded to describe — open a slide and ask again."
+            )
+        try:
+            res = await pathvlm_describe(
+                base_url=ctx.pathvlm_url, slide_ref=slide_ref, bbox=region,
+                magnification=args.get("magnification"), focus=args.get("focus"),
+                token=ctx.girder_token,
+            )
+        except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
+            logger.warning("describe_region failed", exc_info=True)
+            return ToolOutcome(ok=False, summary=f"description failed ({type(exc).__name__})")
+        # F3 grounding: attribute the description to the model + the region it actually saw.
+        at_mag = f" at {res.magnification:g}x" if res.magnification else ""
+        x, y = int(region.get("x", 0)), int(region.get("y", 0))
+        summary = f"Patho-R1{at_mag} on region ({x},{y}): {res.description}"
+        return ToolOutcome(ok=True, summary=summary)
+
     return ToolOutcome(ok=False, summary=f"no server executor for {tool.name}")
 
 
