@@ -125,7 +125,10 @@ async def test_put_tags_group_and_linecolor_per_element():
     assert els[0] == {"type": "point", "center": [1.0, 2.0, 0],
                       "group": "Neoplastic", "lineColor": "#ff0000"}
     assert els[1]["group"] == "Inflammatory" and els[1]["lineColor"] == "#22dd4d"
-    assert seen["body"]["groups"] == ["Neoplastic", "Inflammatory"]
+    # Regression guard: NO top-level "groups" — the DSA POST body is {name, description, elements}
+    # (per-element `group` drives grouping). A top-level groups list fails schema validation, which
+    # silently degraded the tool to summary-only and killed the overlay.
+    assert "groups" not in seen["body"]
 
 
 @pytest.mark.asyncio

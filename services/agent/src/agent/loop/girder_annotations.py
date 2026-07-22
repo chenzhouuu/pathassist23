@@ -34,7 +34,6 @@ class GirderAnnotationStore(ArtifactStore):
         count = geometry.get("count", len(points))
         classes = geometry.get("classes") or []
         elements: list[dict] = []
-        groups: list[str] = []
         for i, p in enumerate(points):
             el: dict = {"type": "point", "center": [float(p[0]), float(p[1]), 0]}
             name = classes[i] if i < len(classes) else None
@@ -42,16 +41,16 @@ class GirderAnnotationStore(ArtifactStore):
                 el["group"] = name
                 if name in CLASS_HEX:
                     el["lineColor"] = CLASS_HEX[name]   # per-element colour (repo makePoint, F4)
-                if name not in groups:
-                    groups.append(name)
             elements.append(el)
+        # The DSA annotation POST body is {name, description, elements} — the same shape the
+        # frontend's createAnnotation sends. A top-level "groups" key fails schema validation and
+        # (caught in run_server_tool) silently drops the overlay, so it is deliberately omitted;
+        # per-element `group` is what drives native grouping/colour.
         doc = {
             "name": f"Copilot nuclei · {count}",
             "description": _describe(count, bbox),
             "elements": elements,
         }
-        if groups:
-            doc["groups"] = groups
         client, owns = self._acquire()
         try:
             resp = await client.post(
