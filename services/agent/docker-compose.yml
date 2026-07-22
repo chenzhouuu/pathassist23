@@ -51,13 +51,19 @@ services:
     ports: ["8020:8020"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # CellViT's ray backend sizes its object store from system RAM and wants it on /dev/shm;
-    # Docker's default 64 MB shm is far too small. Give it real shm and let ray spill to disk
-    # rather than erroring when its (RAM-derived) target still exceeds shm.
-    shm_size: "8gb"
+    # CellViT's ray backend sizes its object store at ~30% of system RAM and wants it on
+    # /dev/shm. Docker's default 64 MB — and even 8 GB — is far too small: ray then spills the
+    # object store to disk (/tmp/ray), which is slow enough that on a 20x slide (which the x40
+    # model must upsample) the segmentation blocks past ray's 60 s GCS-connect timeout and the
+    # whole run dies. Size shm to cover ray's RAM-derived target so it stays in memory.
+    shm_size: "40gb"
     environment:
       CELLVIT_MODEL: cellvit
       RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE: "1"
+      # A 20x slide is upsampled to the x40 model's 0.25 mpp (~4x the pixels), so CellViT's
+      # ray postprocessing actors OOM the GPU at the default batch of 8. 2 keeps peak GPU
+      # memory in bounds on the shared A6000; raise it if the card is dedicated.
+      CELLVIT_BATCH_SIZE: "2"
       # Same Girder as the gateway — the service reads region pixels with the user's token.
       CELLVIT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
       CELLVIT_CACHE: /weights-cache
