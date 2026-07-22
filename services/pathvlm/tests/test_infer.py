@@ -24,7 +24,7 @@ def test_dispatch_hits_model_path_only_when_use_model(monkeypatch):
         called["hit"] = (magnification, focus)
         return "REAL"
 
-    monkeypatch.setattr(infer, "_patho_r1_describe", fake)
+    monkeypatch.setattr(infer, "_medgemma_describe", fake)
     assert infer.describe_array(_pixels(), 40, "mitoses", use_model=True) == "REAL"
     assert called["hit"] == (40, "mitoses")
 

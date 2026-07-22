@@ -13,7 +13,7 @@ def test_health_ok():
 
 
 def test_create_app_warms_up_when_checkpoint_configured(monkeypatch):
-    monkeypatch.setenv("PATHVLM_PATHO_R1_CKPT", "/weights/ckpt")
+    monkeypatch.setenv("PATHVLM_MEDGEMMA_CKPT", "/weights/ckpt")
     get_settings.cache_clear()
     warmed = []
     monkeypatch.setattr(app_module, "warm_up", lambda: warmed.append(1))
@@ -25,7 +25,7 @@ def test_create_app_warms_up_when_checkpoint_configured(monkeypatch):
 
 
 def test_create_app_skips_warm_up_for_stub(monkeypatch):
-    monkeypatch.setenv("PATHVLM_PATHO_R1_CKPT", "")
+    monkeypatch.setenv("PATHVLM_MEDGEMMA_CKPT", "")
     get_settings.cache_clear()
     calls = []
     monkeypatch.setattr(app_module, "warm_up", lambda: calls.append(1))

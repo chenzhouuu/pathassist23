@@ -1,7 +1,7 @@
 """Gateway → pathvlm Perceptor service HTTP client (Inc 2a).
 
 The ``describe_region`` server tool calls this to get a morphology description of a region from
-the pathvlm service (Patho-R1-7B). The Girder token is sent server-to-server and is never a model
+the pathvlm service (MedGemma). The Girder token is sent server-to-server and is never a model
 argument (D3). Mirrors ``segmenter.py``.
 """
 

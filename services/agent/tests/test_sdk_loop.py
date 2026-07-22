@@ -367,7 +367,7 @@ def test_system_prompt_bounds_typed_class_claims():
 def test_system_prompt_grounds_perceptor_descriptions():
     from agent.loop.sdk import _SYSTEM
 
-    # F3: a Patho-R1 description is a hedged observation, attributed and never a verdict.
+    # F3: a MedGemma description is a hedged observation, attributed and never a verdict.
     assert "hedged observation" in _SYSTEM
     assert "describe_region" in _SYSTEM
     # F5: look before you drill.

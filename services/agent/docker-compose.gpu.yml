@@ -1,18 +1,18 @@
-# Overlay that runs the pathvlm Perceptor on the REAL Patho-R1-7B (GPU). The base file runs the
+# Overlay that runs the pathvlm Perceptor on the REAL MedGemma (GPU). The base file runs the
 # GPU-free stub; layer this on top to serve the real model without editing the base:
 #
-#   PATHVLM_WEIGHTS_DIR=/host/path/to/patho-r1-7b \
+#   PATHVLM_WEIGHTS_DIR=/host/path/to/medgemma-4b-it \
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build pathvlm
 #
-# PATHVLM_WEIGHTS_DIR must point at the Patho-R1-7B checkpoint directory on the host; it is mounted
-# read-only at /weights and PATHVLM_PATHO_R1_CKPT points the service there (flipping infer to the
+# PATHVLM_WEIGHTS_DIR must point at the MedGemma checkpoint directory on the host; it is mounted
+# read-only at /weights and PATHVLM_MEDGEMMA_CKPT points the service there (flipping infer to the
 # real model). GPU: driver 535 host (CUDA <= 12.2) — the image is pinned to torch 2.2.2 / cuda 12.1.
 services:
   pathvlm:
     environment:
-      PATHVLM_PATHO_R1_CKPT: /weights
+      PATHVLM_MEDGEMMA_CKPT: /weights
     volumes:
-      - ${PATHVLM_WEIGHTS_DIR:?set PATHVLM_WEIGHTS_DIR to the host Patho-R1-7B checkpoint dir}:/weights:ro
+      - ${PATHVLM_WEIGHTS_DIR:?set PATHVLM_WEIGHTS_DIR to the host MedGemma checkpoint dir}:/weights:ro
     deploy:
       resources:
         reservations:

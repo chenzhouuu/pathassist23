@@ -2,7 +2,7 @@
 name = "pathvlm-service"
 version = "0.1.0"
 requires-python = ">=3.11"
-# Flask service hosting the pathology VLMs: the Perceptor (Patho-R1-7B) now, the Navigator (PLIP)
+# Flask service hosting the pathology VLMs: the Perceptor (MedGemma) now, the Navigator (PLIP)
 # later. torch/transformers live only in the Dockerfile and are imported lazily behind the
 # infer stub seam, so the base env / CI stays GPU-free.
 dependencies = [

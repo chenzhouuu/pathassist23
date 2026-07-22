@@ -86,7 +86,7 @@ services:
 
   # pathvlm Perceptor service (Inc 2a). Flask; the gateway reaches it by name. Runs the GPU-free
   # STUB by default, so describe_region works end-to-end with no GPU. To serve the real
-  # Patho-R1-7B, set PATHVLM_PATHO_R1_CKPT, mount the weights, and uncomment the GPU reservation.
+  # MedGemma, set PATHVLM_MEDGEMMA_CKPT, mount the weights, and uncomment the GPU reservation.
   pathvlm:
     build: ../pathvlm
     ports: ["8021:8021"]
@@ -95,11 +95,11 @@ services:
     environment:
       # Same Girder as the gateway — the service reads region pixels with the user's token.
       PATHVLM_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
-      # Empty ⇒ GPU-free stub Perceptor. Set to the Patho-R1-7B checkpoint path to serve the
-      # real model (then also mount the weights and uncomment the GPU reservation below).
-      PATHVLM_PATHO_R1_CKPT: ${PATHVLM_PATHO_R1_CKPT:-}
+      # Empty ⇒ GPU-free stub Perceptor. Set to a MedGemma checkpoint path to serve the real
+      # model (then also mount the weights and uncomment the GPU reservation below).
+      PATHVLM_MEDGEMMA_CKPT: ${PATHVLM_MEDGEMMA_CKPT:-}
     # volumes:
-    #   - ${PATHVLM_WEIGHTS_DIR:-/home/chen/.cache/patho-r1}:/weights
+    #   - ${PATHVLM_WEIGHTS_DIR:-/home/chen/.cache/medgemma}:/weights
     # deploy:
     #   resources:
     #     reservations:

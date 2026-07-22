@@ -22,7 +22,7 @@ def create_app() -> Flask:
     app.config["READ_REGION"] = fetch_region_at_mag  # injectable seams (tests override these)
     app.config["DESCRIBE"] = describe_array
 
-    # Preload Patho-R1 synchronously on the worker's main thread when a checkpoint is configured;
+    # Preload MedGemma synchronously on the worker's main thread when a checkpoint is configured;
     # the stub needs no model. warm_up is best-effort and never raises.
     if get_settings().use_model:
         warm_up()
@@ -30,7 +30,7 @@ def create_app() -> Flask:
     @app.get("/health")
     def health():
         s = get_settings()
-        model = "patho-r1" if s.use_model else "stub"
+        model = "medgemma" if s.use_model else "stub"
         return jsonify({"status": "ok", "service": "pathvlm", "model": model})
 
     @app.post("/describe_region")

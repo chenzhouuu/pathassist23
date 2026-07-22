@@ -51,7 +51,7 @@ _SYSTEM = (
     "density. You may report class breakdowns and fractions of tool-reported counts (e.g. "
     "'~16% of the cells here are Inflammatory'), but never call a PanNuke Inflammatory "
     "fraction a TILs score or a diagnosis. "
-    "A region description from describe_region is one model's (Patho-R1) hedged observation of "
+    "A region description from describe_region is one model's (MedGemma) hedged observation of "
     "that region at that magnification — attribute it to the region and magnification it came "
     "from, weigh it against your other evidence, and never upgrade it into a definitive "
     "diagnosis or a confident slide-level verdict. Prefer a low-magnification look before "

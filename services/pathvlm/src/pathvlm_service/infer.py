@@ -1,10 +1,10 @@
 """Perceptor inference: a region's pixels → a morphology description.
 
-A stub/real seam exactly like the cellvit service. Without a Patho-R1 checkpoint the GPU-free
+A stub/real seam exactly like the cellvit service. Without a MedGemma checkpoint the GPU-free
 stub returns a deterministic, clearly-marked description (so the whole path is browser-E2E-able
-with no GPU); the real Patho-R1-7B (Qwen2.5-VL) runs behind ``_patho_r1_describe`` as a warm
-singleton. torch/transformers/qwen_vl_utils are imported lazily on the real path only, so the
-base env / CI stays GPU-free.
+with no GPU); the real **MedGemma** (Google's Gemma-3-based medical VLM) runs behind
+``_medgemma_describe`` as a warm singleton. torch/transformers are imported lazily on the real
+path only, so the base env / CI stays GPU-free.
 """
 
 import logging
@@ -15,8 +15,8 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# The Perceptor persona (adapted from PathAgent's patho_r1 system prompt): observe and describe,
-# grounded in morphology, but never a definitive diagnosis.
+# The Perceptor persona: observe and describe H&E morphology, grounded, but never a definitive
+# diagnosis. Rides MedGemma's `system` role.
 _SYSTEM = (
     "You are an AI medical assistant specialized in pathology image analysis. Interpret the "
     "image and describe the observed features — cell morphology, staining patterns, tissue "
@@ -42,7 +42,7 @@ def describe_array(
     if use_model is None:
         use_model = get_settings().use_model
     if use_model:
-        return _patho_r1_describe(pixels, magnification, focus)
+        return _medgemma_describe(pixels, magnification, focus)
     return _stub_describe(pixels, magnification, focus)
 
 
@@ -54,21 +54,22 @@ def _stub_describe(pixels: np.ndarray, magnification: float, focus: str | None =
     focus_note = f" Focus: {focus}." if focus else ""
     return (
         f"[STUB Perceptor @ {magnification:g}x] H&E region appears {density} "
-        f"(mean intensity {mean:.0f}); real morphology description pending the Patho-R1 model."
+        f"(mean intensity {mean:.0f}); real morphology description pending the MedGemma model."
         f"{focus_note}"
     )
 
 
 def _load() -> tuple:
-    """Load Patho-R1-7B once (warm singleton). Lazy torch/transformers import (GPU-only)."""
+    """Load MedGemma once (warm singleton). Lazy torch/transformers import (GPU-only)."""
     global _MODEL
     if _MODEL is not None:
         return _MODEL
-    from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+    import torch
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
-    ckpt = get_settings().patho_r1_ckpt
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        ckpt, torch_dtype="auto", device_map="auto"
+    ckpt = get_settings().medgemma_ckpt
+    model = AutoModelForImageTextToText.from_pretrained(
+        ckpt, torch_dtype=torch.bfloat16, device_map="auto"
     )
     processor = AutoProcessor.from_pretrained(ckpt)
     _MODEL = (model, processor)
@@ -80,35 +81,35 @@ def warm_up() -> None:
     try:
         _load()
     except Exception:  # noqa: BLE001 — warm-up must never crash worker startup
-        logger.warning("Patho-R1 warm-up failed", exc_info=True)
+        logger.warning("MedGemma warm-up failed", exc_info=True)
 
 
-def _patho_r1_describe(pixels: np.ndarray, magnification: float, focus: str | None = None) -> str:
-    """Real Patho-R1-7B (Qwen2.5-VL) perception. Not exercised in CI (manual GPU smoke)."""
+def _medgemma_describe(pixels: np.ndarray, magnification: float, focus: str | None = None) -> str:
+    """Real MedGemma (Gemma-3 multimodal) perception. Not exercised in CI (manual GPU smoke)."""
     import torch
     from PIL import Image
-    from qwen_vl_utils import process_vision_info
 
     model, processor = _load()
     image = Image.fromarray(np.asarray(pixels)).convert("RGB")
-    meta = f"[IMAGE META] Magnification: {magnification:g}x"
-    body = "Describe the pathological features visible in this image."
+    prompt = (
+        f"[Magnification: {magnification:g}x] Describe the pathological features visible in this "
+        "H&E image."
+    )
     if focus:
-        body += f"\nFocus on: {focus}."
+        prompt += f" Focus on: {focus}."
     messages = [
-        {"role": "system", "content": _SYSTEM},
+        {"role": "system", "content": [{"type": "text", "text": _SYSTEM}]},
         {"role": "user", "content": [
+            {"type": "text", "text": prompt},
             {"type": "image", "image": image},
-            {"type": "text", "text": f"{meta}\n\n{body}"},
         ]},
     ]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    image_inputs, _ = process_vision_info(messages)
-    inputs = processor(text=[text], images=image_inputs, padding=True, return_tensors="pt")
-    inputs = inputs.to(model.device)
-    with torch.no_grad():
-        generated = model.generate(**inputs, max_new_tokens=512)
-    trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated, strict=True)]
-    return processor.batch_decode(
-        trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-    )[0].strip()
+    inputs = processor.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=True,
+        return_dict=True, return_tensors="pt",
+    ).to(model.device, dtype=torch.bfloat16)
+    input_len = inputs["input_ids"].shape[-1]
+    with torch.inference_mode():
+        generation = model.generate(**inputs, max_new_tokens=512, do_sample=False)
+    generation = generation[0][input_len:]
+    return processor.decode(generation, skip_special_tokens=True).strip()

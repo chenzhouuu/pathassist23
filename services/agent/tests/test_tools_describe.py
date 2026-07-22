@@ -22,7 +22,7 @@ async def test_describe_region_returns_grounded_provenance_summary(monkeypatch):
         {"item_id": "item9"}, ctx,
     )
     assert out.ok and out.artifact is None  # summary-only in Inc 2a
-    assert out.summary == "Patho-R1 at 20x on region (100,200): pleomorphic nuclei"
+    assert out.summary == "MedGemma at 20x on region (100,200): pleomorphic nuclei"
 
 
 @pytest.mark.asyncio

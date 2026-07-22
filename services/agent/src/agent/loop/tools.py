@@ -80,7 +80,7 @@ _TOOLS: dict[str, LoopTool] = {
     "describe_region": LoopTool(
         "describe_region", SERVER, "Describe region",
         "Describe the tissue morphology in a region at a chosen magnification (objective "
-        "power, e.g. 20). Returns a Perceptor (Patho-R1) description; optionally pass a focus "
+        "power, e.g. 20). Returns a Perceptor (MedGemma) description; optionally pass a focus "
         "to direct it.",
     ),
 }
@@ -215,7 +215,7 @@ async def run_server_tool(
         return ToolOutcome(ok=True, summary=summary, artifact=handle)
 
     if tool.name == "describe_region":
-        # Perceptor (Patho-R1) morphology read. Summary-only in Inc 2a — the regions overlay
+        # Perceptor (MedGemma) morphology read. Summary-only in Inc 2a — the regions overlay
         # (a rectangle artifact) is Inc 2c.
         region = args.get("bbox") or (scope or {}).get("roi")
         if region is None:
@@ -246,7 +246,7 @@ async def run_server_tool(
         # F3 grounding: attribute the description to the model + the region it actually saw.
         at_mag = f" at {res.magnification:g}x" if res.magnification else ""
         x, y = int(region.get("x", 0)), int(region.get("y", 0))
-        summary = f"Patho-R1{at_mag} on region ({x},{y}): {res.description}"
+        summary = f"MedGemma{at_mag} on region ({x},{y}): {res.description}"
         return ToolOutcome(ok=True, summary=summary)
 
     return ToolOutcome(ok=False, summary=f"no server executor for {tool.name}")
