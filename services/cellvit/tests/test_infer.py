@@ -3,7 +3,13 @@ import pytest
 
 from cellvit_service import infer
 from cellvit_service.config import get_settings
-from cellvit_service.infer import segment_array, warm_up
+from cellvit_service.infer import (
+    _clip_to_region,
+    _min_native_side,
+    _pad_to_min,
+    segment_array,
+    warm_up,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -35,3 +41,35 @@ def test_warm_up_loads_model_for_cellvit(monkeypatch):
     monkeypatch.setattr(infer, "_get_cellvit_model", lambda: calls.append(1))
     assert warm_up() is True
     assert calls == [1]  # delegated to the singleton builder exactly once
+
+
+# ── Sub-patch padding (fixes the process_wsi single-patch coordinate offset) ──────────
+
+
+def test_min_native_side_scales_inversely_with_mpp():
+    # A region is resampled native_mpp -> target(0.25), so a coarser slide needs fewer native
+    # px to clear one inference patch. native = (patch + margin) * target / mpp.
+    at_050 = _min_native_side(0.50)
+    at_025 = _min_native_side(0.25)
+    assert at_025 > at_050  # 0.25 mpp is read 1:1, so it needs the full patch in native px
+    assert at_050 == 576  # (1024 + 128) * 0.25 / 0.50
+
+
+def test_pad_to_min_grows_a_sub_patch_region_keeping_content_at_origin():
+    region = np.full((192, 247, 3), 7, dtype=np.uint8)  # (H, W, 3)
+    padded = _pad_to_min(region, 576)
+    assert padded.shape == (576, 576, 3)
+    # the real region stays at the top-left origin, byte-for-byte, so centroids need no un-offset
+    assert np.array_equal(padded[:192, :247], region)
+
+
+def test_pad_to_min_is_a_noop_when_region_already_clears_the_patch():
+    region = np.zeros((800, 900, 3), dtype=np.uint8)
+    padded = _pad_to_min(region, 576)
+    assert padded is region  # large regions tile correctly on their own — no padding, no copy
+
+
+def test_clip_to_region_drops_centroids_outside_the_original_region():
+    pts = [[5.0, 5.0], [246.9, 191.9], [300.0, 10.0], [10.0, 500.0], [-1.0, 5.0]]
+    kept = _clip_to_region(pts, 247, 192)
+    assert kept == [[5.0, 5.0], [246.9, 191.9]]  # only the two inside [0,247) x [0,192)

@@ -15,6 +15,7 @@ import shutil
 import tempfile
 import threading
 import uuid
+from math import ceil
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,52 @@ from .config import get_settings
 logger = logging.getLogger(__name__)
 
 _STUB_STRIDE = 32
+
+# CellViT-SAM-H tiles its input at this patch size in the model's target-mpp frame. A mini-WSI
+# smaller than one patch makes process_wsi sample a single patch, and its patch→WSI coordinate
+# mapping is then off by ~one patch — every centroid comes back shifted by hundreds of px
+# (verified: a 247x192 region returned x[-490,-252] unpadded vs x[6,244] once padded past a
+# patch). We pad sub-patch regions up so process_wsi tiles like a normal WSI, then clip away any
+# detection that lands in the padded margin. Large regions already tile correctly and are untouched.
+_CELLVIT_PATCH = 1024        # inference patch side (px), in the model's target-mpp frame
+_CELLVIT_TARGET_MPP = 0.25   # CellViT-SAM-H is an x40 model
+_PAD_MARGIN = 128            # clear the patch + tile overlap so the WSI tiles unambiguously
+
+
+def _min_native_side(mpp: float) -> int:
+    """Native px a region side must reach so its resampled size clears one inference patch.
+
+    process_wsi resamples native ``mpp`` → the model target mpp, so
+    ``resampled = native * (mpp / target)``. We need ``resampled ≥ patch + margin``, i.e.
+    ``native ≥ (patch + margin) * target / mpp``.
+    """
+    return max(1, ceil((_CELLVIT_PATCH + _PAD_MARGIN) * _CELLVIT_TARGET_MPP / mpp))
+
+
+def _pad_to_min(pixels: np.ndarray, min_side: int) -> np.ndarray:
+    """Pad bottom/right so both sides reach ``min_side``, keeping content at the origin.
+
+    The region stays at ``[0:h, 0:w]`` byte-for-byte, so its centroids need no un-offset. The
+    pad is filled with the region's per-channel median (a tissue-free background estimate) so it
+    grows no spurious nuclei, and any that do appear at the seam are clipped by
+    :func:`_clip_to_region`. A no-op (returns the input unchanged) when the region already
+    clears ``min_side`` — large regions tile correctly on their own.
+    """
+    h, w = pixels.shape[:2]
+    pad_h = max(0, min_side - h)
+    pad_w = max(0, min_side - w)
+    if not pad_h and not pad_w:
+        return pixels
+    fill = np.median(pixels.reshape(-1, pixels.shape[2]), axis=0).astype(pixels.dtype)
+    canvas = np.empty((h + pad_h, w + pad_w, pixels.shape[2]), dtype=pixels.dtype)
+    canvas[:] = fill
+    canvas[:h, :w] = pixels
+    return canvas
+
+
+def _clip_to_region(points: list[list[float]], w: int, h: int) -> list[list[float]]:
+    """Keep only centroids inside the original region ``[0, w) x [0, h)`` — drop pad-area hits."""
+    return [p for p in points if 0.0 <= p[0] < w and 0.0 <= p[1] < h]
 
 # CellViT-SAM-H loads a ~2.7 GB checkpoint, so build it once and reuse it across requests.
 # The lock makes the lazy build safe if warm-up and the first request race.
@@ -96,6 +143,10 @@ def _cellvit_segment_array(pixels: np.ndarray, mpp: float | None) -> list[list[f
     import tifffile
 
     mpp = mpp or 0.25
+    h, w = pixels.shape[:2]
+    # Pad a sub-patch region up so process_wsi tiles it normally (see _pad_to_min); real nuclei
+    # then come back in the true region frame and pad-margin detections are clipped out below.
+    padded = _pad_to_min(pixels, _min_native_side(mpp))
     det = _get_cellvit_model()
     workdir = Path(tempfile.mkdtemp(prefix="cellvit_seg_"))
     try:
@@ -103,13 +154,14 @@ def _cellvit_segment_array(pixels: np.ndarray, mpp: float | None) -> list[list[f
         tif = workdir / f"{stem}.tif"
         res = 1e4 / mpp  # pixels per cm → OpenSlide derives MPP from the resolution tag
         tifffile.imwrite(
-            str(tif), pixels, tile=(256, 256), photometric="rgb",
+            str(tif), padded, tile=(256, 256), photometric="rgb",
             resolution=(res, res), resolutionunit="CENTIMETER",
         )
         det.outdir = workdir
         det.process_wsi(wsi_path=str(tif), wsi_mpp=mpp, wsi_magnification=None)
         cells = json.load(open(workdir / stem / "cells.json"))["cells"]
-        return [[float(c["centroid"][0]), float(c["centroid"][1])] for c in cells]
+        local = [[float(c["centroid"][0]), float(c["centroid"][1])] for c in cells]
+        return _clip_to_region(local, w, h)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
