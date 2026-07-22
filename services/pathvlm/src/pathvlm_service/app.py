@@ -13,7 +13,7 @@ import httpx
 from flask import Flask, jsonify, request
 
 from .config import get_settings
-from .infer import describe_array
+from .infer import describe_array, warm_up
 from .region import fetch_region_at_mag
 
 
@@ -21,6 +21,11 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config["READ_REGION"] = fetch_region_at_mag  # injectable seams (tests override these)
     app.config["DESCRIBE"] = describe_array
+
+    # Preload Patho-R1 synchronously on the worker's main thread when a checkpoint is configured;
+    # the stub needs no model. warm_up is best-effort and never raises.
+    if get_settings().use_model:
+        warm_up()
 
     @app.get("/health")
     def health():

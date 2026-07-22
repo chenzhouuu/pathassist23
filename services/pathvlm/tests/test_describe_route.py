@@ -1,13 +1,39 @@
 import httpx
 import numpy as np
 
+import pathvlm_service.app as app_module
 from pathvlm_service.app import create_app
+from pathvlm_service.config import get_settings
 from pathvlm_service.region import RegionImage
 
 
 def test_health_ok():
     r = create_app().test_client().get("/health")
     assert r.status_code == 200 and r.get_json()["service"] == "pathvlm"
+
+
+def test_create_app_warms_up_when_checkpoint_configured(monkeypatch):
+    monkeypatch.setenv("PATHVLM_PATHO_R1_CKPT", "/weights/ckpt")
+    get_settings.cache_clear()
+    warmed = []
+    monkeypatch.setattr(app_module, "warm_up", lambda: warmed.append(1))
+    try:
+        app_module.create_app()
+        assert warmed == [1]  # model preload wired to a configured checkpoint
+    finally:
+        get_settings.cache_clear()
+
+
+def test_create_app_skips_warm_up_for_stub(monkeypatch):
+    monkeypatch.setenv("PATHVLM_PATHO_R1_CKPT", "")
+    get_settings.cache_clear()
+    calls = []
+    monkeypatch.setattr(app_module, "warm_up", lambda: calls.append(1))
+    try:
+        app_module.create_app()
+        assert calls == []  # the GPU-free stub never loads a model
+    finally:
+        get_settings.cache_clear()
 
 
 def _client_with_fakes():
