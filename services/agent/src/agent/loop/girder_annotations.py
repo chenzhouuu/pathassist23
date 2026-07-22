@@ -12,6 +12,7 @@ against the same Girder the viewer is signed into (`settings.girder_base`).
 import httpx
 
 from .artifacts import ArtifactHandle, ArtifactStore
+from .pannuke import CLASS_HEX
 
 
 class GirderAnnotationStore(ArtifactStore):
@@ -31,14 +32,26 @@ class GirderAnnotationStore(ArtifactStore):
                   item_id=None, token=None) -> ArtifactHandle:
         points = geometry.get("points", [])
         count = geometry.get("count", len(points))
-        elements = [
-            {"type": "point", "center": [float(p[0]), float(p[1]), 0]} for p in points
-        ]
+        classes = geometry.get("classes") or []
+        elements: list[dict] = []
+        groups: list[str] = []
+        for i, p in enumerate(points):
+            el: dict = {"type": "point", "center": [float(p[0]), float(p[1]), 0]}
+            name = classes[i] if i < len(classes) else None
+            if name:
+                el["group"] = name
+                if name in CLASS_HEX:
+                    el["lineColor"] = CLASS_HEX[name]   # per-element colour (repo makePoint, F4)
+                if name not in groups:
+                    groups.append(name)
+            elements.append(el)
         doc = {
             "name": f"Copilot nuclei · {count}",
             "description": _describe(count, bbox),
             "elements": elements,
         }
+        if groups:
+            doc["groups"] = groups
         client, owns = self._acquire()
         try:
             resp = await client.post(
@@ -64,12 +77,14 @@ class GirderAnnotationStore(ArtifactStore):
             if owns:
                 await client.aclose()
         elements = (data.get("annotation") or {}).get("elements") or []
-        points = [
-            [float(el["center"][0]), float(el["center"][1])]
-            for el in elements
-            if el.get("type") == "point" and len(el.get("center") or ()) >= 2
-        ]
-        return {"kind": "nuclei", "count": len(points), "points": points}
+        points: list[list[float]] = []
+        classes: list[str | None] = []
+        for el in elements:
+            center = el.get("center") or ()
+            if el.get("type") == "point" and len(center) >= 2:
+                points.append([float(center[0]), float(center[1])])
+                classes.append(el.get("group"))   # class name or None, in lockstep with points
+        return {"kind": "nuclei", "count": len(points), "points": points, "classes": classes}
 
 
 def _auth(token: str | None) -> dict:

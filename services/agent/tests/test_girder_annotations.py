@@ -52,7 +52,8 @@ async def test_get_maps_point_elements_back_to_points():
         })
 
     got = await _store(handler).get(owner="u1", ref="ann123", token="tok")
-    assert got == {"kind": "nuclei", "count": 2, "points": [[10.0, 20.0], [11.0, 21.0]]}
+    assert got == {"kind": "nuclei", "count": 2, "points": [[10.0, 20.0], [11.0, 21.0]],
+                   "classes": [None, None]}  # elements carried no group
 
 
 @pytest.mark.asyncio
@@ -90,7 +91,7 @@ async def test_get_is_defensive_about_malformed_elements():
         ]}})
 
     got = await _store(handler).get(owner="u1", ref="x", token="tok")
-    assert got == {"kind": "nuclei", "count": 1, "points": [[1.0, 2.0]]}
+    assert got == {"kind": "nuclei", "count": 1, "points": [[1.0, 2.0]], "classes": [None]}
 
 
 @pytest.mark.asyncio
@@ -103,3 +104,38 @@ async def test_put_raises_on_write_failure_so_caller_can_degrade():
             owner="u1", conversation_id=1, kind="nuclei", bbox=None,
             geometry={"kind": "nuclei", "count": 1, "points": [[1, 2]]},
             summary="1", item_id="item9", token="tok")
+
+
+@pytest.mark.asyncio
+async def test_put_tags_group_and_linecolor_per_element():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"_id": "ann1"})
+
+    await _store(handler).put(
+        owner="u1", conversation_id=1, kind="nuclei",
+        bbox={"x": 0, "y": 0, "width": 5, "height": 5},
+        geometry={"kind": "nuclei", "count": 2, "points": [[1, 2], [3, 4]],
+                  "classes": ["Neoplastic", "Inflammatory"]},
+        summary="2 nuclei", item_id="item9", token="tok",
+    )
+    els = seen["body"]["elements"]
+    assert els[0] == {"type": "point", "center": [1.0, 2.0, 0],
+                      "group": "Neoplastic", "lineColor": "#ff0000"}
+    assert els[1]["group"] == "Inflammatory" and els[1]["lineColor"] == "#22dd4d"
+    assert seen["body"]["groups"] == ["Neoplastic", "Inflammatory"]
+
+
+@pytest.mark.asyncio
+async def test_get_reads_group_back_into_aligned_classes():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"_id": "ann1", "annotation": {"elements": [
+            {"type": "point", "center": [1.0, 2.0, 0], "group": "Neoplastic"},
+            {"type": "point", "center": [3.0, 4.0, 0]},                       # legacy, no group
+        ]}})
+
+    got = await _store(handler).get(owner="u1", ref="ann1", token="tok")
+    assert got == {"kind": "nuclei", "count": 2, "points": [[1.0, 2.0], [3.0, 4.0]],
+                   "classes": ["Neoplastic", None]}
