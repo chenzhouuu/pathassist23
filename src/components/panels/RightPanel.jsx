@@ -7,6 +7,7 @@ import PanelsPanel from './PanelsPanel.jsx';
 import AnalysisPanel from './AnalysisPanel.jsx';
 import PathChatPanel from './PathChatPanel.jsx';
 import CopilotPanel from './CopilotPanel.jsx';
+import PreprocessPanel from './PreprocessPanel.jsx';
 
 const MIN_W = 248;
 const MAX_W = 780;
@@ -68,6 +69,11 @@ export default function RightPanel() {
     { id:'copilot',     label:'Copilot', show: hasRole('ai-users'), icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>
+      </svg> },
+    { id:'preprocess',  label:'Preprocess', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
       </svg> },
     { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -138,6 +144,7 @@ export default function RightPanel() {
         {rightPanelTab === 'analysis'    && <AnalysisPanel/>}
         {rightPanelTab === 'chat'        && <PathChatPanel/>}
         {rightPanelTab === 'copilot'     && <CopilotPanel/>}
+        {rightPanelTab === 'preprocess'  && <PreprocessPanel/>}
       </div>
     </div>
   );
