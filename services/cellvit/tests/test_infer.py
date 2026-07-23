@@ -5,6 +5,7 @@ from cellvit_service import infer
 from cellvit_service.config import get_settings
 from cellvit_service.infer import (
     _clip_to_region,
+    _load_cells,
     _min_native_side,
     _pad_to_min,
     segment_array,
@@ -70,6 +71,19 @@ def test_pad_to_min_is_a_noop_when_region_already_clears_the_patch():
     region = np.zeros((800, 900, 3), dtype=np.uint8)
     padded = _pad_to_min(region, 576)
     assert padded is region  # large regions tile correctly on their own — no padding, no copy
+
+
+def test_load_cells_returns_empty_when_cellvit_wrote_no_file(tmp_path):
+    # A zero-nuclei region makes CellViT skip cells.json — that must read back as an empty
+    # result, not a FileNotFoundError (which used to surface as a 500 on sparse tissue).
+    assert _load_cells(tmp_path / "cells.json") == []
+
+
+def test_load_cells_reads_the_cells_array(tmp_path):
+    import json as _json
+    p = tmp_path / "cells.json"
+    p.write_text(_json.dumps({"cells": [{"centroid": [1, 2], "type": 3}]}))
+    assert _load_cells(p) == [{"centroid": [1, 2], "type": 3}]
 
 
 def test_clip_to_region_drops_pad_hits_in_lockstep():

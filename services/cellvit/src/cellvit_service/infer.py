@@ -145,6 +145,16 @@ def warm_up() -> bool:
     return True
 
 
+def _load_cells(cells_json: Path) -> list:
+    """CellViT's per-region output. A region with zero detected nuclei (sparse or blank
+    tissue) makes CellViT write *no* cells.json — that's an empty result, not a failure, so
+    return ``[]`` instead of raising FileNotFoundError (which surfaced as a 500)."""
+    if not cells_json.exists():
+        return []
+    with open(cells_json) as fh:
+        return json.load(fh)["cells"]
+
+
 def _cellvit_segment_array(
     pixels: np.ndarray, mpp: float | None
 ) -> tuple[list[list[float]], list[int]]:
@@ -175,7 +185,7 @@ def _cellvit_segment_array(
         )
         det.outdir = workdir
         det.process_wsi(wsi_path=str(tif), wsi_mpp=mpp, wsi_magnification=None)
-        cells = json.load(open(workdir / stem / "cells.json"))["cells"]
+        cells = _load_cells(workdir / stem / "cells.json")
         local = [[float(c["centroid"][0]), float(c["centroid"][1])] for c in cells]
         classes = [int(c["type"]) for c in cells]
         return _clip_to_region(local, classes, w, h)
