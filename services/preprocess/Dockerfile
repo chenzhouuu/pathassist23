@@ -5,21 +5,13 @@
 # deployable and browser-E2E-able with NO GPU/Trident, exactly like the cellvit (R8→R11) and
 # MedGemma (Inc 2a) stub seams.
 #
-# The REAL Trident+CONCH path lands behind the infer seam (PREPROCESS_USE_TRIDENT=1). Enabling it
-# means switching to the driver-535 GPU base and installing Trident + the conch/musk encoder
-# extras (see the commented block) — CONCH text search needs conch_v1 built with projection (F1).
+# The REAL Trident+CONCH path lives in a SEPARATE image, `Dockerfile.trident` (driver-535 GPU base
+# + Trident + CONCH, weight caches on data2). Enable it via the compose override:
+#   docker compose -f docker-compose.yml -f docker-compose.trident.yml up -d --build preprocess
+# CONCH text search needs conch_v1 built with projection (F1); see Dockerfile.trident.
 FROM python:3.11-slim
 
 RUN pip install --no-cache-dir flask "httpx>=0.27" numpy h5py gunicorn
-
-# --- Real Trident+CONCH path (swap the base above + uncomment to enable PREPROCESS_USE_TRIDENT=1):
-# FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
-# RUN apt-get update && apt-get install -y --no-install-recommends openslide-tools \
-#       && rm -rf /var/lib/apt/lists/*
-# RUN pip install --no-cache-dir "torch==2.2.2" "timm==0.9.16" openslide-python h5py flask \
-#       "httpx>=0.27" numpy gunicorn \
-#       "git+https://github.com/mahmoodlab/TRIDENT.git" \
-#       "git+https://github.com/Mahmoodlab/CONCH.git"
 
 WORKDIR /app
 COPY src ./src

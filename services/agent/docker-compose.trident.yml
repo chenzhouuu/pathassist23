@@ -1,0 +1,51 @@
+# services/agent/docker-compose.trident.yml — opt-in override: run the preprocess service on the
+# REAL Trident + CONCH GPU path (Inc 2b). The base compose ships the GPU-free stub so find_regions
+# stays browser-E2E-able with no GPU; this override swaps in the Trident image, turns the real path
+# on, points the weight caches at data2, and reserves a GPU. Enable with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.trident.yml up -d --build preprocess
+#
+# Model weights are read from (and any gated first-run download persists to) /home/chen/data2 —
+# conch_v1 (766 MB) + the hest tissue segmenter (464 MB) are pre-seeded there; conch_v15 downloads
+# on first use if HF_TOKEN is set (services/agent/.env). Revert by bringing the service back up
+# without this -f override (returns to the stub).
+services:
+  preprocess:
+    build:
+      context: ../preprocess
+      dockerfile: Dockerfile.trident
+    # Trident's feature-extraction DataLoader collates patch batches through /dev/shm; Docker's
+    # 64 MB default (and even a large shm_size) overflows with many workers → Bus error. Share the
+    # host IPC namespace so DataLoader shared memory is bounded only by host RAM (cf. torch's own
+    # "raise your shared memory limit" guidance), like a --ipc=host run.
+    ipc: host
+    environment:
+      PREPROCESS_USE_TRIDENT: "1"
+      # Patch-encoder batch size — 128 keeps peak GPU memory in bounds on the shared A6000.
+      PREPROCESS_BATCH_LIMIT: ${PREPROCESS_BATCH_LIMIT:-128}
+      # All model weights live under /home/chen/data2 (mounted below). HF_HOME governs the CONCH
+      # encoders (MahmoodLab/conch, conchv1_5); TRIDENT_HOME governs the tissue segmenter. The
+      # PREPROCESS_* twins let the service's config layer set them too (non-Docker runs).
+      HF_HOME: /weights/hf
+      TRIDENT_HOME: /weights/trident
+      PREPROCESS_HF_HOME: /weights/hf
+      PREPROCESS_TRIDENT_HOME: /weights/trident
+      # Local root of original-named .svs so Trident's load_wsi hits a file path (dev). Override
+      # PREPROCESS_SLIDES_DIR to widen it; the base already mounts it read-only at /data2.
+      PREPROCESS_SLIDES_ROOT: /data2
+      # Token for gated MahmoodLab/* repos not pre-seeded (e.g. conch_v15). Set in services/agent/.env.
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # data2 weight caches, read-write so a first-run gated download persists back to data2.
+      - ${PREPROCESS_HF_DIR:-/home/chen/data2/hf}:/weights/hf
+      - ${PREPROCESS_TRIDENT_DIR:-/home/chen/data2/trident}:/weights/trident
+    # The source .svs mount (/data2, read-only) is inherited from the base compose; widen it beyond
+    # BRCA-TEST by setting PREPROCESS_SLIDES_DIR=/home/chen/data2 in services/agent/.env.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

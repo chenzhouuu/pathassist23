@@ -12,7 +12,7 @@ import logging
 from flask import Flask, jsonify, request
 
 from .artifacts import cache_paths, params_hash
-from .config import get_settings
+from .config import apply_model_cache_env, get_settings
 from .jobs import JobQueue
 from .pipeline import run_pipeline
 from .retrieval import find_regions as retrieve_regions
@@ -31,6 +31,8 @@ def _build_params(body: dict, settings) -> dict:
 
 
 def create_app() -> Flask:
+    # Redirect the HF / Trident weight caches to data2 before any lazy trident/conch import (F1).
+    apply_model_cache_env(get_settings())
     app = Flask(__name__)
     app.config["RESOLVE"] = resolve_slide          # injectable seams (tests override these)
     app.config["PIPELINE"] = run_pipeline
@@ -66,6 +68,7 @@ def create_app() -> Flask:
             )
             res = app.config["PIPELINE"](
                 slide_path, params, sink, use_trident=settings.use_trident, on_stage=report,
+                batch_limit=settings.batch_limit,
             )
             return {
                 "n_patches": res.n_patches, "dim": res.dim, "encoder": res.encoder,

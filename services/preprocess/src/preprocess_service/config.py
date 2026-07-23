@@ -13,9 +13,12 @@ from pathlib import Path
 # http://host.docker.internal:9080/api/v1). Keep the default on port 9080.
 _DEFAULT_GIRDER = "http://localhost:9080/api/v1"
 
-# Trident defaults (F1/F5). Image default is conch_v15; text search needs conch_v1 (re-projected)
-# or musk — conch_v15 has no text tower. patch/mag/segmenter mirror run_single_slide.py.
-_DEFAULT_IMAGE_ENCODER = "conch_v15"
+# Trident defaults (F1/F5). Default encoder is conch_v1 — the vision-language checkpoint whose
+# patch features share the text space (re-projected), so a default build enables find_regions text
+# search. (conch_v15 is the stronger image-only encoder but is gated to an HF allow-list this
+# deployment's token isn't on; UNI v1/v2 are the seeded image-only alternatives.) patch/mag/
+# segmenter mirror run_single_slide.py.
+_DEFAULT_IMAGE_ENCODER = "conch_v1"
 _DEFAULT_TEXT_ENCODER = "conch_v1"
 _DEFAULT_MAG = 20
 _DEFAULT_PATCH_SIZE = 256
@@ -55,6 +58,15 @@ class Settings:
     # Real Trident+CONCH runs only when explicitly enabled; otherwise the GPU-free stub.
     trident_enabled: bool = False
     gpu_index: int = 0
+    # Patch-encoder batch size for extract_patch_features. Trident defaults to 512, which peaks a
+    # few GB per batch and OOMs on the shared A6000 (coresident with CellViT + MedGemma + other
+    # users). 128 keeps peak GPU memory in bounds; raise it on a dedicated card (cf. cellvit).
+    batch_limit: int = 128
+    # Where model weights are cached (all under /home/chen/data2 in this deploy). HF_HOME governs
+    # the CONCH encoders (MahmoodLab/conch, conchv1_5, …); TRIDENT_HOME governs the tissue
+    # segmenter (deeplabv3_seg_v4.ckpt). None ⇒ leave the process env as-is (Docker ENV / defaults).
+    hf_home: Path | None = None
+    trident_home: Path | None = None
 
     @property
     def use_trident(self) -> bool:
@@ -87,4 +99,25 @@ def get_settings() -> Settings:
         index_version=os.getenv("PREPROCESS_INDEX_VERSION", _INDEX_VERSION),
         trident_enabled=_envbool("PREPROCESS_USE_TRIDENT", False),
         gpu_index=int(os.getenv("PREPROCESS_GPU_INDEX", "0")),
+        batch_limit=int(os.getenv("PREPROCESS_BATCH_LIMIT", "128")),
+        hf_home=_optpath(os.getenv("PREPROCESS_HF_HOME")),
+        trident_home=_optpath(os.getenv("PREPROCESS_TRIDENT_HOME")),
     )
+
+
+def _optpath(raw: str | None) -> Path | None:
+    raw = (raw or "").strip()
+    return Path(raw) if raw else None
+
+
+def apply_model_cache_env(settings: Settings) -> None:
+    """Point HuggingFace / Trident at their weight caches (data2) before either is imported.
+
+    Trident and CONCH read HF_HOME / TRIDENT_HOME straight from the process env, and there is no
+    in-code redirect hook, so we set them here. Idempotent; a None setting leaves the env untouched
+    (so a Docker ENV / an existing value still wins). Call this before the worker imports trident.
+    """
+    if settings.hf_home is not None:
+        os.environ["HF_HOME"] = str(settings.hf_home)
+    if settings.trident_home is not None:
+        os.environ["TRIDENT_HOME"] = str(settings.trident_home)

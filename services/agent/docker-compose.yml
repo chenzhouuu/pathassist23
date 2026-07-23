@@ -118,7 +118,9 @@ services:
   # synthetic index) so find_regions is browser-E2E-able with no GPU. Enable the real Trident+CONCH
   # path with PREPROCESS_USE_TRIDENT=1 (needs the GPU image + slide file access — see the Dockerfile).
   preprocess:
-    build: ../preprocess
+    # Long-form so the trident override (docker-compose.trident.yml) can merge in a GPU Dockerfile.
+    build:
+      context: ../preprocess
     ports: ["8030:8030"]
     extra_hosts:
       - "host.docker.internal:host-gateway"

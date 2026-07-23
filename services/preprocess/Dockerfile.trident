@@ -1,0 +1,45 @@
+# services/preprocess/Dockerfile.trident — the REAL Trident+CONCH GPU image (Inc 2b).
+#
+# The default `Dockerfile` ships the GPU-free stub (deterministic synthetic index) so find_regions
+# stays browser-E2E-able with no GPU. THIS image is the real path, selected in compose with
+#   PREPROCESS_DOCKERFILE=Dockerfile.trident  (build) + PREPROCESS_USE_TRIDENT=1 (runtime).
+#
+# Same driver-535-proven base as cellvit / pathvlm: this host is driver 535 (CUDA <= 12.2), so a
+# torch 2.7 / cuda 12.6+ image would need driver >= 550 and fail to start. torch==2.2.2 is pinned
+# so no transitive dep can pull a cu13x wheel.
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
+
+# OpenSlide is the WSI backend Trident's load_wsi uses to read .svs at level 0.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      openslide-tools libgl1 git \
+    && rm -rf /var/lib/apt/lists/*
+
+# One pinned install layer. torch==2.2.2 is repeated so Trident's *unpinned* torch dep can't
+# upgrade the base's cu121 build. Trident is pinned to the vendored commit (github/TRIDENT,
+# v0.3.1-2-gb4bdd6c) so the WSI-object recipe in pipeline.py matches exactly; CONCH provides the
+# conch_v1 image+text tower (F1) used by both extract_patch_features and find_regions text search.
+RUN pip install --no-cache-dir \
+      "torch==2.2.2" \
+      openslide-python h5py flask "httpx>=0.27" "numpy<2" gunicorn \
+      "timm==0.9.16" \
+      "git+https://github.com/mahmoodlab/TRIDENT.git@b4bdd6cf6e4e8d310e7be09ba9a291a851fa213c" \
+      "git+https://github.com/Mahmoodlab/CONCH.git"
+
+WORKDIR /app
+COPY src ./src
+ENV PYTHONPATH=/app/src
+
+# Weight caches live on the mounted data2 volumes (compose maps host /home/chen/data2/{hf,trident}
+# here). HF_HOME governs the CONCH encoders (MahmoodLab/conch, conchv1_5); TRIDENT_HOME governs the
+# tissue segmenter (deeplabv3_seg_v4.ckpt). Trident/CONCH read these straight from the process env.
+ENV HF_HOME=/weights/hf \
+    TRIDENT_HOME=/weights/trident \
+    HF_HUB_ENABLE_HF_TRANSFER=0 \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+EXPOSE 8030
+
+# 1 worker: the in-process single-consumer job queue serializes GPU work against the coresident
+# CellViT + MedGemma. The long timeout covers first-request model load + feature extraction.
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8030", "--timeout", "1800", \
+     "preprocess_service.app:create_app()"]

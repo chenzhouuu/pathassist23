@@ -46,11 +46,12 @@ def run_pipeline(
     *,
     use_trident: bool = False,
     on_stage: OnStage | None = None,
+    batch_limit: int = 128,
 ) -> PipelineResult:
     """Segment → patch → extract features for ``slide_path``; write artifacts into ``sink``."""
     cb: OnStage = on_stage or (lambda *_: None)
     if use_trident:
-        return _trident_pipeline(slide_path, params, sink, cb)
+        return _trident_pipeline(slide_path, params, sink, cb, batch_limit)
     return _stub_pipeline(slide_path, params, sink, cb)
 
 
@@ -106,7 +107,8 @@ def _grid_contour(coords: np.ndarray, ps0: int) -> dict:
 
 
 def _trident_pipeline(
-    slide_path: Path, params: dict, sink: dict[str, Path], on_stage: OnStage
+    slide_path: Path, params: dict, sink: dict[str, Path], on_stage: OnStage,
+    batch_limit: int = 128,
 ) -> PipelineResult:
     """Real Trident recipe (WSI-object). Not exercised in CI (manual GPU smoke)."""
     import h5py  # noqa: F401 — ensure h5 stack present
@@ -138,6 +140,7 @@ def _trident_pipeline(
         on_stage("features", 0.7)
         feat_path = slide.extract_patch_features(
             patch_encoder=encoder, coords_path=coords_path, save_features=str(job_dir),
+            batch_limit=batch_limit,
         )
     features, coords, attrs = _read_trident_features(feat_path)
     write_features_h5(sink["features"], features, coords, attrs)
