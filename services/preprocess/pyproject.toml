@@ -1,0 +1,35 @@
+[project]
+name = "preprocess-service"
+version = "0.1.0"
+requires-python = ">=3.11"
+# Flask service that runs Trident WSI preprocessing (tissue segmentation → level-0 patch coords →
+# patch feature extraction) behind a stub seam, and serves text→patch region retrieval for
+# find_regions. torch / trident / openslide / the conch·musk encoder extras live only in the
+# Dockerfile and are imported lazily on the real path, so the base env / CI stays GPU-free.
+dependencies = [
+    "flask>=3.0",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "h5py>=3.10",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/preprocess_service"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
