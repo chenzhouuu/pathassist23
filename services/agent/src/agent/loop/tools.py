@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from .artifacts import ArtifactHandle, ArtifactStore
 from .pannuke import PANNUKE_NAMES
 from .pathvlm_client import describe_region as pathvlm_describe
+from .preprocess_client import find_regions as preprocess_find_regions
 from .segmenter import segment_region
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class ToolContext:
     girder_token: str | None = None
     cellvit_url: str | None = None
     pathvlm_url: str | None = None
+    preprocess_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,14 @@ _TOOLS: dict[str, LoopTool] = {
         "e.g. 20). Pass `focus` with the specific morphological question the user is after "
         "(e.g. 'degree of nuclear atypia', 'gland architecture') so the read answers it; omit "
         "focus for a general morphology read.",
+    ),
+    "find_regions": LoopTool(
+        "find_regions", SERVER, "Find regions",
+        "Search the whole slide for regions matching a free-text description (e.g. 'invasive "
+        "tumor', 'lymphocyte-rich stroma') and return the top candidate regions as level-0 "
+        "bounding boxes ranked by similarity. Candidates locate where to look — confirm "
+        "morphology with describe_region before asserting a finding. Requires the slide to be "
+        "preprocessed for text search first.",
     ),
 }
 
@@ -261,6 +271,55 @@ async def run_server_tool(
         artifact = ArtifactHandle(
             kind="region", ref="", count=1, summary=f"described{at_mag}",
             bbox=region_bbox, meta={"magnification": res.magnification, "mpp": res.mpp},
+        )
+        return ToolOutcome(ok=True, summary=summary, artifact=artifact)
+
+    if tool.name == "find_regions":
+        # Whole-slide text→patch retrieval over a Trident/CONCH index (Inc 2b-3). Candidates,
+        # not verified findings — the model must confirm with describe_region (see _SYSTEM).
+        query = (args.get("query") or "").strip()
+        if not query:
+            return ToolOutcome(
+                ok=False,
+                summary="Tell me what to look for — a short description like 'invasive tumor' "
+                        "or 'lymphocyte-rich stroma'.",
+            )
+        if ctx is None or not ctx.preprocess_url:
+            return ToolOutcome(
+                ok=False,
+                summary="Region search isn't configured, so I can't search this slide.",
+            )
+        slide_ref = (scope or {}).get("item_id")
+        if not slide_ref:
+            return ToolOutcome(
+                ok=False, summary="No slide is loaded to search — open a slide and ask again."
+            )
+        k = int(args.get("k") or 8)
+        try:
+            res = await preprocess_find_regions(
+                base_url=ctx.preprocess_url, item=slide_ref, query=query, k=k,
+                token=ctx.girder_token,
+            )
+        except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
+            logger.warning("find_regions failed", exc_info=True)
+            return ToolOutcome(ok=False, summary=f"region search failed ({type(exc).__name__})")
+        if res is None:
+            return ToolOutcome(
+                ok=False,
+                summary="This slide isn't preprocessed for text search yet — build a conch_v1 "
+                        "index for it first, then I can search it.",
+            )
+        if not res.regions:
+            return ToolOutcome(
+                ok=True, summary=f"No regions on this slide matched '{query}'."
+            )
+        summary = (
+            f"Found {len(res.regions)} candidate region(s) for '{query}' "
+            f"(top similarity {res.top_score:.2f})."
+        )
+        artifact = ArtifactHandle(
+            kind="regions", ref="", count=len(res.regions), summary=summary,
+            meta={"query": query, "encoder": res.encoder, "regions": res.regions},
         )
         return ToolOutcome(ok=True, summary=summary, artifact=artifact)
 

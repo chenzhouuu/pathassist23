@@ -36,6 +36,27 @@ CREATE INDEX IF NOT EXISTS turn_conversation_idx
     ON turn (conversation_id, id);
 CREATE INDEX IF NOT EXISTS conversation_owner_idx
     ON conversation (girder_user, girder_item, updated_at DESC);
+CREATE TABLE IF NOT EXISTS slide_index (
+    id           BIGSERIAL PRIMARY KEY,
+    girder_item  TEXT NOT NULL,
+    params_hash  TEXT NOT NULL,
+    encoder      TEXT NOT NULL,
+    mag          INTEGER NOT NULL,
+    patch_size   INTEGER NOT NULL,
+    segmenter    TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'queued',
+    stage        TEXT,
+    progress     REAL NOT NULL DEFAULT 0,
+    job_id       TEXT,
+    n_patches    INTEGER,
+    feature_ref  TEXT,
+    error        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (girder_item, params_hash)
+);
+CREATE INDEX IF NOT EXISTS slide_index_item_idx
+    ON slide_index (girder_item, updated_at DESC);
 """
 
 
@@ -68,6 +89,11 @@ class PgStore(ConversationStore):
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
+
+    @property
+    def pool(self) -> asyncpg.Pool:
+        """The shared asyncpg pool — reused by PgSlideIndexStore (same schema, one pool)."""
+        return self._pool
 
     @classmethod
     async def connect(cls, dsn: str, *, retries: int = 10, delay: float = 1.0) -> "PgStore":

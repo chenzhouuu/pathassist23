@@ -78,6 +78,22 @@ _SCHEMAS: dict[str, dict] = {
         },
         "additionalProperties": False,
     },
+    "find_regions": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "A short free-text description of the tissue to find (e.g. "
+                               "'invasive tumor', 'lymphocyte-rich stroma', 'necrosis').",
+            },
+            "k": {
+                "type": ["integer", "null"],
+                "description": "How many candidate regions to return (default 8).",
+            },
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    },
 }
 
 

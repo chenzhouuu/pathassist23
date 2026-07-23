@@ -196,6 +196,7 @@ def test_build_options_configures_the_sdk_run():
         "mcp__pathagent__highlight_roi",
         "mcp__pathagent__run_segmentation",
         "mcp__pathagent__describe_region",
+        "mcp__pathagent__find_regions",
     }
     assert opts.system_prompt  # a persona is set
 
@@ -362,6 +363,16 @@ def test_system_prompt_grounds_perceptor_descriptions():
     assert "describe_region" in _SYSTEM
     # F5: look before you drill.
     assert "before drilling" in _SYSTEM
+
+
+def test_system_prompt_grounds_find_regions_as_candidates(monkeypatch):
+    from agent.loop.sdk import _SYSTEM
+
+    # find_regions returns similarity candidates, not verified findings — the model must
+    # confirm with describe_region before asserting (Inc 2b-3 grounding, review F1/F6).
+    assert "find_regions" in _SYSTEM
+    assert "candidate" in _SYSTEM.lower()
+    assert "not " in _SYSTEM.lower() and "verified findings" in _SYSTEM
 
 
 def test_system_prompt_forbids_narrating_the_tool_trace():

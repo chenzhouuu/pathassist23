@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # pathvlm Perceptor service (Inc 2a). Empty ⇒ describe_region reports it isn't configured.
     pathvlm_service_url: str = ""
 
+    # preprocess service (Inc 2b): Trident feature extraction + region retrieval. Empty ⇒
+    # find_regions and the preprocess routes report the service isn't configured.
+    preprocess_service_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

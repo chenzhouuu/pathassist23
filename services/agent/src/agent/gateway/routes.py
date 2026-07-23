@@ -1,5 +1,6 @@
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -8,8 +9,9 @@ from ..common.config import get_settings
 from ..loop import AgentLoop, StubAgentLoop
 from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
 from ..loop.events import RunFinished
+from ..loop.preprocess_client import get_job_status, trigger_preprocess
 from ..loop.tools import ToolContext
-from ..store import ConversationStore
+from ..store import ConversationStore, SlideIndexStore
 from .auth import require_user
 from .sse import sse_json
 
@@ -55,6 +57,19 @@ def get_cellvit_url() -> str | None:
 def get_pathvlm_url() -> str | None:
     """The configured pathvlm Perceptor URL (None ⇒ describe_region is unavailable)."""
     return get_settings().pathvlm_service_url or None
+
+
+def get_preprocess_url() -> str | None:
+    """The configured preprocess service URL (None ⇒ find_regions / preprocess are unavailable)."""
+    return get_settings().preprocess_service_url or None
+
+
+def get_slide_index_store(request: Request) -> SlideIndexStore:
+    """Resolve the process-wide SlideIndexStore set up by the app lifespan."""
+    store = getattr(request.app.state, "slide_index", None)
+    if store is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Slide index unavailable")
+    return store
 
 
 def _uid(user: dict) -> str:
@@ -178,6 +193,7 @@ async def post_turn(
     token: str | None = Depends(get_girder_token),
     cellvit_url: str | None = Depends(get_cellvit_url),
     pathvlm_url: str | None = Depends(get_pathvlm_url),
+    preprocess_url: str | None = Depends(get_preprocess_url),
 ) -> EventSourceResponse:
     """Run one Claude-Code-style autonomous turn, streaming the typed event trace.
 
@@ -207,6 +223,7 @@ async def post_turn(
     ctx = ToolContext(
         owner=_uid(user), conversation_id=conversation_id, artifacts=artifacts,
         girder_token=token, cellvit_url=cellvit_url, pathvlm_url=pathvlm_url,
+        preprocess_url=preprocess_url,
     )
 
     async def turn_stream():
@@ -257,6 +274,93 @@ async def get_turn_artifact(
     if geometry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
     return geometry
+
+
+# ── Slide preprocessing (Trident index control plane — Inc 2b) ───────────────────
+
+
+class PreprocessRequest(BaseModel):
+    """Optional overrides; the worker fills defaults (image encoder / 20× / 256 / HEST)."""
+
+    encoder: str | None = None
+    mag: int | None = None
+    patch_size: int | None = None
+    segmenter: str | None = None
+
+
+async def _reconcile(store: SlideIndexStore, item: str, params_hash: str, js: dict) -> None:
+    """Fold a worker /status reply into the durable slide_index row (only the gateway writes)."""
+    st = js.get("status")
+    if st == "ready":
+        await store.set_status(
+            item=item, params_hash=params_hash, status="ready", stage="done", progress=1.0,
+            n_patches=js.get("n_patches"), feature_ref=js.get("features_ref"),
+        )
+    elif st == "failed":
+        await store.set_status(
+            item=item, params_hash=params_hash, status="failed",
+            error=js.get("error") or "preprocess failed",
+        )
+    elif st in ("queued", "running"):
+        await store.set_status(
+            item=item, params_hash=params_hash, status=st,
+            stage=js.get("stage"), progress=js.get("progress"),
+        )
+
+
+@router.post("/slides/{item}/preprocess")
+async def start_preprocess(
+    item: str,
+    body: PreprocessRequest,
+    user: dict = Depends(require_user),
+    slide_index: SlideIndexStore = Depends(get_slide_index_store),
+    token: str | None = Depends(get_girder_token),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """Enqueue a Trident index build and record its durable slide_index row (F7).
+
+    Fast: proxies a non-blocking POST /run to the worker (which owns the single-consumer GPU
+    queue) and creates/reset the row to `queued`. The heavy build never runs in this request.
+    """
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    params = {k: v for k, v in body.model_dump().items() if v is not None}
+    try:
+        run = await trigger_preprocess(
+            base_url=preprocess_url, item=item, params=params, token=token
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+    return await slide_index.upsert_index(
+        item=item, params_hash=run["params_hash"], encoder=run["encoder"], mag=run["mag"],
+        patch_size=run["patch_size"], segmenter=run["segmenter"],
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.get("/slides/{item}/index")
+async def list_slide_index(
+    item: str,
+    user: dict = Depends(require_user),
+    slide_index: SlideIndexStore = Depends(get_slide_index_store),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """List a slide's preprocess indexes, reconciling in-flight builds against the worker."""
+    rows = await slide_index.list_indexes(item=item)
+    if preprocess_url:
+        for row in rows:
+            if row["status"] in ("queued", "running") and row.get("job_id"):
+                try:
+                    js = await get_job_status(base_url=preprocess_url, job_id=row["job_id"])
+                except httpx.HTTPError:
+                    continue  # worker unreachable — keep the last known state
+                await _reconcile(slide_index, item, row["params_hash"], js)
+        rows = await slide_index.list_indexes(item=item)
+    return {"indexes": rows}
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
