@@ -165,9 +165,6 @@ class TurnRequest(BaseModel):
     text: str = Field(..., min_length=1)
     roi: Roi | None = None
     viewer: Viewport | None = None
-    # The human's consent to run costly server tools on this (re-)turn — lifts the loop's
-    # default permission gate (D2). The frontend sets it when the user approves a gated tool.
-    approved: bool = False
 
 
 @router.post("/conversations/{conversation_id}/turns")
@@ -217,7 +214,6 @@ async def post_turn(
         try:
             async for ev in agent.run(
                 text=body.text, history=history, scope=scope, viewer=viewer, ctx=ctx,
-                approved=body.approved,
             ):
                 if isinstance(ev, RunFinished):
                     final = ev.text

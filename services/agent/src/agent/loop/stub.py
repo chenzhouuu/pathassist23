@@ -52,7 +52,6 @@ class StubAgentLoop(AgentLoop):
         scope: dict,
         viewer: dict | None = None,
         ctx: ToolContext | None = None,
-        approved: bool = False,
         abort: Event | None = None,
     ) -> AsyncIterator[AgentEvent]:
         run_id = _new_id()

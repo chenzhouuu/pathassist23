@@ -29,7 +29,6 @@ class AgentLoop(ABC):
         scope: dict,
         viewer: dict | None = None,
         ctx: "ToolContext | None" = None,
-        approved: bool = False,
         abort: Event | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """Async-iterate the turn's typed events (implemented as a generator).
@@ -39,10 +38,6 @@ class AgentLoop(ABC):
         tool on where the user is actually looking (D8). `ctx` is the server-tool execution
         context (owner, conversation, artifact store — D4); without it, server tools
         degrade to summary-only.
-
-        `approved` is the human's per-turn consent to run the costly server (data) tools —
-        a re-run of a request the loop first gated. It only ever *opens* the gate; the stub
-        loop ignores it.
 
         `abort`, when set, ends the loop cleanly with a terminal event — an in-flight tool
         first receives a synthetic error result so the transcript stays well-formed

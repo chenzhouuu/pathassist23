@@ -2,9 +2,9 @@
 // Copilot — the conversational panel over the autonomous /turns agent loop.
 // Each message runs ONE agent turn that streams typed events (reasoning · tool calls · text),
 // folded live into a render-ready trace (copilotTurn.js). The agent drives the viewer through
-// client tools (co-navigation) and measures through gated server tools; a gate denial surfaces
-// an inline "Approve & run" that re-sends the same ask with approval. Conversations persist
-// per (Girder user, slide); only the final answer text survives a reload, the trace is live.
+// client tools (co-navigation) and measures through server tools; both run when the model calls
+// them (no approval gate — the user's ask is the consent). Conversations persist per (Girder
+// user, slide); only the final answer text survives a reload, the trace is live.
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import {
@@ -46,7 +46,6 @@ const CompassIcon = () => <Icon d={['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z',
   'M16.24 7.76 14 14l-6.24 2.24L10 10z']} size={12} />;
 const ScanIcon = () => <Icon d={['M3 7V5a2 2 0 0 1 2-2h2', 'M17 3h2a2 2 0 0 1 2 2v2',
   'M21 17v2a2 2 0 0 1-2 2h-2', 'M7 21H5a2 2 0 0 1-2-2v-2', 'M12 9v6', 'M9 12h6']} size={12} />;
-const ShieldIcon = ({ size = 12 }) => <Icon d={['M12 2 4 5v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V5z']} size={size} />;
 const RectIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinejoin="round" strokeDasharray="4 3">
@@ -203,13 +202,12 @@ export default function CopilotPanel() {
   }, [copilotMessages, copilotStreaming]);
 
   // Run one agent turn: persist+render the user bubble, then stream typed events into a live
-  // trace. `textArg` (a re-run of a gated ask) overrides the composer; `approved` lifts the
-  // tool gate. Side effects ride the same events: client tools drive the viewer, a server
-  // tool's artifact handle pulls its geometry into the overlay.
-  const runTurn = useCallback(async ({ textArg = null, approved = false } = {}) => {
-    const text = (textArg ?? input).trim();
+  // trace. Side effects ride the same events: client tools drive the viewer, a server tool's
+  // artifact handle pulls its geometry into the overlay.
+  const runTurn = useCallback(async () => {
+    const text = input.trim();
     if (!text || copilotStreaming || !itemId) return;
-    if (textArg == null) setInput('');
+    setInput('');
     setCopilotError(null);
     const roi = copilotRoi ? { kind: 'rect', ...copilotRoi } : null;
 
@@ -238,7 +236,6 @@ export default function CopilotPanel() {
         text,
         roi,
         viewer: currentViewportBbox(viewer),
-        approved,
         signal: ctrl.signal,
         onEvent: (evt) => {
           traceRef.current = reduceTurnEvent(traceRef.current, evt);
@@ -400,8 +397,6 @@ export default function CopilotPanel() {
               showOverlay={showNucleiOverlay}
               onToggleOverlay={toggleNucleiOverlay}
               onShowRoi={showRoi}
-              onApprove={() => runTurn({ textArg: copilotMessages[i - 1]?.text, approved: true })}
-              canApprove={!copilotStreaming}
             />
           ) : (
             <Bubble
@@ -545,7 +540,7 @@ function Bubble({ role, text, roi, onShowRoi }) {
 
 // A live agent turn: collapsible reasoning, an ordered rail of tool cards (client = viewer
 // navigation, server = measurement, with gate + evidence affordances), and the answer.
-function TurnTrace({ trace, streaming, showOverlay, onToggleOverlay, onShowRoi, onApprove, canApprove }) {
+function TurnTrace({ trace, streaming, showOverlay, onToggleOverlay, onShowRoi }) {
   const [showThinking, setShowThinking] = useState(true);   // thinking visible by default
   const hasReasoning = !!trace.reasoning.trim();
   const thinking = streaming && !trace.text && trace.steps.length === 0;
@@ -581,15 +576,6 @@ function TurnTrace({ trace, streaming, showOverlay, onToggleOverlay, onShowRoi, 
         </div>
       )}
 
-      {trace.needsApproval && (
-        <div className="cp-approve">
-          <span className="cp-approve-note"><ShieldIcon size={11} />Analysis held for approval</span>
-          <button className="cp-approve-btn" onClick={onApprove} disabled={!canApprove}>
-            Approve &amp; run
-          </button>
-        </div>
-      )}
-
       {trace.status === 'stopped' && (
         <div className="cp-turn-stopped">Stopped.</div>
       )}
@@ -610,7 +596,7 @@ function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
   const hasNuclei = step.artifact?.kind === 'nuclei';
   const region = step.artifact?.kind === 'region' ? step.artifact : null;
   const regionMag = region?.meta?.magnification;
-  const st = step.gated ? 'gated' : step.status;
+  const st = step.status;
   return (
     <div className="cp-tool" data-class={step.toolClass} data-st={st}>
       <span className="cp-tool-ic">{isClient ? <CompassIcon /> : <ScanIcon />}</span>
@@ -621,7 +607,6 @@ function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
           <span className="cp-tool-status" data-st={st}>
             {st === 'running' && <span className="cp-spin" />}
             {st === 'ok' && <CheckIcon />}
-            {st === 'gated' && <ShieldIcon size={12} />}
             {st === 'error' && <CloseIcon />}
           </span>
         </div>
@@ -724,7 +709,6 @@ const CP_CSS = `
 .cp-tool::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2.5px}
 .cp-tool[data-class="client"]::before{background:linear-gradient(#38bdf8,#0ea5e9)}
 .cp-tool[data-class="server"]::before{background:linear-gradient(#a78bfa,#7c3aed)}
-.cp-tool[data-st="gated"]::before{background:linear-gradient(#fbbf24,#f59e0b)}
 .cp-tool[data-st="error"]::before{background:linear-gradient(#f87171,#ef4444)}
 .cp-tool-ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:none;
   color:#c4b5fd;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.28)}
@@ -737,12 +721,10 @@ const CP_CSS = `
   border:1px solid var(--border);border-radius:5px;padding:1px 5px;flex:none}
 .cp-tool-status{margin-left:auto;display:grid;place-items:center;width:16px;height:16px;flex:none}
 .cp-tool-status[data-st="ok"]{color:#34d399}
-.cp-tool-status[data-st="gated"]{color:#f5a623}
 .cp-tool-status[data-st="error"]{color:#f87171}
 .cp-spin{width:12px;height:12px;border-radius:50%;border:2px solid rgba(148,163,184,.3);
   border-top-color:#a78bfa;animation:cp-spin .7s linear infinite}
 .cp-tool-sum{font-size:11px;line-height:1.45;color:var(--muted);word-break:break-word}
-.cp-tool[data-st="gated"] .cp-tool-sum{color:#b9975b}
 .cp-tool-foot{display:flex;flex-wrap:wrap;gap:6px}
 .cp-tool-roi,.cp-tool-evi{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:monospace;
   border-radius:6px;padding:2px 7px;cursor:pointer;transition:background .12s}
@@ -768,14 +750,6 @@ const CP_CSS = `
 .cp-md-pre{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;line-height:1.5;
   background:var(--bg2,#0d0e14);border:1px solid var(--border);border-radius:8px;padding:8px 10px;
   overflow-x:auto;margin:2px 0 6px;white-space:pre;color:var(--fg)}
-/* gate: a quiet inline affordance, not a loud card */
-.cp-approve{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:1px}
-.cp-approve-note{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
-.cp-approve-btn{font-size:11.5px;font-weight:500;color:#c4b5fd;background:transparent;
-  border:1px solid rgba(139,92,246,.4);border-radius:7px;padding:4px 11px;cursor:pointer;
-  transition:background .15s,border-color .15s,color .15s}
-.cp-approve-btn:hover:not(:disabled){background:rgba(139,92,246,.14);color:#ddd6fe;border-color:rgba(139,92,246,.6)}
-.cp-approve-btn:disabled{opacity:.45;cursor:default}
 .cp-turn-err{font-size:11.5px;color:#fca5a5;background:rgba(248,113,113,.08);
   border:1px solid rgba(248,113,113,.25);border-radius:8px;padding:7px 10px}
 .cp-turn-stopped{font-size:11.5px;color:var(--muted);font-style:italic;padding:1px 2px}

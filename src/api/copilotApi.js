@@ -78,16 +78,15 @@ export async function deleteConversation(id) {
 //   run_started → reasoning_delta* → (tool_call_start → tool_call_result)* → text_delta* →
 //   run_finished | run_error.
 // `roi` grounds the ask to a drawn region; `viewer` is the current viewport (both level-0 px)
-// so a client viewer tool can act on where the user is looking; `approved` lifts the tool
-// gate for a costly server tool on a re-run. Bulk geometry never rides the stream — a
-// tool_call_result carries only an artifact handle, fetched out-of-band via fetchTurnArtifact.
+// so a client viewer tool can act on where the user is looking. Bulk geometry never rides the
+// stream — a tool_call_result carries only an artifact handle, fetched out-of-band via
+// fetchTurnArtifact.
 export async function streamTurn({
-  conversationId, text, roi = null, viewer = null, approved = false, onEvent, signal,
+  conversationId, text, roi = null, viewer = null, onEvent, signal,
 }) {
   const body = { text };
   if (roi) body.roi = roi;
   if (viewer) body.viewer = viewer;
-  if (approved) body.approved = true;
   const r = await fetch(`${COPILOT_BASE}/conversations/${conversationId}/turns`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),

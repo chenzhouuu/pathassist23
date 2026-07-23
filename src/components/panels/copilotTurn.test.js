@@ -2,7 +2,7 @@
 // The heart of the /turns cut-over; kept side-effect-free so it is unit-testable. Viewer
 // co-navigation and artifact fetches are the component's job, keyed off the same events.
 import { describe, it, expect } from 'vitest';
-import { initTrace, reduceTurnEvent, isGateDenial } from './copilotTurn.js';
+import { initTrace, reduceTurnEvent } from './copilotTurn.js';
 
 // Replay a whole event stream through the reducer, as the panel does live.
 const run = (events) => events.reduce(reduceTurnEvent, initTrace());
@@ -51,27 +51,14 @@ describe('reduceTurnEvent', () => {
     expect(t.steps[0].status).toBe('ok');
   });
 
-  it('flags a gate denial for approval so the panel can offer a re-run', () => {
-    const t = run([
-      { type: 'run_started', run_id: 'r1' },
-      { type: 'tool_call_start', tool_call_id: 's1', name: 'run_segmentation', tool_class: 'server' },
-      { type: 'tool_call_result', tool_call_id: 's1', ok: false,
-        summary: 'Running run_segmentation needs your approval — it is a server-side analysis tool.' },
-    ]);
-    expect(t.steps[0].status).toBe('error');
-    expect(t.steps[0].gated).toBe(true);
-    expect(t.needsApproval).toBe(true);
-  });
-
-  it('does not flag a plain tool error as needing approval', () => {
+  it('marks a failed tool result as an error', () => {
     const t = run([
       { type: 'run_started', run_id: 'r1' },
       { type: 'tool_call_start', tool_call_id: 's1', name: 'run_segmentation', tool_class: 'server' },
       { type: 'tool_call_result', tool_call_id: 's1', ok: false, summary: 'the tool crashed' },
     ]);
     expect(t.steps[0].status).toBe('error');
-    expect(t.steps[0].gated).toBeFalsy();
-    expect(t.needsApproval).toBe(false);
+    expect(t.steps[0].summary).toBe('the tool crashed');
   });
 
   it('finishes with the run_finished text as the authoritative answer', () => {
@@ -113,16 +100,5 @@ describe('reduceTurnEvent', () => {
     ]);
     expect(t.status).toBe('error');
     expect(t.error).toBe('The agent loop failed (RuntimeError).');
-  });
-});
-
-describe('isGateDenial', () => {
-  it('recognizes the backend approval reason', () => {
-    expect(isGateDenial('Running run_segmentation needs your approval — it is server-side.')).toBe(true);
-  });
-  it('is false for other messages', () => {
-    expect(isGateDenial('segmented 1,234 nuclei')).toBe(false);
-    expect(isGateDenial('')).toBe(false);
-    expect(isGateDenial(null)).toBe(false);
   });
 });

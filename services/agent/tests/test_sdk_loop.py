@@ -203,7 +203,7 @@ def test_build_options_configures_the_sdk_run():
 class _CapturingQuery:
     """A fake `query` that records the composed prompt and the run options, then yields a
     minimal valid turn. Lets a test assert on *what context and config the loop actually sent
-    the model* (R10.4) — including the per-turn permission gate (R10.7)."""
+    the model* (R10.4) — including the PreToolUse guard it wired up."""
 
     def __init__(self) -> None:
         self.prompt: str | None = None
@@ -255,31 +255,19 @@ async def test_sdk_loop_grounds_the_prompt_in_the_current_viewport():
     assert "4096" in cap.prompt  # the viewport rectangle grounds "here"
 
 
-async def test_run_opens_the_gate_when_the_turn_is_approved():
-    """R10.7: the per-turn approval flows into the PreToolUse policy — an approved turn lets
-    the costly server tools run (the human's consent lifts the default lock)."""
+async def test_run_lets_server_tools_run_without_approval():
+    """No approval gate: a server data tool runs when the model calls it — the user's ask is
+    the consent. (The old approve→re-run flow, which duplicated the user's message, is gone.)"""
     cap = _CapturingQuery()
     loop = SdkAgentLoop(api_key="sk-test", model="m", query=cap)
     await _drain(
         loop, text="count cells here",
         history=[{"role": "user", "content": "count cells here"}],
-        scope={"item_id": "s", "roi": None}, approved=True,
+        scope={"item_id": "s", "roi": None},
     )
     guard = cap.options.hooks["PreToolUse"][0].hooks[0]
     out = await guard({"tool_name": "mcp__pathagent__run_segmentation"}, None, {"signal": None})
     assert out["hookSpecificOutput"]["permissionDecision"] == "allow"
-
-
-async def test_run_keeps_server_tools_gated_when_the_turn_is_not_approved():
-    cap = _CapturingQuery()
-    loop = SdkAgentLoop(api_key="sk-test", model="m", query=cap)
-    await _drain(
-        loop, text="count", history=[{"role": "user", "content": "count"}],
-        scope={"item_id": "s", "roi": None},  # approved defaults to False
-    )
-    guard = cap.options.hooks["PreToolUse"][0].hooks[0]
-    out = await guard({"tool_name": "mcp__pathagent__run_segmentation"}, None, {"signal": None})
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 def test_build_options_disallows_the_tool_search_meta_tool():
@@ -301,19 +289,21 @@ def test_build_options_injects_the_api_key_into_the_subprocess_env():
     assert opts.env.get("ANTHROPIC_API_KEY") == "sk-xyz"
 
 
-async def test_build_options_wires_a_pretooluse_gate_that_denies_unapproved_server_tools():
-    """R10.4b: the run config carries a PreToolUse hook (the SDK's way to gate every call
-    under bypassPermissions). Under the default policy a server tool is denied until the
-    human approves; a client viewer tool always passes."""
-    loop = SdkAgentLoop(api_key="sk-test", model="m")  # default gate: server needs approval
+async def test_build_options_wires_a_pretooluse_guard_that_denies_off_catalog_tools():
+    """The run config carries a PreToolUse hook (the SDK's way to police every call under
+    bypassPermissions). It allows our catalog tools — client and server — and denies anything
+    off-catalog (a built-in like Bash), belt-and-suspenders behind allowed_tools."""
+    loop = SdkAgentLoop(api_key="sk-test", model="m")
     opts = loop._build_options(scope={"item_id": "s", "roi": None}, viewer=None, ctx=None)
 
     guard = opts.hooks["PreToolUse"][0].hooks[0]
     ctx = {"signal": None}
-    denied = await guard({"tool_name": "mcp__pathagent__run_segmentation"}, None, ctx)
-    allowed = await guard({"tool_name": "mcp__pathagent__pan_zoom_to_region"}, None, ctx)
-    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert allowed["hookSpecificOutput"]["permissionDecision"] == "allow"
+    server = await guard({"tool_name": "mcp__pathagent__run_segmentation"}, None, ctx)
+    client = await guard({"tool_name": "mcp__pathagent__pan_zoom_to_region"}, None, ctx)
+    off = await guard({"tool_name": "Bash"}, None, ctx)
+    assert server["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert client["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert off["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 async def test_sdk_loop_lifts_the_artifact_handle_onto_the_result():

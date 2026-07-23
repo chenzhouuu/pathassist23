@@ -36,7 +36,7 @@ from .events import (
     ToolCallResult,
     ToolCallStart,
 )
-from .gate import DEFAULT_GATE, GatePolicy, make_pretooluse_guard
+from .gate import make_pretooluse_guard
 from .sdk_tools import TOOL_SERVER, build_tool_server, parse_tool_result, sdk_tool_names
 from .tools import ToolContext, get_tool
 
@@ -131,25 +131,22 @@ def _tool_key(name: str) -> str:
 class SdkAgentLoop(AgentLoop):
     """Runs one turn through the Claude Agent SDK, emitting our typed events."""
 
-    def __init__(
-        self, *, api_key: str, model: str, query=query, gate: GatePolicy = DEFAULT_GATE
-    ) -> None:
+    def __init__(self, *, api_key: str, model: str, query=query) -> None:
         self._api_key = api_key
         self._model = model
         self._query = query
-        self._gate = gate
 
     def _build_options(
         self,
         scope: dict,
         viewer: dict | None,
         ctx: ToolContext | None,
-        policy: GatePolicy | None = None,
     ) -> ClaudeAgentOptions:
-        """Assemble the SDK run config: no plan/approve gate (D2), isolated settings, the
-        model pinned, the toolset locked to our two-class in-process MCP catalog (no
-        built-ins), and a PreToolUse hook enforcing this turn's permission `policy`."""
-        guard = make_pretooluse_guard(policy or self._gate)
+        """Assemble the SDK run config: isolated settings, the model pinned, the toolset locked
+        to our two-class in-process MCP catalog (no built-ins), and a PreToolUse hook that only
+        denies anything off-catalog. No approval gate — the user's ask is the consent, so client
+        and server tools both run."""
+        guard = make_pretooluse_guard()
         return ClaudeAgentOptions(
             model=self._model,
             system_prompt=_SYSTEM,
@@ -162,9 +159,9 @@ class SdkAgentLoop(AgentLoop):
             # The gateway process holds only AGENT_ANTHROPIC_API_KEY; hand the spawned
             # `claude` subprocess the bare ANTHROPIC_API_KEY it needs to authenticate.
             env={"ANTHROPIC_API_KEY": self._api_key} if self._api_key else {},
-            # bypassPermissions auto-approves before can_use_tool; a PreToolUse hook is the
-            # SDK's way to still gate every call (D2 → controllable). The turn's policy (the
-            # human's approval) decides whether costly server tools may run this turn.
+            # bypassPermissions auto-approves before can_use_tool; the PreToolUse hook still
+            # runs, and we use it only to deny anything off our catalog (belt-and-suspenders
+            # behind allowed_tools). Catalog tools — client and server — all run.
             hooks={"PreToolUse": [HookMatcher(hooks=[guard])]},
         )
 
@@ -176,16 +173,12 @@ class SdkAgentLoop(AgentLoop):
         scope: dict,
         viewer: dict | None = None,
         ctx: ToolContext | None = None,
-        approved: bool = False,
         abort: Event | None = None,
     ) -> AsyncIterator[AgentEvent]:
         run_id = _new_id()
         yield RunStarted(run_id=run_id)
 
-        # The human's per-turn approval can only *open* the gate — a loop constructed to
-        # auto-approve (a trusted deployment) still wins; consent never tightens it.
-        policy = GatePolicy(approve_server=self._gate.approve_server or approved)
-        options = self._build_options(scope, viewer, ctx, policy)
+        options = self._build_options(scope, viewer, ctx)
         prompt = _compose_prompt(text, history, scope, viewer)
         final = ""
         async for message in self._query(prompt=prompt, options=options):

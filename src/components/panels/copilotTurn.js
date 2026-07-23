@@ -4,24 +4,16 @@
 // shapes mirror the backend's typed-event family (run_started / reasoning_delta /
 // tool_call_start / tool_call_result / text_delta / run_finished / run_error).
 
-// A fresh, empty turn trace. `needsApproval` flips true when a server tool is gate-denied,
-// so the panel can offer an approved re-run of the same message.
+// A fresh, empty turn trace.
 export function initTrace() {
   return {
     runId: null,
     status: 'running',   // 'running' | 'done' | 'error' | 'stopped'
     reasoning: '',
     text: '',
-    steps: [],           // [{ id, name, toolClass, args, status, summary, artifact, gated }]
+    steps: [],           // [{ id, name, toolClass, args, status, summary, artifact }]
     error: null,
-    needsApproval: false,
   };
-}
-
-// True when a failed tool result is a permission-gate denial (vs. a genuine tool failure),
-// so the panel shows "Approve & run" instead of a plain error.
-export function isGateDenial(summary) {
-  return typeof summary === 'string' && /\bapprov(e|al)\b/i.test(summary);
 }
 
 // reduceTurnEvent(trace, evt) -> next trace. Immutable: never mutates its input.
@@ -49,19 +41,17 @@ export function reduceTurnEvent(trace, evt) {
             status: 'running',
             summary: '',
             artifact: null,
-            gated: false,
           },
         ],
       };
 
     case 'tool_call_result': {
-      const gated = !evt.ok && isGateDenial(evt.summary);
       const steps = trace.steps.map((s) =>
         s.id === evt.tool_call_id
           ? { ...s, status: evt.ok ? 'ok' : 'error', summary: evt.summary || '',
-              artifact: evt.artifact || null, gated }
+              artifact: evt.artifact || null }
           : s);
-      return { ...trace, steps, needsApproval: trace.needsApproval || gated };
+      return { ...trace, steps };
     }
 
     case 'run_finished':

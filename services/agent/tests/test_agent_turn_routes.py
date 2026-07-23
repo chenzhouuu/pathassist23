@@ -82,28 +82,6 @@ def test_turn_on_missing_conversation_is_404(client: TestClient):
     assert r.status_code == 404
 
 
-def test_turn_forwards_the_approval_flag_to_the_loop(client: TestClient):
-    """R10.7: the per-turn `approved` consent (the human lifting the tool gate) reaches the
-    agent loop, so a re-run after approval can execute the costly server tools."""
-    from agent.gateway.routes import get_agent
-    from agent.loop.events import RunFinished
-
-    seen: dict = {}
-
-    class RecordingLoop:
-        async def run(self, *, text, history, scope, viewer=None, ctx=None,
-                      approved=False, abort=None):
-            seen["approved"] = approved
-            yield RunFinished(run_id="r", text="ok")
-
-    client.app.dependency_overrides[get_agent] = lambda: RecordingLoop()
-    cid = _conv(client)
-    r = client.post(f"/api/copilot/conversations/{cid}/turns",
-                    json={"text": "count cells here", "approved": True})
-    assert r.status_code == 200
-    assert seen["approved"] is True
-
-
 def _seg_result_frame(frames: list[dict]) -> dict:
     """Correlate the run_segmentation start to its result frame by tool_call_id."""
     seg_id = next(
@@ -199,8 +177,7 @@ def test_turn_threads_token_and_service_url_into_ctx(client: TestClient):
     seen: dict = {}
 
     class RecordingLoop:
-        async def run(self, *, text, history, scope, viewer=None, ctx=None,
-                      approved=False, abort=None):
+        async def run(self, *, text, history, scope, viewer=None, ctx=None, abort=None):
             seen["token"] = ctx.girder_token
             seen["url"] = ctx.cellvit_url
             yield RunFinished(run_id="r", text="ok")
