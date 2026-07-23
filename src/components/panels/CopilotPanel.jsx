@@ -596,6 +596,10 @@ function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
   const hasNuclei = step.artifact?.kind === 'nuclei';
   const region = step.artifact?.kind === 'region' ? step.artifact : null;
   const regionMag = region?.meta?.magnification;
+  // find_regions returns ranked candidate boxes (Inc 2b-3). No overlay yet (Inc 2c) — surface a
+  // chip that pans to the top candidate so the search result is actionable on the page.
+  const candidates = step.artifact?.kind === 'regions' ? (step.artifact.meta?.regions || []) : null;
+  const topCandidate = candidates?.length ? candidates[0] : null;
   const st = step.status;
   return (
     <div className="cp-tool" data-class={step.toolClass} data-st={st}>
@@ -628,6 +632,16 @@ function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
               title="Show the described region on the slide">
               <RectIcon size={10} />{fmtRoi(region.bbox)}
               {regionMag ? ` · ${(+regionMag).toFixed(regionMag < 1 ? 2 : 0)}×` : ''}
+            </button>
+          )}
+          {topCandidate && (
+            <button type="button" className="cp-tool-region"
+              onClick={() => onShowRoi?.({
+                x: topCandidate.x, y: topCandidate.y,
+                width: topCandidate.width, height: topCandidate.height,
+              })}
+              title="Pan to the top candidate region">
+              <RectIcon size={10} />{candidates.length} region{candidates.length > 1 ? 's' : ''}
             </button>
           )}
         </div>
