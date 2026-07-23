@@ -7,7 +7,7 @@ from agent.loop.tools import ToolContext, get_tool, run_server_tool
 
 
 @pytest.mark.asyncio
-async def test_describe_region_returns_grounded_provenance_summary(monkeypatch):
+async def test_describe_region_returns_region_grounded_summary_without_tool_name(monkeypatch):
     async def fake(*, base_url, slide_ref, bbox, magnification, focus, token):
         assert base_url == "http://p" and slide_ref == "item9" and token == "tok"
         assert focus == "atypia" and magnification == 20
@@ -21,8 +21,15 @@ async def test_describe_region_returns_grounded_provenance_summary(monkeypatch):
          "magnification": 20, "focus": "atypia"},
         {"item_id": "item9"}, ctx,
     )
-    assert out.ok and out.artifact is None  # summary-only in Inc 2a
-    assert out.summary == "MedGemma at 20x on region (100,200): pleomorphic nuclei"
+    assert out.ok
+    # Inc 2c: the read region rides back as a lightweight rectangle artifact.
+    assert out.artifact is not None and out.artifact.kind == "region"
+    assert out.artifact.bbox == {"x": 100, "y": 200, "width": 512, "height": 512}
+    assert out.artifact.meta["magnification"] == 20.0
+    # Grounds the read to the region + magnification, but must NOT leak the backend tool name
+    # into the model-facing summary (the trace/overlay carries the provenance instead).
+    assert out.summary == "Morphology of region (100,200) at 20x: pleomorphic nuclei"
+    assert "MedGemma" not in out.summary
 
 
 @pytest.mark.asyncio
@@ -40,6 +47,9 @@ async def test_describe_region_falls_back_to_the_drawn_roi(monkeypatch):
         {"item_id": "s", "roi": {"x": 5, "y": 6, "width": 32, "height": 32}}, ctx,
     )
     assert out.ok and seen["bbox"] == {"x": 5, "y": 6, "width": 32, "height": 32}
+    # the artifact echoes the resolved ROI even when the model passed no bbox.
+    assert out.artifact.kind == "region"
+    assert out.artifact.bbox == {"x": 5, "y": 6, "width": 32, "height": 32}
 
 
 @pytest.mark.asyncio

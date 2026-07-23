@@ -81,7 +81,8 @@ export const useStore = create((set, get) => ({
   },
   clearActiveNavigation: () =>
     set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [],
-          copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null }),
+          copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,
+          copilotRegions: [] }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -94,7 +95,7 @@ export const useStore = create((set, get) => ({
       chatMessages: [],          // clear AskPA conversation when slide changes
       chatPendingAttachment: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,   // drop grounded/shown region + overlay from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotRegions: [],   // drop grounded/shown region + overlay from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -121,7 +122,7 @@ export const useStore = create((set, get) => ({
       selectedAnnotation: null,
       drawingMode: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,   // drop grounded/shown region + overlay from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotRegions: [],   // drop grounded/shown region + overlay from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -231,6 +232,22 @@ export const useStore = create((set, get) => ({
   setCopilotNuclei: (n) => set({ copilotNuclei: n, showNucleiOverlay: true }),
   clearCopilotNuclei: () => set({ copilotNuclei: null }),
   toggleNucleiOverlay: () => set((s) => ({ showNucleiOverlay: !s.showNucleiOverlay })),
+
+  // Copilot region overlay (increment 2c): the regions a describe_region call read, painted
+  // as labelled rectangles by RegionOverlay. Each is { bbox:{x,y,width,height}, magnification }.
+  // Accumulated across a turn (a Perceptor may describe several regions), keyed by bbox so a
+  // re-described region doesn't duplicate. Adding a region reveals the overlay.
+  copilotRegions: [],
+  showRegionsOverlay: true,
+  addCopilotRegion: (r) => set((s) => {
+    if (!r?.bbox) return {};
+    const key = (b) => `${b.x},${b.y},${b.width},${b.height}`;
+    const k = key(r.bbox);
+    const rest = s.copilotRegions.filter((x) => key(x.bbox) !== k);
+    return { copilotRegions: [...rest, r], showRegionsOverlay: true };
+  }),
+  clearCopilotRegions: () => set({ copilotRegions: [] }),
+  toggleRegionsOverlay: () => set((s) => ({ showRegionsOverlay: !s.showRegionsOverlay })),
 
   // ── Projects ──────────────────────────────────────────────────────────────
   activeProject: null,

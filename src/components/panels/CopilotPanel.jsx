@@ -102,6 +102,7 @@ export default function CopilotPanel() {
     setDrawingMode, roiSelectResult, clearRoiSelectResult,
     copilotRoi, setCopilotRoi, restoreCopilotRoi, shownRoi, setShownRoi, viewer,
     setCopilotNuclei, clearCopilotNuclei, showNucleiOverlay, toggleNucleiOverlay,
+    addCopilotRegion, clearCopilotRegions,
   } = useStore();
   const [input, setInput] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -253,6 +254,13 @@ export default function CopilotPanel() {
               .then((n) => setCopilotNuclei(n))
               .catch(() => {});
           }
+          // A described region rides inline (bbox + magnification) — paint it as a rectangle.
+          if (evt.type === 'tool_call_result' && evt.artifact?.kind === 'region') {
+            addCopilotRegion({
+              bbox: evt.artifact.bbox,
+              magnification: evt.artifact.meta?.magnification,
+            });
+          }
         },
       });
     } catch (err) {
@@ -270,7 +278,7 @@ export default function CopilotPanel() {
     }
   }, [input, copilotStreaming, itemId, copilotConversationId, copilotRoi, viewer, setShownRoi,
       addCopilotMessage, setLastCopilotMessage, setCopilotConversationId, setCopilotStreaming,
-      setCopilotError, setCopilotNuclei, refreshList]);
+      setCopilotError, setCopilotNuclei, addCopilotRegion, refreshList]);
 
   // Stop the in-flight turn: abort the fetch. The SSE read throws AbortError, which runTurn
   // folds into a `run_stopped` trace, reclaiming the UI at once. The server-side GPU analysis
@@ -289,6 +297,7 @@ export default function CopilotPanel() {
     setCopilotRoi(null);
     setShownRoi(null);
     clearCopilotNuclei();
+    clearCopilotRegions();
     resetCopilot();
     setHistoryOpen(false);
   };
@@ -304,6 +313,7 @@ export default function CopilotPanel() {
     if (awaitingRoi) cancelRoi();
     setShownRoi(null);
     clearCopilotNuclei();
+    clearCopilotRegions();
     setHistoryOpen(false);
     setCopilotError(null);
     try {
@@ -358,9 +368,6 @@ export default function CopilotPanel() {
           <PlusIcon /><span>New</span>
         </button>
       </div>
-
-      {/* research-use ribbon */}
-      <div className="cp-ribbon">RESEARCH USE ONLY · NOT A DIAGNOSTIC DEVICE</div>
 
       {/* thread */}
       <div ref={threadRef} className="cp-thread">
@@ -601,6 +608,8 @@ function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
   const isClient = step.toolClass === 'client';
   const bbox = step.args?.bbox;
   const hasNuclei = step.artifact?.kind === 'nuclei';
+  const region = step.artifact?.kind === 'region' ? step.artifact : null;
+  const regionMag = region?.meta?.magnification;
   const st = step.gated ? 'gated' : step.status;
   return (
     <div className="cp-tool" data-class={step.toolClass} data-st={st}>
@@ -627,6 +636,13 @@ function ToolCard({ step, showOverlay, onToggleOverlay, onShowRoi }) {
               title="Toggle the nuclei overlay on the slide">
               <span className="cp-tool-dot" />{fmtInt(step.artifact.count)} nuclei ·
               {showOverlay ? ' hide' : ' show'}
+            </button>
+          )}
+          {region && region.bbox && (
+            <button type="button" className="cp-tool-region" onClick={() => onShowRoi?.(region.bbox)}
+              title="Show the described region on the slide">
+              <RectIcon size={10} />{fmtRoi(region.bbox)}
+              {regionMag ? ` · ${(+regionMag).toFixed(regionMag < 1 ? 2 : 0)}×` : ''}
             </button>
           )}
         </div>
@@ -659,8 +675,6 @@ const CP_CSS = `
 .cp-btn--icon{padding:5px}
 .cp-count{min-width:15px;height:15px;padding:0 4px;border-radius:8px;display:grid;place-items:center;
   font-size:9px;font-weight:700;color:#0b0c12;background:#a78bfa}
-.cp-ribbon{font-size:9px;letter-spacing:.4px;color:#f5a623;background:rgba(245,166,35,.07);
-  border-bottom:1px solid var(--border);padding:4px 12px;font-family:monospace;flex-shrink:0}
 .cp-thread{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px;display:flex;flex-direction:column;gap:10px;
   scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.4) transparent}
 .cp-hint{color:var(--muted);font-size:12px}
@@ -734,6 +748,10 @@ const CP_CSS = `
   border-radius:6px;padding:2px 7px;cursor:pointer;transition:background .12s}
 .cp-tool-roi{color:#7dd3fc;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3)}
 .cp-tool-roi:hover{background:rgba(56,189,248,.2)}
+.cp-tool-region{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:monospace;
+  border-radius:6px;padding:2px 7px;cursor:pointer;transition:background .12s;
+  color:#d8b4fe;background:rgba(192,132,252,.12);border:1px solid rgba(192,132,252,.35)}
+.cp-tool-region:hover{background:rgba(192,132,252,.24)}
 .cp-tool-evi{color:#22d3ee;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.32)}
 .cp-tool-evi:hover{background:rgba(34,211,238,.2)}
 .cp-tool-dot{width:6px;height:6px;border-radius:50%;background:#22d3ee;box-shadow:0 0 5px rgba(34,211,238,.8)}

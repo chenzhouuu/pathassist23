@@ -79,9 +79,10 @@ _TOOLS: dict[str, LoopTool] = {
     ),
     "describe_region": LoopTool(
         "describe_region", SERVER, "Describe region",
-        "Describe the tissue morphology in a region at a chosen magnification (objective "
-        "power, e.g. 20). Returns a Perceptor (MedGemma) description; optionally pass a focus "
-        "to direct it.",
+        "Read the tissue morphology in a region at a chosen magnification (objective power, "
+        "e.g. 20). Pass `focus` with the specific morphological question the user is after "
+        "(e.g. 'degree of nuclear atypia', 'gland architecture') so the read answers it; omit "
+        "focus for a general morphology read.",
     ),
 }
 
@@ -243,11 +244,25 @@ async def run_server_tool(
         except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
             logger.warning("describe_region failed", exc_info=True)
             return ToolOutcome(ok=False, summary=f"description failed ({type(exc).__name__})")
-        # F3 grounding: attribute the description to the model + the region it actually saw.
+        # Ground the read to the region + magnification it actually saw — NOT the tool name.
+        # The trace/overlay already shows the source; the model only needs the morphology and
+        # where/at-what-mag it was read, to weigh it as evidence (it must not re-narrate the
+        # tool in its answer — see _SYSTEM).
         at_mag = f" at {res.magnification:g}x" if res.magnification else ""
         x, y = int(region.get("x", 0)), int(region.get("y", 0))
-        summary = f"MedGemma{at_mag} on region ({x},{y}): {res.description}"
-        return ToolOutcome(ok=True, summary=summary)
+        summary = f"Morphology of region ({x},{y}){at_mag}: {res.description}"
+        # Inc 2c: echo the region MedGemma actually read as a lightweight rectangle artifact.
+        # The bbox rides inline (no store/fetch, unlike nuclei) — the RegionOverlay draws it and
+        # the trace card re-shows it, tagged with the clamped magnification the Perceptor saw.
+        region_bbox = {
+            "x": x, "y": y,
+            "width": int(region.get("width", 0)), "height": int(region.get("height", 0)),
+        }
+        artifact = ArtifactHandle(
+            kind="region", ref="", count=1, summary=f"described{at_mag}",
+            bbox=region_bbox, meta={"magnification": res.magnification, "mpp": res.mpp},
+        )
+        return ToolOutcome(ok=True, summary=summary, artifact=artifact)
 
     return ToolOutcome(ok=False, summary=f"no server executor for {tool.name}")
 

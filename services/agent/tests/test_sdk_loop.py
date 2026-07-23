@@ -367,8 +367,28 @@ def test_system_prompt_bounds_typed_class_claims():
 def test_system_prompt_grounds_perceptor_descriptions():
     from agent.loop.sdk import _SYSTEM
 
-    # F3: a MedGemma description is a hedged observation, attributed and never a verdict.
-    assert "hedged observation" in _SYSTEM
+    # A region read is weighed as evidence, never promoted to a slide-level verdict.
+    assert "slide-level conclusion" in _SYSTEM
     assert "describe_region" in _SYSTEM
     # F5: look before you drill.
     assert "before drilling" in _SYSTEM
+
+
+def test_system_prompt_forbids_narrating_the_tool_trace():
+    from agent.loop.sdk import _SYSTEM
+
+    # The UI already shows the tool trace; the answer must speak in one voice and neither name
+    # the tool nor attribute a finding to it (the stiffness the user flagged).
+    assert "separate trace" in _SYSTEM
+    assert "single voice" in _SYSTEM
+    assert "do not narrate" in _SYSTEM
+
+
+def test_system_prompt_has_no_diagnostic_or_research_use_disclaimer():
+    from agent.loop.sdk import _SYSTEM
+
+    # Per user: the research-use / not-a-diagnostic-read framing is removed from the prompt
+    # entirely (the UI already carries the RESEARCH-USE ribbon). The copilot just answers.
+    low = _SYSTEM.lower()
+    for banned in ("research use", "definitive diagnosis", "clinical report", "not a diagnosis"):
+        assert banned not in low

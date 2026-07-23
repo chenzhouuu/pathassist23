@@ -27,6 +27,7 @@ class ArtifactHandle:
     summary: str
     bbox: dict | None = None
     size: int | None = None
+    meta: dict | None = None  # kind-specific extras (e.g. a region's magnification)
 
     def to_dict(self) -> dict:
         return asdict(self)

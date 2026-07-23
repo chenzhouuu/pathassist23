@@ -70,8 +70,10 @@ _SCHEMAS: dict[str, dict] = {
             },
             "focus": {
                 "type": ["string", "null"],
-                "description": "Optional hint to direct the description, e.g. 'nuclear atypia' "
-                               "or 'mitotic figures'.",
+                "description": "The specific morphological question to answer, derived from the "
+                               "user's request (e.g. 'degree of nuclear atypia', 'mitotic "
+                               "figures per HPF', 'gland formation'). Steers what the read "
+                               "addresses; omit for a general description.",
             },
         },
         "additionalProperties": False,

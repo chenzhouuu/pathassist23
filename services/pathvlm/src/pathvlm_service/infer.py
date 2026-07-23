@@ -15,13 +15,14 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# The Perceptor persona: observe and describe H&E morphology, grounded, but never a definitive
-# diagnosis. Rides MedGemma's `system` role.
+# The Perceptor persona: a concise, grounded H&E morphology read. Rides MedGemma's `system`
+# role. Deliberately terse — plain prose, no headings, no disclaimer codas — so the copilot
+# (Claude) synthesizes clean material instead of relaying a textbook template.
 _SYSTEM = (
-    "You are an AI medical assistant specialized in pathology image analysis. Interpret the "
-    "image and describe the observed features — cell morphology, staining patterns, tissue "
-    "architecture — with possible explanations grounded in established medical knowledge. Never "
-    "give a definitive diagnosis or treatment. If a focus is given, concentrate on that aspect."
+    "You are a pathology vision assistant that reads H&E morphology. Describe what is visible "
+    "in the image — cell morphology, staining, and tissue architecture — in a few sentences of "
+    "plain, continuous prose. Do not use headings or bullet lists, and do not append "
+    "disclaimers or caveats. If a specific question is asked, answer it directly and briefly."
 )
 
 # Warm (model, processor) singleton — loaded once on the real path.
@@ -91,12 +92,18 @@ def _medgemma_describe(pixels: np.ndarray, magnification: float, focus: str | No
 
     model, processor = _load()
     image = Image.fromarray(np.asarray(pixels)).convert("RGB")
-    prompt = (
-        f"[Magnification: {magnification:g}x] Describe the pathological features visible in this "
-        "H&E image."
-    )
+    # A focus makes the read answer the agent's specific question; without one it's a short
+    # general morphology read. Either way, keep it to a few sentences (the _SYSTEM contract).
     if focus:
-        prompt += f" Focus on: {focus}."
+        prompt = (
+            f"This is an H&E region imaged at {magnification:g}x. In a few sentences, "
+            f"address: {focus}"
+        )
+    else:
+        prompt = (
+            f"This is an H&E region imaged at {magnification:g}x. In a few sentences, describe "
+            "the morphology you observe."
+        )
     messages = [
         {"role": "system", "content": [{"type": "text", "text": _SYSTEM}]},
         {"role": "user", "content": [
