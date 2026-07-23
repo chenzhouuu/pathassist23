@@ -35,9 +35,17 @@ fetched out-of-band (D4).
 ### Active — the next step
 | Doc | What it is | State |
 |---|---|---|
-| `2026-07-22-…-cell-classification-typed-counts-design.md` | **Increment 1** design: surface CellViT's per-nucleus PanNuke class → typed counts + colour-by-class overlay. **Amended per review** (name-first classes, `type_prob` dropped, per-element `lineColor`) | 🟢 design final |
+| `2026-07-22-…-inc2-wsi-reasoning-tools-design.md` | **Increment 2** design: harvest PathAgent (arXiv 2511.17052) — PLIP `find_regions` (Navigator) + MedGemma `describe_region` (Perceptor) as **shared tools**, Claude as Executor; magnification first-class; whole-slide PLIP index | 🟢 reviewed + amended (F1 resolved, F2–F6 folded) |
+| `2026-07-22-…-inc2-wsi-reasoning-tools-design-review.md` | Adversarial, code-grounded review of the Inc 2 design (0 blocking + 5 should-fix + 1 open; F1 resolved by an in-repo magnification-read pattern) | ✅ review complete |
+| `2026-07-22-…-inc2a-describe-region-plan.md` | **Inc 2a** `describe_region` TDD plan — 10 tasks (pathvlm service ×6, agent ×3, infra ×1), stub-first (à la CellViT R8→R11) | ✅ implemented locally; real MedGemma **deployed + GPU-smoke-verified** |
+| **Inc 2c frontend** (RegionOverlay) | describe_region echoes an inline region artifact; `RegionOverlay.jsx` draws the "MedGemma N×" rectangle (tracks pan/zoom), trace chip, store `copilotRegions` | ✅ built + browser-E2E-validated locally (uncommitted; `ViewerPanel` mount rides atop dashboard WIP) |
+
+### Increment 1 — cell classification + typed counts (shipped)
+| Doc | What it is | State |
+|---|---|---|
+| `2026-07-22-…-cell-classification-typed-counts-design.md` | Increment 1 design: surface CellViT's per-nucleus PanNuke class → typed counts + colour-by-class overlay. Amended per review (name-first classes, `type_prob` dropped, per-element `lineColor`) | ✅ shipped |
 | `2026-07-22-…-cell-classification-design-review.md` | Adversarial, code-grounded review of the Increment 1 design (1 blocking + 4 should-fix findings, all folded into the design) | ✅ review complete |
-| `2026-07-22-…-cell-classification-typed-counts-plan.md` | **Increment 1 implementation plan** — 10 task-by-task TDD tasks (CellViT ×3, agent ×4, frontend ×2, system prompt ×1) | 🔵 ready to execute |
+| `2026-07-22-…-cell-classification-typed-counts-plan.md` | Increment 1 implementation plan — 10 task-by-task TDD tasks (CellViT ×3, agent ×4, frontend ×2, system prompt ×1) | ✅ shipped |
 
 ### Superseded / historical
 | Doc | What it is | Superseded by |
@@ -60,6 +68,12 @@ fetched out-of-band (D4).
 
 ---
 
-**Where we are / next step:** the copilot's real-CellViT + persistence spine is shipped
-(current-implementation). The active front is **Increment 1** — cell classification + typed counts —
-whose design is reviewed and amended and is ready to turn into a task-by-task TDD implementation plan.
+**Where we are / next step:** the copilot's real-CellViT + persistence spine and **Increment 1**
+(cell classification + typed counts) are shipped. The active front is **Increment 2** — WSI reasoning
+tools harvested from PathAgent (PLIP Navigator + MedGemma Perceptor as shared tools, Claude as
+Executor). Route A (dissolve, not black-box) + a whole-slide PLIP index are locked; the design is
+reviewed and amended (F1 resolved via an in-repo magnification-read pattern, F2–F6 folded). **Inc 2a
+`describe_region` is shipped locally with real MedGemma deployed + GPU-smoke-verified, and Inc 2c's
+`RegionOverlay` (the "MedGemma N×" rectangle on the slide) is built and browser-E2E-validated** (all
+local, uncommitted). Next is **Inc 2b** — the Navigator / whole-slide PLIP index — gated on the R12
+async task surface.
