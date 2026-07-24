@@ -1,0 +1,34 @@
+# services/biomarker/Dockerfile.trident — the REAL GigaTIME-Flash GPU image (Inc 3a).
+#
+# The default `Dockerfile` ships the GPU-free base (503 / dev stub). THIS image carries torch +
+# timm and runs the real GigaTIME-Flash (vit_small_patch14_dinov2 + LoRA + conv decoder → 23-ch
+# sigmoid mIF). Selected in compose with:
+#   BIOMARKER_DOCKERFILE=Dockerfile.trident  (build) + gated weights mounted at /weights/gigatime.
+#
+# Same driver-535-proven base as cellvit / pathvlm / preprocess: this host is driver 535
+# (CUDA <= 12.2), so torch==2.2.2 (+cu121) is pinned so no transitive dep pulls a cu13x wheel.
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# torch==2.2.2 repeated so timm's unpinned torch dep can't upgrade the base's cu121 build.
+# timm==0.9.16 matches the preprocess image and provides _create_vision_transformer + SwiGLUPacked.
+RUN pip install --no-cache-dir \
+      "torch==2.2.2" \
+      "timm==0.9.16" \
+      flask "httpx>=0.27" "numpy<2" pillow gunicorn
+
+WORKDIR /app
+COPY src ./src
+ENV PYTHONPATH=/app/src
+
+# Gated GigaTIME-Flash weights are read offline from the data2 mount; the token never enters the
+# service (design decision 8) — the user pre-downloads with `hf download`.
+ENV BIOMARKER_WEIGHTS=/weights/gigatime \
+    HF_HUB_OFFLINE=1 \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+EXPOSE 8022
+
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8022", "--timeout", "600", \
+     "biomarker_service.app:create_app()"]
