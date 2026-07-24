@@ -14,6 +14,10 @@ import httpx
 from .artifacts import ArtifactHandle, ArtifactStore
 from .pannuke import CLASS_HEX
 
+# Cap on the same-session geometry cache — evicts oldest first so a long-lived gateway process
+# can't accumulate every run's geometry (H3). Generous: a few dozen recent overlays.
+_CACHE_MAX = 64
+
 
 class GirderAnnotationStore(ArtifactStore):
     """Persists bulk nuclei geometry as a DSA annotation; reads it back by annotation id."""
@@ -52,8 +56,8 @@ class GirderAnnotationStore(ArtifactStore):
         # (caught in run_server_tool) silently drops the overlay, so it is deliberately omitted;
         # per-element `group` is what drives native grouping/colour.
         doc = {
-            "name": f"Copilot nuclei · {count}",
-            "description": _describe(count, bbox),
+            "name": _ann_name(kind, count),
+            "description": _describe(kind, count, bbox),
             "elements": elements,
         }
         client, owns = self._acquire()
@@ -67,6 +71,8 @@ class GirderAnnotationStore(ArtifactStore):
             if owns:
                 await client.aclose()
         self._cache[ann_id] = geometry  # full-fidelity same-session read (see __init__)
+        while len(self._cache) > _CACHE_MAX:
+            self._cache.pop(next(iter(self._cache)))  # evict oldest (dicts keep insertion order)
         return ArtifactHandle(kind=kind, ref=ann_id, count=count, summary=summary, bbox=bbox)
 
     async def get(self, *, owner, ref, token=None) -> dict | None:
@@ -99,12 +105,20 @@ def _auth(token: str | None) -> dict:
     return {"Girder-Token": token} if token else {}
 
 
-def _describe(count: int, bbox: dict | None) -> str:
+def _ann_name(kind: str, count: int) -> str:
+    return f"Copilot {'phenotypes' if kind == 'phenotype' else 'nuclei'} · {count}"
+
+
+def _describe(kind: str, count: int, bbox: dict | None) -> str:
+    if kind == "phenotype":
+        what, unit = "GigaTIME-Flash cell phenotyping", "cells"
+    else:
+        what, unit = "CellViT-SAM-H segmentation", "nuclei"
     if not bbox:
-        return f"CellViT-SAM-H segmentation. {count} nuclei."
+        return f"{what}. {count} {unit}."
     x, y = int(bbox.get("x", 0)), int(bbox.get("y", 0))
     w, h = int(bbox.get("width", 0)), int(bbox.get("height", 0))
-    return f"CellViT-SAM-H segmentation of a {w}x{h}px region at ({x}, {y}). {count} nuclei."
+    return f"{what} of a {w}x{h}px region at ({x}, {y}). {count} {unit}."
 
 
 __all__ = ["GirderAnnotationStore"]

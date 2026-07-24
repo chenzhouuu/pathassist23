@@ -412,7 +412,7 @@ async def run_server_tool(
         except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
             logger.warning("phenotype_cells failed", exc_info=True)
             return ToolOutcome(ok=False, summary=f"cell phenotyping failed ({type(exc).__name__})")
-        summary = _phenotype_summary(res)
+        summary = _phenotype_summary(res, args.get("focus"))
         if ctx.artifacts is None:
             return ToolOutcome(ok=True, summary=summary)
         geometry = {
@@ -435,9 +435,10 @@ async def run_server_tool(
     return ToolOutcome(ok=False, summary=f"no server executor for {tool.name}")
 
 
-def _phenotype_summary(res) -> str:
+def _phenotype_summary(res, focus: str | None = None) -> str:
     """A tool-derived phenotype summary — counts only (never model-invented), framed as predicted
-    and region-relative so the model reports it honestly (design §7, review B1)."""
+    and region-relative so the model reports it honestly (design §7, review B1). ``focus`` (the
+    user's stated interest) is echoed so the model tailors its answer to it."""
     if res.count == 0:
         return "No nuclei to phenotype in that region."
     parts = [
@@ -447,9 +448,10 @@ def _phenotype_summary(res) -> str:
     body = f" — {', '.join(parts)}" if parts else ""
     flags = sorted(res.flag_counts.items(), key=lambda kv: (-kv[1], kv[0]))
     flag_str = f"; {', '.join(f'{n:,} {name}' for name, n in flags)}" if flags else ""
+    focus_str = f" Focus requested: {focus}." if focus else ""
     return (
-        f"{res.count:,} cells{body}{flag_str}. These are predicted virtual biomarkers and "
-        f"positivity is relative to this region (research-only, not a clinical marker readout)."
+        f"{res.count:,} cells{body}{flag_str}.{focus_str} These are predicted virtual biomarkers "
+        f"and positivity is relative to this region (research-only, not a clinical marker readout)."
     )
 
 
