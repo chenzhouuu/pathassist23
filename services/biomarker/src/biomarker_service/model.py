@@ -12,20 +12,37 @@ if too few tensors matched.
 and no torch (the base env has none).
 """
 
-# A wrong remap matches almost nothing; a correct one matches nearly every model tensor. Well
-# below any real load, well above a broken one.
+import logging
+
+logger = logging.getLogger(__name__)
+
+# A wrong remap matches almost nothing; a correct one matches nearly every model tensor. The hard
+# floor catches total breakage; a soft warn fires below a near-complete load (a partially-random
+# model still runs and returns plausible garbage — review S3/H2).
 MIN_MATCH_FRACTION = 0.5
+WARN_MATCH_FRACTION = 0.9
 
 
 def _candidates(key: str) -> list[str]:
-    """The notebook's candidate keys for one checkpoint key, in priority order."""
+    """Candidate model keys for one checkpoint key, in priority order. The notebook's three
+    transforms (strip ``module.``, ``.base_layer.``→``.``, and ``encoder.`` → the LoRA-wrapped
+    ``encoder.base_model.model.``) are applied **cumulatively** so a key needing more than one still
+    matches (review H2); shape checking in remap_state_dict keeps the extra candidates safe."""
     cands = [key]
-    if key.startswith("module."):
-        cands.append(key[len("module."):])
-    if ".base_layer." in key:
-        cands.append(key.replace(".base_layer.", "."))
-    if key.startswith("encoder.") and not key.startswith("encoder.base_model.model."):
-        cands.append(key.replace("encoder.", "encoder.base_model.model.", 1))
+
+    def _add(new: str) -> None:
+        if new not in cands:
+            cands.append(new)
+
+    for k in list(cands):
+        if k.startswith("module."):
+            _add(k[len("module."):])
+    for k in list(cands):
+        if ".base_layer." in k:
+            _add(k.replace(".base_layer.", "."))
+    for k in list(cands):
+        if k.startswith("encoder.") and not k.startswith("encoder.base_model.model."):
+            _add(k.replace("encoder.", "encoder.base_model.model.", 1))
     return cands
 
 
@@ -55,12 +72,19 @@ def load_flash(weights_path: str, num_classes: int = 23, min_match: float = MIN_
         ckpt = ckpt["state_dict"]
     model_state = model.state_dict()
     loaded = remap_state_dict(ckpt, model_state)
-    if len(loaded) < min_match * len(model_state):
+    matched, total = len(loaded), len(model_state)
+    logger.info("GigaTIME-Flash load: matched %d/%d tensors (%.1f%%)",
+                matched, total, 100.0 * matched / max(total, 1))
+    if matched < min_match * total:
         raise RuntimeError(
-            f"GigaTIME-Flash load fidelity too low: matched {len(loaded)}/{len(model_state)} "
-            f"tensors (<{min_match:.0%}) — the checkpoint key remap is likely wrong; refusing to "
-            f"serve a randomly-initialised model."
+            f"GigaTIME-Flash load fidelity too low: matched {matched}/{total} tensors "
+            f"(<{min_match:.0%}) — the checkpoint key remap is likely wrong; refusing to serve a "
+            f"randomly-initialised model."
         )
+    if matched < WARN_MATCH_FRACTION * total:
+        logger.warning("GigaTIME-Flash load matched only %.1f%% of tensors — verify the checkpoint "
+                       "against the reference notebook before trusting the numbers",
+                       100.0 * matched / total)
     model.load_state_dict(loaded, strict=False)
     model.eval()
     return model

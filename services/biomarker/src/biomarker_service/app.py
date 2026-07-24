@@ -13,6 +13,7 @@ Run modes (config.Settings.mode): ``real`` loads GigaTIME-Flash on the worker ma
 import logging
 
 import httpx
+import numpy as np
 from flask import Flask, jsonify, request
 
 from .cellvit_client import fetch_centroids
@@ -48,6 +49,12 @@ def create_app() -> Flask:
             import torch
             model.to(f"cuda:{settings.gpu_index}" if torch.cuda.is_available() else "cpu")
             app.config["TILE_PREDICT"] = tile_fn("real", model)
+            # Warm-up forward on the worker main thread (like CellViT): surface peak GPU memory
+            # and first-inference latency at startup rather than on the first user request (M4).
+            try:
+                app.config["TILE_PREDICT"](np.zeros((256, 256, 3), dtype=np.uint8))
+            except Exception:  # noqa: BLE001 — warm-up is best-effort, never fatal
+                logger.warning("GigaTIME-Flash warm-up forward failed", exc_info=True)
         except Exception:  # noqa: BLE001 — a bad load must not crash the worker; report unavailable
             logger.exception("GigaTIME-Flash load failed; serving /phenotype as unavailable")
             app.config["MODE"] = "unavailable"
@@ -98,6 +105,15 @@ def create_app() -> Flask:
             return jsonify({"detail": f"could not fetch nuclei from CellViT: {exc}"}), 502
 
         mpp = region.mpp or _DEFAULT_MPP
+        # S1: GigaTIME-Flash is fed native-resolution tiles (no resample in v1). If the slide's
+        # native mpp is far from the pinned expected value, the physical FOV per 256-window drifts
+        # and predictions degrade silently — warn rather than hide it (review H1).
+        if s.expected_input_mpp and region.mpp and \
+                abs(region.mpp - s.expected_input_mpp) / s.expected_input_mpp > 0.2:
+            logger.warning(
+                "slide native mpp %.3g deviates >20%% from expected %.3g — GigaTIME FOV may drift",
+                region.mpp, s.expected_input_mpp,
+            )
         radius_px = max(1.0, s.nucleus_radius_um / mpp)
         cells, thresholds = phenotype_region(
             region.pixels, predict, cres.centroids, cres.classes,

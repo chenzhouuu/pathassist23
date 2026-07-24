@@ -21,6 +21,14 @@ TILE = 512
 NUM_CLASSES = 23
 
 
+def window_padding(h: int, w: int, window: int = WINDOW) -> tuple[int, int]:
+    """Right/bottom pad (ph, pw) that grows ``h×w`` to a whole number of ``window`` tiles (C1).
+
+    Pure (no torch) so the 256-multiple invariant is unit-tested in the GPU-free env, where
+    predict_tile itself can't run."""
+    return (window - h % window) % window, (window - w % window) % window
+
+
 def normalize_rgb(rgb: np.ndarray) -> np.ndarray:
     """(H,W,3) uint8 → (3,H,W) float32, rgb/255 then ImageNet MEAN/STD (the Flash contract)."""
     x = rgb.astype(np.float32) / 255.0
@@ -28,19 +36,29 @@ def normalize_rgb(rgb: np.ndarray) -> np.ndarray:
 
 
 def predict_tile(rgb_tile: np.ndarray, model) -> np.ndarray:
-    """Real GigaTIME-Flash forward over one tile → ``[23, h, w]`` sigmoid probs. Lazy torch."""
+    """Real GigaTIME-Flash forward over one tile → ``[23, h, w]`` sigmoid probs. Lazy torch.
+
+    GigaTIME-Flash only accepts 256×256 windows (its ViT patch grid and decoder output are fixed
+    at 256), so a tile is padded up to a whole number of 256 windows, inferred window-by-window,
+    then cropped back. Without the pad, a user ROI whose side isn't a multiple of 256 produces a
+    partial edge window and the forward raises (review C1)."""
     import torch  # lazy: only the real (trident) image has torch
+    from torch.nn.functional import pad as _pad
 
     device = next(model.parameters()).device
     t = torch.from_numpy(normalize_rgb(rgb_tile)).unsqueeze(0).to(device)
     _, _, h, w = t.shape
-    logits = torch.zeros(1, NUM_CLASSES, h, w, device=device)
+    ph, pw = window_padding(h, w)
+    if ph or pw:
+        t = _pad(t, (0, pw, 0, ph), mode="replicate")  # extend right/bottom to a 256 multiple
+    _, _, hp, wp = t.shape
+    logits = torch.zeros(1, NUM_CLASSES, hp, wp, device=device)
     with torch.no_grad():
-        for y in range(0, h, WINDOW):
-            for x in range(0, w, WINDOW):
+        for y in range(0, hp, WINDOW):
+            for x in range(0, wp, WINDOW):
                 win = t[:, :, y:y + WINDOW, x:x + WINDOW].contiguous()
                 logits[:, :, y:y + WINDOW, x:x + WINDOW] = model(win)
-    return torch.sigmoid(logits).squeeze(0).cpu().numpy()
+    return torch.sigmoid(logits[:, :, :h, :w]).squeeze(0).cpu().numpy()
 
 
 def stub_tile(rgb_tile: np.ndarray) -> np.ndarray:

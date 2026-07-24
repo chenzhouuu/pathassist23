@@ -37,8 +37,9 @@ class Settings:
     cellvit_url: str = _DEFAULT_CELLVIT
     # Dev-only deterministic stub, gated ON explicitly (never in production).
     dev_stub: bool = False
-    # GigaTIME-Flash consumes native-resolution tiles (the notebook does NO pre-resize). None ⇒
-    # read at the slide's native magnification (scale 1.0); set a value to pin a target µm/px (S1).
+    # GigaTIME-Flash consumes native-resolution tiles (the notebook does NO pre-resize); v1 always
+    # reads native (scale 1.0) and does NOT resample. This is a VALIDATION knob only: when set, a
+    # slide whose native µm/px deviates >20% from it triggers a "FOV may drift" warning (S1/H1).
     expected_input_mpp: float | None = None
     # Pooling disk radius (µm): a nucleus (~7–10 µm) plus a small peri-nuclear margin so membrane
     # markers (CD3/CD8/CD20/CD68/PD-L1) contribute. Converted to px per region via mpp.

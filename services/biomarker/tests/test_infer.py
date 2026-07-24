@@ -1,6 +1,20 @@
 import numpy as np
 
-from biomarker_service.infer import NUM_CLASSES, normalize_rgb, stub_tile, tile_fn
+from biomarker_service.infer import (
+    NUM_CLASSES,
+    normalize_rgb,
+    stub_tile,
+    tile_fn,
+    window_padding,
+)
+
+
+def test_window_padding_reaches_256_multiple():
+    # C1: any tile side must pad up to a whole number of 256 windows, by < 256 px.
+    for h, w in [(256, 256), (300, 300), (176, 200), (512, 488), (1, 1)]:
+        ph, pw = window_padding(h, w)
+        assert (h + ph) % 256 == 0 and (w + pw) % 256 == 0
+        assert 0 <= ph < 256 and 0 <= pw < 256
 
 
 def test_normalize_rgb_shape_and_range():
@@ -24,8 +38,8 @@ def test_tile_fn_stub_for_non_real_modes():
 
 
 def test_predict_tile_windows_a_fake_model():
-    # a fake "model" returning zeros verifies the windowing/sigmoid path; predict_tile imports
-    # torch, so only run when torch is present (base env covers the real path via the GPU smoke).
+    # a fake "model" verifies the windowing/sigmoid path; predict_tile imports torch, so only run
+    # when torch is present (base env covers the real path via the GPU smoke).
     torch = __import__("importlib").util.find_spec("torch")
     if torch is None:
         return  # base env has no torch; real path is covered by the GPU smoke (T8)
@@ -34,11 +48,13 @@ def test_predict_tile_windows_a_fake_model():
     from biomarker_service.infer import predict_tile
 
     class FakeModel(_t.nn.Module):
+        # Mimics the real GigaTIME-Flash: ALWAYS emits 256x256 regardless of input size.
         def forward(self, x):
-            b, _, h, w = x.shape
-            return _t.zeros(b, NUM_CLASSES, h, w)
+            return _t.zeros(x.shape[0], NUM_CLASSES, 256, 256)
 
     m = FakeModel().eval()
-    mif = predict_tile(np.zeros((256, 256, 3), dtype=np.uint8), m)
-    assert mif.shape == (NUM_CLASSES, 256, 256)
-    assert np.allclose(mif, 0.5)  # sigmoid(0) = 0.5
+    # exact 256 multiple, and — the C1 regression — sides that are NOT multiples of 256
+    for h, w in [(256, 256), (300, 300), (176, 200), (512, 488)]:
+        mif = predict_tile(np.zeros((h, w, 3), dtype=np.uint8), m)
+        assert mif.shape == (NUM_CLASSES, h, w)
+        assert np.allclose(mif, 0.5)  # sigmoid(0) = 0.5, cropped back to the tile size
