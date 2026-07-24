@@ -59,8 +59,11 @@ _SCHEMAS: dict[str, dict] = {
         "properties": {
             "bbox": {
                 **_BBOX_SCHEMA,
-                "description": "Region to describe, in level-0 pixels. Omit to use the region "
-                               "already drawn on the slide.",
+                "description": "Region to describe, in level-0 pixels — pass the coordinates of "
+                               "the box you want read (e.g. a candidate box returned by "
+                               "find_regions). It reads exactly this box, not wherever the viewer "
+                               "was last panned. Omit it only when the user has drawn a region on "
+                               "the slide.",
             },
             "magnification": {
                 "type": ["integer", "null"],
@@ -92,6 +95,24 @@ _SCHEMAS: dict[str, dict] = {
             },
         },
         "required": ["query"],
+        "additionalProperties": False,
+    },
+    "phenotype_cells": {
+        "type": "object",
+        "properties": {
+            "bbox": {
+                **_BBOX_SCHEMA,
+                "description": "Region to phenotype, in level-0 pixels — pass the coordinates of "
+                               "the box you want (e.g. a candidate box from find_regions). It "
+                               "reads exactly this box. Omit it only when the user has drawn a "
+                               "region on the slide; a whole-slide (null) request isn't ready yet.",
+            },
+            "focus": {
+                "type": ["string", "null"],
+                "description": "What the user cares about, to steer the summary (e.g. 'immune "
+                               "infiltrate', 'proliferation', 'PD-L1'); omit for a general read.",
+            },
+        },
         "additionalProperties": False,
     },
 }

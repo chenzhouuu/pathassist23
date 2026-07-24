@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # find_regions and the preprocess routes report the service isn't configured.
     preprocess_service_url: str = ""
 
+    # biomarker service (Inc 3a): GigaTIME-Flash virtual biomarkers × CellViT nuclei → per-cell
+    # phenotypes. Empty ⇒ phenotype_cells reports the service isn't configured.
+    biomarker_service_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

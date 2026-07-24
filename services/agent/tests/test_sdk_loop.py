@@ -197,6 +197,7 @@ def test_build_options_configures_the_sdk_run():
         "mcp__pathagent__run_segmentation",
         "mcp__pathagent__describe_region",
         "mcp__pathagent__find_regions",
+        "mcp__pathagent__phenotype_cells",
     }
     assert opts.system_prompt  # a persona is set
 
@@ -365,14 +366,29 @@ def test_system_prompt_grounds_perceptor_descriptions():
     assert "before drilling" in _SYSTEM
 
 
+def test_system_prompt_grounds_phenotype_cells_as_predicted():
+    from agent.loop.sdk import _SYSTEM
+
+    # Virtual biomarkers are predicted + region-relative, never a clinical/intensity readout (B1).
+    assert "phenotype_cells" in _SYSTEM
+    assert "marker-positivity probability" in _SYSTEM
+    assert "relative to that region" in _SYSTEM
+
+
 def test_system_prompt_grounds_find_regions_as_candidates(monkeypatch):
     from agent.loop.sdk import _SYSTEM
 
-    # find_regions returns similarity candidates, not verified findings — the model must
-    # confirm with describe_region before asserting (Inc 2b-3 grounding, review F1/F6).
-    assert "find_regions" in _SYSTEM
-    assert "candidate" in _SYSTEM.lower()
-    assert "not " in _SYSTEM.lower() and "verified findings" in _SYSTEM
+    # find_regions is a candidate generator, not a verifier: the model must confirm each candidate
+    # with describe_region and report every region that holds up, framing only returned coordinates
+    # (no invented box, no retrieval-side confidence). Simplified verify-and-report-all flow.
+    low = _SYSTEM.lower()
+    assert "find_regions" in _SYSTEM and "describe_region" in _SYSTEM
+    assert "candidate" in low
+    assert "leads" in low and "not findings" in low
+    assert "invented rectangle" in low
+    # describe_region needs the candidate's coordinates passed as its bbox (it does not read the
+    # last viewer position), so the model shouldn't call it with no box and hit the error retry.
+    assert "as its bbox" in low
 
 
 def test_system_prompt_forbids_narrating_the_tool_trace():

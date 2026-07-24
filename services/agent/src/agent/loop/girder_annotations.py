@@ -21,6 +21,11 @@ class GirderAnnotationStore(ArtifactStore):
     def __init__(self, girder_base: str, client: httpx.AsyncClient | None = None) -> None:
         self._base = girder_base.rstrip("/")
         self._client = client
+        # DSA point elements round-trip geometry losslessly for nuclei (points + class group) but
+        # DROP richer per-cell fields — a `phenotype` artifact's flags/marker values. Keep the
+        # just-written geometry in-process so the same-session overlay fetch is full fidelity;
+        # reconstruction from DSA is the (lossy) cross-reload fallback. Keyed by annotation id.
+        self._cache: dict[str, dict] = {}
 
     def _acquire(self) -> tuple[httpx.AsyncClient, bool]:
         """Reuse an injected client (tests), else build a per-call one we must close."""
@@ -61,9 +66,13 @@ class GirderAnnotationStore(ArtifactStore):
         finally:
             if owns:
                 await client.aclose()
+        self._cache[ann_id] = geometry  # full-fidelity same-session read (see __init__)
         return ArtifactHandle(kind=kind, ref=ann_id, count=count, summary=summary, bbox=bbox)
 
     async def get(self, *, owner, ref, token=None) -> dict | None:
+        cached = self._cache.get(ref)
+        if cached is not None:
+            return cached  # exact geometry we wrote this session (keeps phenotype cells/flags)
         client, owns = self._acquire()
         try:
             resp = await client.get(f"/annotation/{ref}", headers=_auth(token))

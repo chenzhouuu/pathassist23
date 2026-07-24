@@ -15,12 +15,17 @@ models without touching the loop or the event contract.
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .artifacts import ArtifactHandle, ArtifactStore
+from .biomarker_client import phenotype_cells as biomarker_phenotype
 from .pannuke import PANNUKE_NAMES
 from .pathvlm_client import describe_region as pathvlm_describe
 from .preprocess_client import find_regions as preprocess_find_regions
 from .segmenter import segment_region
+
+if TYPE_CHECKING:
+    from ..store import PreprocessArtifactStore
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,8 @@ class ToolContext:
     cellvit_url: str | None = None
     pathvlm_url: str | None = None
     preprocess_url: str | None = None
+    biomarker_url: str | None = None
+    preprocess_artifacts: "PreprocessArtifactStore | None" = None
 
 
 @dataclass(frozen=True)
@@ -82,7 +89,9 @@ _TOOLS: dict[str, LoopTool] = {
     "describe_region": LoopTool(
         "describe_region", SERVER, "Describe region",
         "Read the tissue morphology in a region at a chosen magnification (objective power, "
-        "e.g. 20). Pass `focus` with the specific morphological question the user is after "
+        "e.g. 20). Pass `bbox` with the level-0 coordinates of the region to read (e.g. a "
+        "candidate box from find_regions); it reads exactly that box, not wherever the viewer "
+        "was last panned. Pass `focus` with the specific morphological question the user is after "
         "(e.g. 'degree of nuclear atypia', 'gland architecture') so the read answers it; omit "
         "focus for a general morphology read.",
     ),
@@ -93,6 +102,15 @@ _TOOLS: dict[str, LoopTool] = {
         "bounding boxes ranked by similarity. Candidates locate where to look — confirm "
         "morphology with describe_region before asserting a finding. Requires the slide to be "
         "preprocessed for text search first.",
+    ),
+    "phenotype_cells": LoopTool(
+        "phenotype_cells", SERVER, "Phenotype cells",
+        "Phenotype the individual cells in a region: predicts virtual biomarkers (GigaTIME) and "
+        "assigns each nucleus a lineage (e.g. Tumour, Cytotoxic T, Macrophage) plus functional "
+        "flags (Ki67 proliferating, PD-1/PD-L1). Pass `bbox` with the level-0 coordinates of the "
+        "region to phenotype; it reads exactly that box. Returns per-lineage counts. The "
+        "biomarkers are a research-only, PREDICTED signal and positivity is relative to the "
+        "region — report the counts, don't treat them as a clinical marker readout.",
     ),
 }
 
@@ -144,6 +162,33 @@ def _stub_nuclei_geometry(bbox: dict | None) -> dict:
 # whole-slide-sized ROI would tie up the GPU for minutes; beyond this we ask the user to
 # zoom in. Whole-slide / async segmentation is deferred to R12.
 _MAX_SEG_AREA = 4096 * 4096
+
+
+# Encoders whose patch features live in a text space (mirrors the preprocess worker's
+# is_text_capable): only these back find_regions text search.
+_TEXT_ENCODERS = frozenset({"conch_v1_text", "musk"})
+
+
+async def _resolve_text_features(ctx: ToolContext, item: str) -> tuple[str | None, str | None]:
+    """Newest ready, text-capable DAG features artifact for a slide → (feat_hash, encoder).
+
+    Returns (None, None) when the slide has no such DAG row (a legacy flat index or an
+    unprocessed slide), so find_regions keeps its legacy resolution path for back-compat.
+    """
+    store = ctx.preprocess_artifacts
+    if store is None:
+        return None, None
+    try:
+        rows = await store.list_artifacts(item=item)
+    except Exception:  # noqa: BLE001 — a store hiccup just means "no DAG hint"; fall back
+        logger.warning("could not list preprocess artifacts for %s", item, exc_info=True)
+        return None, None
+    for r in rows:
+        if r.get("kind") == "features" and r.get("status") == "ready":
+            enc = (r.get("params") or {}).get("encoder")
+            if enc in _TEXT_ENCODERS:
+                return r.get("art_hash"), enc
+    return None, None
 
 
 async def run_server_tool(
@@ -295,10 +340,14 @@ async def run_server_tool(
                 ok=False, summary="No slide is loaded to search — open a slide and ask again."
             )
         k = int(args.get("k") or 8)
+        # Point the worker at the DAG feature index the 3-stage panel built
+        # (feat/{hash}/features.h5). Without this hint the worker falls back to the legacy flat
+        # cache the DAG never writes, so every DAG-built slide reads as "not indexed".
+        feat_hash, feat_encoder = await _resolve_text_features(ctx, slide_ref)
         try:
             res = await preprocess_find_regions(
                 base_url=ctx.preprocess_url, item=slide_ref, query=query, k=k,
-                token=ctx.girder_token,
+                token=ctx.girder_token, feat_hash=feat_hash, encoder=feat_encoder,
             )
         except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
             logger.warning("find_regions failed", exc_info=True)
@@ -306,24 +355,102 @@ async def run_server_tool(
         if res is None:
             return ToolOutcome(
                 ok=False,
-                summary="This slide isn't preprocessed for text search yet — build a conch_v1 "
+                summary="This slide isn't preprocessed for text search yet — build a conch_v1_text "
                         "index for it first, then I can search it.",
             )
         if not res.regions:
             return ToolOutcome(
                 ok=True, summary=f"No regions on this slide matched '{query}'."
             )
+        n = len(res.regions)
+        # Candidate generator only: return the top-K boxes ranked by similarity. These are leads,
+        # not findings — precision comes from verifying each with describe_region, not from a
+        # retrieval-side confidence score (on real CONCH the cosine doesn't separate signal from
+        # noise). The model reads the candidates' coordinates off the handle meta.
         summary = (
-            f"Found {len(res.regions)} candidate region(s) for '{query}' "
-            f"(top similarity {res.top_score:.2f})."
+            f"Found {n} candidate region(s) for '{query}', ranked by similarity. These are leads "
+            f"to check, not findings — read the top ones and report each that holds up, with its "
+            f"location."
         )
         artifact = ArtifactHandle(
-            kind="regions", ref="", count=len(res.regions), summary=summary,
+            kind="regions", ref="", count=n, summary=summary,
             meta={"query": query, "encoder": res.encoder, "regions": res.regions},
         )
         return ToolOutcome(ok=True, summary=summary, artifact=artifact)
 
+    if tool.name == "phenotype_cells":
+        # Virtual-biomarker × CellViT-nuclei fusion (Inc 3a). One region → per-cell phenotypes.
+        region = args.get("bbox") or (scope or {}).get("roi")
+        if region is None:  # whole-slide phenotyping is the Inc 3b job, not this route (review S5)
+            return ToolOutcome(
+                ok=False,
+                summary="Whole-slide phenotyping isn't available yet — draw a region on the "
+                        "slide (or pan to one) and ask again.",
+            )
+        if ctx is None or not ctx.biomarker_url:
+            return ToolOutcome(
+                ok=False,
+                summary="Cell phenotyping isn't configured, so I can't phenotype cells here.",
+            )
+        slide_ref = (scope or {}).get("item_id")
+        if not slide_ref:
+            return ToolOutcome(
+                ok=False, summary="No slide is loaded — open a slide and ask again."
+            )
+        area = float(region.get("width", 0)) * float(region.get("height", 0))
+        if area > _MAX_SEG_AREA:
+            return ToolOutcome(
+                ok=False,
+                summary="That region is too large for interactive phenotyping — zoom to a smaller "
+                        "area (about 4000x4000 pixels or less) and ask again.",
+            )
+        try:
+            res = await biomarker_phenotype(
+                base_url=ctx.biomarker_url, slide_ref=slide_ref, bbox=region,
+                focus=args.get("focus"), token=ctx.girder_token,
+            )
+        except Exception as exc:  # noqa: BLE001 — surface the failure as a tool result
+            logger.warning("phenotype_cells failed", exc_info=True)
+            return ToolOutcome(ok=False, summary=f"cell phenotyping failed ({type(exc).__name__})")
+        summary = _phenotype_summary(res)
+        if ctx.artifacts is None:
+            return ToolOutcome(ok=True, summary=summary)
+        geometry = {
+            "kind": "phenotype", "count": res.count,
+            "points": [[c["x"], c["y"]] for c in res.cells],
+            "classes": [c["phenotype"] for c in res.cells],  # lets the overlay colour by lineage
+            "cells": res.cells,  # per-cell flags + gate-deciding markers, for the tooltip
+        }
+        try:
+            handle = await ctx.artifacts.put(
+                owner=ctx.owner, conversation_id=ctx.conversation_id, kind="phenotype",
+                bbox=region, geometry=geometry, summary=f"{res.count:,} cells phenotyped",
+                item_id=slide_ref, token=ctx.girder_token,
+            )
+        except Exception:  # noqa: BLE001 — persisting the overlay must not sink the counts
+            logger.warning("persisting phenotype annotation failed", exc_info=True)
+            return ToolOutcome(ok=True, summary=summary)
+        return ToolOutcome(ok=True, summary=summary, artifact=handle)
+
     return ToolOutcome(ok=False, summary=f"no server executor for {tool.name}")
+
+
+def _phenotype_summary(res) -> str:
+    """A tool-derived phenotype summary — counts only (never model-invented), framed as predicted
+    and region-relative so the model reports it honestly (design §7, review B1)."""
+    if res.count == 0:
+        return "No nuclei to phenotype in that region."
+    parts = [
+        f"{n:,} {name}" for name, n in
+        sorted(res.counts_by_phenotype.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    body = f" — {', '.join(parts)}" if parts else ""
+    flags = sorted(res.flag_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    flag_str = f"; {', '.join(f'{n:,} {name}' for name, n in flags)}" if flags else ""
+    return (
+        f"{res.count:,} cells{body}{flag_str}. These are predicted virtual biomarkers and "
+        f"positivity is relative to this region (research-only, not a clinical marker readout)."
+    )
 
 
 __all__ = [

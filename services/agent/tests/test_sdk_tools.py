@@ -23,6 +23,7 @@ _ALL = {
     "mcp__pathagent__run_segmentation",
     "mcp__pathagent__describe_region",
     "mcp__pathagent__find_regions",
+    "mcp__pathagent__phenotype_cells",
 }
 
 

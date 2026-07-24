@@ -142,3 +142,27 @@ async def test_get_reads_group_back_into_aligned_classes():
     got = await _store(handler).get(owner="u1", ref="ann1", token="tok")
     assert got == {"kind": "nuclei", "count": 2, "points": [[1.0, 2.0], [3.0, 4.0]],
                    "classes": ["Neoplastic", None]}
+
+
+@pytest.mark.asyncio
+async def test_phenotype_geometry_round_trips_full_fidelity_in_session():
+    # DSA point elements can't carry per-cell flags/markers; the in-process cache keeps them for
+    # the same-session overlay fetch (kind stays "phenotype", cells survive).
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"_id": "annP"})
+
+    store = _store(handler)
+    geom = {
+        "kind": "phenotype", "count": 1, "points": [[5.0, 6.0]], "classes": ["Cytotoxic T"],
+        "cells": [{"x": 5.0, "y": 6.0, "phenotype": "Cytotoxic T",
+                   "flags": ["Proliferating"], "markers": {"CD8": 0.9}}],
+    }
+    handle = await store.put(
+        owner="u", conversation_id=1, kind="phenotype", bbox=None,
+        geometry=geom, summary="1 cell phenotyped", item_id="item9", token="tok",
+    )
+    assert handle.kind == "phenotype"
+    got = await store.get(owner="u", ref=handle.ref, token="tok")
+    assert got["kind"] == "phenotype"
+    assert got["cells"][0]["flags"] == ["Proliferating"]
+    assert got["cells"][0]["markers"]["CD8"] == 0.9
