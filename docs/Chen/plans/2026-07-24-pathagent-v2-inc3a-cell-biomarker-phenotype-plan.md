@@ -4,15 +4,17 @@
 > the ROI, synchronous slice: a new `biomarker` service running **GigaTIME-Flash** virtual mIF, fused
 > with CellViT nuclei into per-cell phenotypes, a `phenotype_cells` agent tool, and a phenotype-coloured
 > cell overlay. Whole-slide (`pheno` DAG node) is Inc 3b, a separate plan.
-> **Status: IMPLEMENTED locally (2026-07-24), E2E-verified with the dev stub.** T1–T7, T9–T14 done;
-> T8 (real GigaTIME-Flash weights) + T15's L1/GPU smoke are blocked on the user's gated `hf download` to
-> `/home/chen/data2/models/gigatime/` (not present yet). Tests: biomarker 30 / agent 179 / frontend 132
-> green, ruff + build clean. Committed on `feature/copilot-agent` (4 commits, **not pushed**); the
-> gateway `routes.py` + store/CopilotPanel/ViewerPanel wiring stays local (rides atop uncommitted Inc
-> 2b/2c + dashboard WIP). **E2E (conv 56, real CellViT + dev-stub mIF, item `6a3d59bed59c30f37fd998a0`):**
-> Claude called `phenotype_cells` once → artifact `kind=phenotype count=191` → answer framed
-> predicted/region-relative/research-only. S1 (input mpp) only partially addressed: reads native, config
-> knob present, no resampling.
+> **Status: COMPLETE (2026-07-24) — real GigaTIME-Flash deployed + GPU-smoke + E2E verified.** All 15
+> tasks done, incl. T8. Weights (`prov-gigatime/GigaTIME-flash/model.pth`, 95 MB) downloaded to
+> `/home/chen/data2/models/gigatime/`; the real GPU path runs via `docker-compose.biomarker.yml`
+> (`/health` mode:real). **Checkpoint remap matched 252/252 tensors (100%)** — the port is faithful. Real
+> `/phenotype` gives structured, differentiated phenotypes (unlike the dev stub); the **C1 fix is
+> validated on the real forward** (a 1000×900 ROI with 488/388px partial tiles phenotyped 172 cells, no
+> error). Full agent E2E (real model) → a nuanced answer that itself surfaces the region-relative-cutoff
+> caveat. Tests: biomarker 31 / agent 179 / frontend 132 green, ruff + build clean. 7 commits on
+> `feature/copilot-agent`, **not pushed**; gateway `routes.py` + store/CopilotPanel/ViewerPanel wiring
+> stays local (rides atop uncommitted Inc 2b/2c + dashboard WIP). Follow-ups only: L1 vs the authors' 50
+> paired samples (not downloaded), O3 marker-reliability weighting, S1 resampling (v1 reads native + warns).
 >
 > **Shape:** *real-weights-first* (decision 3), reconciled with TDD by **injecting deterministic
 > synthetic mIF arrays + a fake CellViT client** into every unit test; the real GigaTIME-Flash lands

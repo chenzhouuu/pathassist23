@@ -52,7 +52,7 @@ fetched out-of-band (D4).
 |---|---|---|
 | `2026-07-24-…-inc3a-cell-biomarker-phenotype-design.md` | **Inc 3a** design: fuse GigaTIME-Flash virtual mIF × CellViT nuclei → per-cell biomarker phenotype (new `biomarker` service :8022, `phenotype_cells` tool, phenotype-coloured overlay). Tier-2 of a two-tier virtual-proteomics stack (Tier-1 HEX/MICA deferred → Inc 3c). 9 grilling-confirmed decisions; review folded | 🟡 design, review-folded 2026-07-24; no code yet |
 | `2026-07-24-…-inc3a-cell-biomarker-phenotype-design-review.md` | Adversarial, code-grounded review (1 blocking + 6 should-fix + 3 open). Blocking: GigaTIME outputs a marker-**presence probability** (sigmoid), not intensity. Should-fix: magnification pinning, windowed raster, checkpoint key-remap fidelity, centroid↔mIF alignment, null-bbox clean-fail, adaptive-threshold degeneracy guard | ✅ review complete, folded |
-| `2026-07-24-…-inc3a-cell-biomarker-phenotype-plan.md` | **Inc 3a** task-by-task TDD plan — 15 tasks (biomarker service ×8, agent ×3, frontend ×2, infra ×1, verify ×1); real-weights-first, all review findings folded per-task. T8/T15 blocked on the gated Flash download | ✅ implemented locally + E2E-verified (dev stub); T8 real weights + GPU smoke pending |
+| `2026-07-24-…-inc3a-cell-biomarker-phenotype-plan.md` | **Inc 3a** task-by-task TDD plan — 15 tasks (biomarker service ×8, agent ×3, frontend ×2, infra ×1, verify ×1); real-weights-first, all review findings folded per-task | ✅ COMPLETE — real GigaTIME-Flash deployed (100% remap), GPU-smoke + agent-E2E verified; local-only, not pushed |
 
 ### Superseded / historical
 | Doc | What it is | Superseded by |
