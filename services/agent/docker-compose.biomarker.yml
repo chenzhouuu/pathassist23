@@ -1,0 +1,31 @@
+# services/agent/docker-compose.biomarker.yml — opt-in override: run the biomarker service on the
+# REAL GigaTIME-Flash GPU path (Inc 3a). The base compose ships the GPU-free base (503 / dev stub);
+# this override swaps in the torch/timm GPU image, mounts the gated GigaTIME-Flash weights from
+# data2 (read-only), reads them offline, and reserves a GPU. Enable with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.biomarker.yml up -d --build biomarker
+#
+# The weights are the user's offline `hf download prov-gigatime/GigaTIME-flash` to
+# /home/chen/data2/models/gigatime (model.pth). The HF token never enters the service (decision 8):
+# HF_HUB_OFFLINE=1 makes the loader read the local file only. Revert by bringing the service back
+# up without this -f override (returns to the base 503 / dev stub).
+services:
+  biomarker:
+    build:
+      context: ../biomarker
+      dockerfile: Dockerfile.trident
+    environment:
+      # Gated GigaTIME-Flash weights, mounted read-only below; read offline (no token, no network).
+      BIOMARKER_WEIGHTS: /weights/gigatime
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      # Host GigaTIME-Flash checkpoint dir (model.pth), read-only. Override BIOMARKER_WEIGHTS_DIR to
+      # relocate. Nothing here is ever downloaded — the user pre-fetched it.
+      - ${BIOMARKER_WEIGHTS_DIR:-/home/chen/data2/models/gigatime}:/weights/gigatime:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

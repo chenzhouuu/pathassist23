@@ -43,6 +43,8 @@ services:
       AGENT_PATHVLM_SERVICE_URL: ${AGENT_PATHVLM_SERVICE_URL:-http://pathvlm:8021}
       # The preprocess service (Inc 2b). Empty ⇒ find_regions / preprocess routes are unavailable.
       AGENT_PREPROCESS_SERVICE_URL: ${AGENT_PREPROCESS_SERVICE_URL:-http://preprocess:8030}
+      # The biomarker service (Inc 3a). Empty ⇒ phenotype_cells is unavailable.
+      AGENT_BIOMARKER_SERVICE_URL: ${AGENT_BIOMARKER_SERVICE_URL:-http://biomarker:8022}
     volumes:
       - ./src:/app/src        # live code — edit-and-reload during the increment loop
     command: >
@@ -138,6 +140,26 @@ services:
       # Dev slide root (read-only), so the resolver matches .svs locally by name + size instead of
       # downloading. Points at the BRACS demo slides (BRCA-DEMO); override to widen it.
       - ${PREPROCESS_SLIDES_DIR:-/home/chen/data2/BRCA-TEST}:/data2:ro
+
+  # biomarker service (Inc 3a): GigaTIME-Flash virtual biomarkers × CellViT nuclei → per-cell
+  # phenotypes. Flask; the gateway reaches it by name; it calls cellvit for nuclei centroids.
+  # GPU-FREE base by default: with no weights it returns 503; set BIOMARKER_DEV_STUB=1 for a
+  # deterministic dev stub so the phenotype path is browser-E2E-able with no GPU. The real
+  # GigaTIME-Flash path is the docker-compose.biomarker.yml override (GPU image + gated weights).
+  biomarker:
+    # Long-form so the biomarker override can merge in the GPU (Dockerfile.trident) image.
+    build:
+      context: ../biomarker
+    ports: ["8022:8022"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Same Girder as the gateway — the service reads region pixels with the user's token.
+      BIOMARKER_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
+      # The CellViT service the fusion fetches nuclei centroids from (service→service).
+      BIOMARKER_CELLVIT_URL: ${BIOMARKER_CELLVIT_URL:-http://cellvit:8020}
+      # Empty ⇒ 503 without weights; set to 1 for the GPU-free dev stub (browser E2E of the path).
+      BIOMARKER_DEV_STUB: ${BIOMARKER_DEV_STUB:-}
 
 volumes:
   copilot_pgdata:
