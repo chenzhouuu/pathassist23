@@ -160,7 +160,22 @@ services:
       BIOMARKER_CELLVIT_URL: ${BIOMARKER_CELLVIT_URL:-http://cellvit:8020}
       # Empty ⇒ 503 without weights; set to 1 for the GPU-free dev stub (browser E2E of the path).
       BIOMARKER_DEV_STUB: ${BIOMARKER_DEV_STUB:-}
+      # Inc 3b map job: own artifact cache, the preprocess cache (read-only, for tissue contours),
+      # and the local slide root for the fast OpenSlide read tier.
+      BIOMARKER_ARTIFACT_CACHE: /cache
+      BIOMARKER_PREPROCESS_CACHE: /pcache
+      BIOMARKER_SLIDES_ROOT: ${BIOMARKER_SLIDES_ROOT:-/data2}
+      # Batch CellViT (D12) — set by docker-compose.batch.yml. Unset ⇒ the job shares the
+      # interactive cellvit, which is correct for region jobs (seconds) and wrong for whole-slide.
+      BIOMARKER_CELLVIT_BATCH_URL: ${BIOMARKER_CELLVIT_BATCH_URL:-}
+    volumes:
+      - biomarker_cache:/cache
+      # The preprocess DAG's artifacts, READ-ONLY: the job reads a slide's tissue contours from the
+      # segmentation stage instead of re-segmenting.
+      - preprocess_cache:/pcache:ro
+      - ${PREPROCESS_SLIDES_DIR:-/home/chen/data2/BRCA-TEST}:/data2:ro
 
 volumes:
   copilot_pgdata:
   preprocess_cache:
+  biomarker_cache:

@@ -1,0 +1,39 @@
+# services/agent/docker-compose.batch.yml — opt-in: a SECOND CellViT for long biomarker map jobs.
+#
+# `cellvit` is `gunicorn -w 1`, so requests are strictly serial. A whole-slide map job issues one
+# /segment per 2048px core tile for hours, which would park every interactive segmentation — and
+# every copilot turn that needs one — behind it. This override adds an identical instance that only
+# the biomarker job talks to (D12). Costs one more resident CellViT-SAM-H (~2.7 GB VRAM) and zero
+# lines of application code.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.biomarker.yml \
+#                  -f docker-compose.batch.yml up -d
+#
+# Region jobs (seconds) do NOT need this; leave it off and the job shares the interactive instance.
+services:
+  biomarker:
+    environment:
+      BIOMARKER_CELLVIT_BATCH_URL: http://cellvit-batch:8020
+
+  cellvit-batch:
+    build: ../cellvit
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Same ray/shm sizing rationale as `cellvit` in the base compose — see the comment there.
+    shm_size: "40gb"
+    environment:
+      CELLVIT_MODEL: cellvit
+      RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE: "1"
+      CELLVIT_BATCH_SIZE: "2"
+      RAY_gcs_rpc_server_reconnect_timeout_s: "300"
+      CELLVIT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
+      CELLVIT_CACHE: /weights-cache
+    volumes:
+      - ${CELLVIT_WEIGHTS_DIR:-/home/chen/.cache/cellvit}:/weights-cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
