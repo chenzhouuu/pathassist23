@@ -21,14 +21,32 @@ def _isolate_settings_cache():
     get_settings.cache_clear()
 
 
-def test_stub_segment_array_returns_aligned_points_and_classes():
+def test_stub_segment_array_returns_aligned_points_classes_and_contours():
     # 128x128 at stride 32 → 4x4 = 16 grid points, each with a deterministic PanNuke class.
-    points, classes = segment_array(np.zeros((128, 128, 3), dtype=np.uint8), mpp=None)
+    points, classes, contours = segment_array(np.zeros((128, 128, 3), dtype=np.uint8), mpp=None)
     assert len(points) == 16
     assert points[0] == [0.0, 0.0]
-    assert len(classes) == len(points)     # two parallel, index-aligned arrays
+    assert len(classes) == len(points)     # three parallel, index-aligned arrays
+    assert len(contours) == len(points)
     assert all(1 <= c <= 5 for c in classes)
     assert all(len(p) == 2 for p in points)   # xy stays 2-D
+    # Each contour is a closed-ish ring of [x, y] vertices around its own centroid (Inc 3b).
+    assert all(len(ring) >= 3 and all(len(v) == 2 for v in ring) for ring in contours)
+    cx, cy = points[5]
+    ring = contours[5]
+    assert min(v[0] for v in ring) < cx < max(v[0] for v in ring)
+    assert min(v[1] for v in ring) < cy < max(v[1] for v in ring)
+
+
+def test_clip_to_region_drops_point_class_and_contour_together():
+    pts = [[1.0, 1.0], [50.0, 1.0], [2.0, 2.0]]
+    cls = [1, 2, 3]
+    cnt = [[[0.0, 0.0]], [[49.0, 0.0]], [[1.0, 1.0]]]
+    kp, kc, kn = _clip_to_region(pts, cls, cnt, 10, 10)
+    # the out-of-region point takes its class AND its contour with it — no silent mis-pairing
+    assert kp == [[1.0, 1.0], [2.0, 2.0]]
+    assert kc == [1, 3]
+    assert kn == [[[0.0, 0.0]], [[1.0, 1.0]]]
 
 
 def test_warm_up_is_noop_for_stub(monkeypatch):
@@ -89,6 +107,7 @@ def test_load_cells_reads_the_cells_array(tmp_path):
 def test_clip_to_region_drops_pad_hits_in_lockstep():
     pts = [[5.0, 5.0], [246.9, 191.9], [300.0, 10.0], [10.0, 500.0], [-1.0, 5.0]]
     classes = [1, 2, 3, 4, 5]
-    kept_pts, kept_cls = _clip_to_region(pts, classes, 247, 192)
+    rings = [[list(p)] for p in pts]
+    kept_pts, kept_cls, _ = _clip_to_region(pts, classes, rings, 247, 192)
     assert kept_pts == [[5.0, 5.0], [246.9, 191.9]]  # only the two inside [0,247) x [0,192)
     assert kept_cls == [1, 2]  # their classes rode along

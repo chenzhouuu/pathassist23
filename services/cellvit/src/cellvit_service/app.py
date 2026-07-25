@@ -10,7 +10,7 @@ import httpx
 from flask import Flask, jsonify, request
 
 from .config import get_settings
-from .geometry import offset_points
+from .geometry import offset_points, offset_rings
 from .infer import segment_array, warm_up
 from .pannuke import TYPE_NAMES, name_for
 from .region import fetch_region
@@ -52,8 +52,9 @@ def create_app() -> Flask:
                 {"detail": f"could not read the slide region from Girder: {exc}"}
             ), 502
 
-        local_points, classes = app.config["SEGMENT"](region.pixels, region.mpp)
+        local_points, classes, local_contours = app.config["SEGMENT"](region.pixels, region.mpp)
         centroids = offset_points(local_points, bbox["x"], bbox["y"], region.scale)
+        contours = offset_rings(local_contours, bbox["x"], bbox["y"], region.scale)
 
         counts_by_type: dict[str, int] = {}
         for c in classes:
@@ -68,6 +69,9 @@ def create_app() -> Flask:
             "count": len(centroids),
             "centroids": centroids,
             "classes": classes,
+            # Per-nucleus polygon in level-0 px, index-aligned with `centroids` (Inc 3b). Older
+            # consumers ignore it; the biomarker rasteriser draws these to paint nucleus shape.
+            "contours": contours,
             "counts_by_type": counts_by_type,
             "class_names": {str(k): v for k, v in TYPE_NAMES.items()},
             "bbox": bbox,

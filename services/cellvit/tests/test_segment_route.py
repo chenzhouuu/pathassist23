@@ -26,7 +26,12 @@ def _client_with_fakes():
         return RegionImage(pixels=np.zeros((48, 64, 3), dtype=np.uint8), mpp=0.5, scale=1.0)
 
     def fake_segment(pixels, mpp):
-        return [[0.0, 0.0], [10.0, 20.0]], [1, 2]  # (region-local centroids, PanNuke class ids)
+        # (region-local centroids, PanNuke class ids, region-local contour rings)
+        return (
+            [[0.0, 0.0], [10.0, 20.0]],
+            [1, 2],
+            [[[-1.0, 0.0], [1.0, 0.0], [0.0, 1.0]], [[9.0, 20.0], [11.0, 20.0], [10.0, 21.0]]],
+        )
 
     app.config["READ_REGION"] = fake_read_region
     app.config["SEGMENT"] = fake_segment
@@ -55,7 +60,11 @@ def test_segment_returns_typed_counts_and_class_names():
         return RegionImage(pixels=np.zeros((48, 64, 3), dtype=np.uint8), mpp=0.5, scale=1.0)
 
     def fake_segment(pixels, mpp):
-        return [[0.0, 0.0], [10.0, 20.0], [5.0, 5.0]], [1, 2, 1]  # two Neoplastic, one Inflammatory
+        # two Neoplastic, one Inflammatory, each with a one-vertex placeholder ring
+        return (
+            [[0.0, 0.0], [10.0, 20.0], [5.0, 5.0]], [1, 2, 1],
+            [[[0.0, 0.0]], [[10.0, 20.0]], [[5.0, 5.0]]],
+        )
 
     app.config["READ_REGION"] = fake_read_region
     app.config["SEGMENT"] = fake_segment
@@ -71,6 +80,9 @@ def test_segment_returns_typed_counts_and_class_names():
     # the alignment invariant the route asserts
     assert body["count"] == len(body["centroids"]) == len(body["classes"])
     assert sum(body["counts_by_type"].values()) == body["count"]
+    # contours ride along, index-aligned and re-offset to level-0 like the centroids (Inc 3b)
+    assert len(body["contours"]) == body["count"]
+    assert body["contours"] == [[[100.0, 200.0]], [[110.0, 220.0]], [[105.0, 205.0]]]
 
 
 def test_create_app_warms_up_when_model_is_cellvit(monkeypatch):

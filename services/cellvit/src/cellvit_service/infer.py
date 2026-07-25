@@ -69,16 +69,24 @@ def _pad_to_min(pixels: np.ndarray, min_side: int) -> np.ndarray:
 
 
 def _clip_to_region(
-    points: list[list[float]], classes: list[int], w: int, h: int
-) -> tuple[list[list[float]], list[int]]:
-    """Keep only centroids inside ``[0, w) x [0, h)`` — drop pad-area hits, class in lockstep."""
+    points: list[list[float]], classes: list[int], contours: list[list[list[float]]],
+    w: int, h: int,
+) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
+    """Keep only centroids inside ``[0, w) x [0, h)`` — drop pad-area hits.
+
+    Class ids and contour rings are filtered in lockstep with the centroids: the three arrays are
+    index-aligned everywhere downstream (the phenotype rasteriser draws ``contours[i]`` for the
+    cell whose centroid is ``points[i]``), so a partial filter would silently mis-pair nuclei.
+    """
     kept_pts: list[list[float]] = []
     kept_cls: list[int] = []
-    for p, c in zip(points, classes, strict=True):
+    kept_cnt: list[list[list[float]]] = []
+    for p, c, ring in zip(points, classes, contours, strict=True):
         if 0.0 <= p[0] < w and 0.0 <= p[1] < h:
             kept_pts.append(p)
             kept_cls.append(c)
-    return kept_pts, kept_cls
+            kept_cnt.append(ring)
+    return kept_pts, kept_cls, kept_cnt
 
 # CellViT-SAM-H loads a ~2.7 GB checkpoint, so build it once and reuse it across requests.
 # The lock makes the lazy build safe if warm-up and the first request race.
@@ -86,20 +94,31 @@ _MODEL = None
 _MODEL_LOCK = threading.Lock()
 
 
+# Stub nuclei are drawn as a small diamond so the contour path (rasterise → crop → downsample)
+# is exercised in CI with a shape that is neither a point nor an axis-aligned box.
+_STUB_RADIUS = 9.0
+
+
 def _stub_segment_array(
     pixels: np.ndarray, mpp: float | None
-) -> tuple[list[list[float]], list[int]]:
-    """A deterministic 32-px grid over the region, with a deterministic PanNuke class per point."""
+) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
+    """A deterministic 32-px grid over the region: centroid, PanNuke class and contour per point."""
     h, w = pixels.shape[:2]
     points: list[list[float]] = []
     classes: list[int] = []
+    contours: list[list[list[float]]] = []
     idx = 0
     for y in range(0, h, _STUB_STRIDE):
         for x in range(0, w, _STUB_STRIDE):
-            points.append([float(x), float(y)])
+            fx, fy = float(x), float(y)
+            points.append([fx, fy])
             classes.append(1 + (idx % 5))   # cycles all five classes → typed path exercised in CI
+            contours.append([
+                [fx, fy - _STUB_RADIUS], [fx + _STUB_RADIUS, fy],
+                [fx, fy + _STUB_RADIUS], [fx - _STUB_RADIUS, fy],
+            ])
             idx += 1
-    return points, classes
+    return points, classes, contours
 
 
 def _get_cellvit_model():
@@ -157,7 +176,7 @@ def _load_cells(cells_json: Path) -> list:
 
 def _cellvit_segment_array(
     pixels: np.ndarray, mpp: float | None
-) -> tuple[list[list[float]], list[int]]:
+) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
     """Real CellViT-SAM-H inference → region-local ``[x, y]`` centroids + PanNuke class ids.
 
     CellViT has no region API, so the region is written as an OpenSlide-readable tiled TIFF
@@ -188,15 +207,26 @@ def _cellvit_segment_array(
         cells = _load_cells(workdir / stem / "cells.json")
         local = [[float(c["centroid"][0]), float(c["centroid"][1])] for c in cells]
         classes = [int(c["type"]) for c in cells]
-        return _clip_to_region(local, classes, w, h)
+        # CellViT already writes each nucleus\'s polygon next to its centroid; we simply stopped
+        # throwing it away (Inc 3b needs the shape to rasterise the phenotype map). A cell with no
+        # contour degenerates to its centroid rather than dropping the detection.
+        contours = [
+            [[float(px), float(py)] for px, py in c.get("contour") or []] or [list(ctr)]
+            for c, ctr in zip(cells, local, strict=True)
+        ]
+        return _clip_to_region(local, classes, contours, w, h)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
 def segment_array(
     pixels: np.ndarray, mpp: float | None
-) -> tuple[list[list[float]], list[int]]:
-    """Region-local ``[x, y]`` centroids + aligned PanNuke class ids for the region ``pixels``."""
+) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
+    """Region-local centroids + aligned PanNuke class ids + aligned contour rings.
+
+    All three lists are index-aligned: ``contours[i]`` is the polygon of the nucleus whose
+    centroid is ``points[i]`` and whose class is ``classes[i]``.
+    """
     if get_settings().model == "cellvit":
         return _cellvit_segment_array(pixels, mpp)
     return _stub_segment_array(pixels, mpp)
