@@ -25,6 +25,9 @@ _DEFAULT_CELLVIT = "http://cellvit:8020"
 _DEFAULT_WEIGHTS = "/weights/gigatime"
 # The HF repo ships the checkpoint as `model.pth`.
 _WEIGHTS_FILE = "model.pth"
+# Inc 3b: this service's own artifact cache, and the preprocess cache it reads tissue masks from.
+_DEFAULT_CACHE = "/cache"
+_DEFAULT_PCACHE = "/pcache"
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,26 @@ class Settings:
     # markers (CD3/CD8/CD20/CD68/PD-L1) contribute. Converted to px per region via mpp.
     nucleus_radius_um: float = 4.0
     gpu_index: int = 0
+    # ── Inc 3b (the marker/phenotype map job) ──────────────────────────────────────
+    # Where this service writes its own pyramids + sidecars (own volume).
+    cache_root: str = _DEFAULT_CACHE
+    # The preprocess artifact cache, mounted READ-ONLY: the job reads a slide's tissue contours
+    # from the segmentation stage rather than re-segmenting.
+    preprocess_cache_root: str = _DEFAULT_PCACHE
+    # Local slide root for the fast OpenSlide read tier (review S5). Empty ⇒ always via Girder.
+    slides_root: str = ""
+    # Batch CellViT instance, so a multi-hour job never blocks the interactive one (D12). Falls
+    # back to the interactive URL when unset, which is correct for a single-GPU dev box.
+    cellvit_batch_url: str = ""
+    # Stored resolutions (µm/px). marker 1.0 is 4x the model's own 16-px token (~4 µm); pheno is
+    # native so nucleus shape survives (D4).
+    marker_mpp: float = 1.0
+    pheno_mpp: float = 0.25
+
+    @property
+    def batch_cellvit_url(self) -> str:
+        """CellViT for batch jobs — the isolated instance when configured, else the shared one."""
+        return self.cellvit_batch_url or self.cellvit_url
 
     @property
     def weights_file(self) -> str:
@@ -73,6 +96,12 @@ def get_settings() -> Settings:
         expected_input_mpp=_opt_float(os.getenv("BIOMARKER_INPUT_MPP")),
         nucleus_radius_um=float(os.getenv("BIOMARKER_NUCLEUS_RADIUS_UM", "4.0")),
         gpu_index=int(os.getenv("BIOMARKER_GPU_INDEX", "0")),
+        cache_root=os.getenv("BIOMARKER_ARTIFACT_CACHE", _DEFAULT_CACHE),
+        preprocess_cache_root=os.getenv("BIOMARKER_PREPROCESS_CACHE", _DEFAULT_PCACHE),
+        slides_root=os.getenv("BIOMARKER_SLIDES_ROOT", ""),
+        cellvit_batch_url=os.getenv("BIOMARKER_CELLVIT_BATCH_URL", ""),
+        marker_mpp=float(os.getenv("BIOMARKER_MARKER_MPP", "1.0")),
+        pheno_mpp=float(os.getenv("BIOMARKER_PHENO_MPP", "0.25")),
     )
 
 

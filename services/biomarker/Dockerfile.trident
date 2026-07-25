@@ -9,7 +9,9 @@
 # (CUDA <= 12.2), so torch==2.2.2 (+cu121) is pinned so no transitive dep pulls a cu13x wheel.
 FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 \
+# libopenslide0 backs the local slide read tier: a whole-slide job reads hundreds of 2560px
+# windows, and routing every one through Girder means a PNG encode+decode per window (review S5).
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libopenslide0 \
     && rm -rf /var/lib/apt/lists/*
 
 # torch==2.2.2 repeated so timm's unpinned torch dep can't upgrade the base's cu121 build.
@@ -17,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgl1 \
 RUN pip install --no-cache-dir \
       "torch==2.2.2" \
       "timm==0.9.16" \
-      flask "httpx>=0.27" "numpy<2" pillow gunicorn
+      flask "httpx>=0.27" "numpy<2" pillow gunicorn openslide-python
 
 WORKDIR /app
 COPY src ./src
@@ -30,5 +32,7 @@ ENV BIOMARKER_WEIGHTS=/weights/gigatime \
     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 EXPOSE 8022
 
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8022", "--timeout", "600", \
+# A whole-slide map job runs for hours inside one request-less worker thread; the HTTP timeout
+# only has to cover the enqueue + tile reads, but tile composites read cold disk, so keep it long.
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8022", "--timeout", "900", \
      "biomarker_service.app:create_app()"]

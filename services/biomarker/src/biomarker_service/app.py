@@ -19,9 +19,12 @@ from flask import Flask, jsonify, request
 from .cellvit_client import fetch_centroids
 from .config import get_settings
 from .infer import tile_fn
+from .jobs import JobQueue
 from .markers import CHANNEL_NAMES, MARKER_CHANNELS
 from .pipeline import counts_by_phenotype, flag_counts, phenotype_region
 from .region import fetch_region
+from .routes import register as register_map_routes
+from .slides import open_slide_handle, preprocess_contours_path, tissue_core_tiles
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,43 @@ _MAX_AREA = 4096 * 4096
 _DEFAULT_MPP = 0.25
 
 
+def _nuclei_factory(slide_ref: str, token: str | None):
+    """A per-job nucleus source: level-0 centroids + classes + contours for a read window.
+
+    Points at the BATCH CellViT instance (D12) so a multi-hour map job never queues behind — or
+    ahead of — an interactive segmentation on the shared one.
+    """
+    base = get_settings().batch_cellvit_url
+
+    def fetch_nuclei(bbox: dict):
+        payload = {"slide_ref": slide_ref, "bbox": bbox, "girder_token": token}
+        with httpx.Client(base_url=base, timeout=900) as client:
+            resp = client.post("/segment", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        cents = [[float(p[0]), float(p[1])] for p in data.get("centroids", [])]
+        classes = list(data.get("classes") or [])
+        contours = data.get("contours") or [[c] for c in cents]
+        return cents, classes, contours
+
+    return fetch_nuclei
+
+
+def _tissue_tiles(*, item: str, seg_hash: str, width: int, height: int, core: int):
+    """Core tiles intersecting the preprocess segmentation's tissue contours (read-only mount)."""
+    s = get_settings()
+    gj = None
+    path = preprocess_contours_path(s.preprocess_cache_root, item, seg_hash)
+    if path.is_file():
+        import json
+        with open(path) as fh:
+            gj = json.load(fh)
+    else:
+        logger.warning("no tissue contours at %s — region jobs fall back to the requested bbox",
+                       path)
+    return tissue_core_tiles(gj, width, height, core)
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     settings = get_settings()
@@ -39,6 +79,11 @@ def create_app() -> Flask:
     app.config["FETCH_CENTROIDS"] = fetch_centroids
     app.config["MODE"] = settings.mode
     app.config["TILE_PREDICT"] = None
+    # Inc 3b map seams (tests override these; see routes.register)
+    app.config["JOBS"] = JobQueue()
+    app.config["OPEN_SLIDE"] = open_slide_handle
+    app.config["FETCH_NUCLEI_FACTORY"] = _nuclei_factory
+    app.config["TISSUE_TILES"] = _tissue_tiles
 
     # Load the real model synchronously on the worker main thread (like CellViT's warm_up). A load
     # failure degrades to 503 rather than crashing the worker.
@@ -60,6 +105,8 @@ def create_app() -> Flask:
             app.config["MODE"] = "unavailable"
     elif settings.mode == "stub":
         app.config["TILE_PREDICT"] = tile_fn("stub", None)
+
+    register_map_routes(app)
 
     @app.get("/health")
     def health():

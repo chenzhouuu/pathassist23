@@ -35,13 +35,35 @@ def normalize_rgb(rgb: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(np.transpose((x - _MEAN) / _STD, (2, 0, 1)))
 
 
+# Windows are inferred with an overlap and feathered together (Inc 3b). Butt-jointed 256 windows
+# leave a visible grid in the marker map: a ViT window has no context past its own edge, so two
+# neighbouring windows disagree along their shared seam, and at 40x that seam repeats every 256 px
+# across the whole slide. Overlapping by OVERLAP and cross-fading over that band makes the join
+# continuous. Cost is (256/(256-OVERLAP))^2 ≈ 1.8x windows — paid once, at build time.
+OVERLAP = 64
+
+
+def _feather(window: int, overlap: int, device, torch):
+    """A separable 2-D weight that ramps 0→1 across ``overlap`` at each edge, flat in the middle."""
+    ramp = torch.ones(window, device=device)
+    if overlap > 0:
+        edge = torch.linspace(1.0 / (overlap + 1), 1.0 - 1.0 / (overlap + 1), overlap,
+                              device=device)
+        ramp[:overlap] = edge
+        ramp[window - overlap:] = edge.flip(0)
+    return (ramp[:, None] * ramp[None, :])[None, None]
+
+
 def predict_tile(rgb_tile: np.ndarray, model) -> np.ndarray:
     """Real GigaTIME-Flash forward over one tile → ``[23, h, w]`` sigmoid probs. Lazy torch.
 
     GigaTIME-Flash only accepts 256×256 windows (its ViT patch grid and decoder output are fixed
     at 256), so a tile is padded up to a whole number of 256 windows, inferred window-by-window,
     then cropped back. Without the pad, a user ROI whose side isn't a multiple of 256 produces a
-    partial edge window and the forward raises (review C1)."""
+    partial edge window and the forward raises (review C1).
+
+    Windows OVERLAP and are feathered together, because butt-jointed windows print a 256-px grid
+    across the map (see OVERLAP)."""
     import torch  # lazy: only the real (trident) image has torch
     from torch.nn.functional import pad as _pad
 
@@ -52,12 +74,22 @@ def predict_tile(rgb_tile: np.ndarray, model) -> np.ndarray:
     if ph or pw:
         t = _pad(t, (0, pw, 0, ph), mode="replicate")  # extend right/bottom to a 256 multiple
     _, _, hp, wp = t.shape
-    logits = torch.zeros(1, NUM_CLASSES, hp, wp, device=device)
+
+    stride = WINDOW - OVERLAP
+    weight = _feather(WINDOW, OVERLAP, device, torch)
+    acc = torch.zeros(1, NUM_CLASSES, hp, wp, device=device)
+    wsum = torch.zeros(1, 1, hp, wp, device=device)
+    # Start positions cover the padded tile and always include the last full window, so the right
+    # and bottom edges get a whole window rather than a partial one.
+    ys = sorted({*range(0, max(hp - WINDOW, 0) + 1, stride), max(hp - WINDOW, 0)})
+    xs = sorted({*range(0, max(wp - WINDOW, 0) + 1, stride), max(wp - WINDOW, 0)})
     with torch.no_grad():
-        for y in range(0, hp, WINDOW):
-            for x in range(0, wp, WINDOW):
+        for y in ys:
+            for x in xs:
                 win = t[:, :, y:y + WINDOW, x:x + WINDOW].contiguous()
-                logits[:, :, y:y + WINDOW, x:x + WINDOW] = model(win)
+                acc[:, :, y:y + WINDOW, x:x + WINDOW] += model(win) * weight
+                wsum[:, :, y:y + WINDOW, x:x + WINDOW] += weight
+    logits = acc / wsum.clamp_min(1e-6)
     return torch.sigmoid(logits[:, :, :h, :w]).squeeze(0).cpu().numpy()
 
 

@@ -56,3 +56,61 @@ FUNCTIONAL_FLAGS: list[tuple[str, Callable[[frozenset[str]], bool]]] = [
     ("PD-L1+", lambda p: "PD-L1" in p),
     ("T-bet+", lambda p: "T-bet" in p),
 ]
+
+
+# ── Inc 3b: display presets, phenotype palette, antibody equivalences ───────────────
+#
+# The marker map is an *additive* composite, so what must be distinguishable is the selected
+# COMBINATION, not each marker in isolation. Presets therefore ship as curated sets whose colours
+# were chosen together (near-pure RGB corners, which is what keeps 4-6 channels separable when
+# summed). Free selection is still allowed; these are the one-click starting points.
+
+PRESETS: dict[str, list[tuple[str, str]]] = {
+    "Structural": [
+        ("CK", "00ffff"), ("Transgelin", "ff00ff"), ("CD34", "00ff00"), ("Actin-D", "ff0000"),
+    ],
+    "Immune": [
+        ("CD3", "ff0000"), ("CD8", "8000ff"), ("CD4", "00ffff"),
+        ("CD20", "0000ff"), ("CD68", "00ff00"), ("PD-L1", "ffff00"),
+    ],
+    "Functional": [
+        ("Ki67", "ffff00"), ("PHH3-B", "ff8000"), ("Caspase3-D", "ff0000"),
+        ("PD-1", "00ff00"), ("T-bet", "0080ff"),
+    ],
+    "Lineage": [
+        ("CK", "00ffff"), ("CD3", "ff0000"), ("CD138", "ff00ff"),
+        ("CD68", "00ff00"), ("CD34", "0000ff"),
+    ],
+}
+DEFAULT_PRESET = "Lineage"
+
+# Phenotype colours are PERMANENTLY bound to the lineage name (unlike marker colours, which are
+# per-preset): a cytotoxic T cell must be the same colour on every slide or two maps cannot be
+# compared side by side. Okabe-Ito extended, picked to stay luminous on the black background.
+PHENOTYPE_COLORS: dict[str, str] = {
+    "Tumour": "#E69F00",
+    "Endothelial": "#56B4E9",
+    "Plasma cell": "#CC79A7",
+    "B cell": "#0072B2",
+    "Cytotoxic T": "#D55E00",
+    "Helper T": "#009E73",
+    "T cell": "#F0E442",
+    "Myeloid": "#999999",
+    "Mast cell": "#FF61C9",
+    "Other": "#4D4D4D",
+}
+
+# GigaTIME's panel is not the reference figure's panel. Where a channel is a documented near-
+# equivalent of a more familiar antibody we say so in the legend rather than silently renaming it,
+# so nobody reads "CD34" as a CD31 stain. Markers with no entry are exactly what they claim to be.
+EQUIVALENTS: dict[str, str] = {
+    "Transgelin": "SM22α — near-equivalent of α-SMA",
+    "CD34": "endothelial — near-equivalent of CD31",
+    "Actin-D": "actin (smooth muscle / myoepithelial)",
+    "PHH3-B": "phospho-histone H3 — mitosis",
+    "Caspase3-D": "cleaved caspase-3 — apoptosis",
+}
+
+# Grey structural channel, the DAPI analogue in the reference figure's bottom row.
+DAPI_COLOR = "808080"
+DAPI_DEFAULT_ALPHA = 0.35

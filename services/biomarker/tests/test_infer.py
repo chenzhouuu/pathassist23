@@ -58,3 +58,29 @@ def test_predict_tile_windows_a_fake_model():
         mif = predict_tile(np.zeros((h, w, 3), dtype=np.uint8), m)
         assert mif.shape == (NUM_CLASSES, h, w)
         assert np.allclose(mif, 0.5)  # sigmoid(0) = 0.5, cropped back to the tile size
+
+
+def test_overlapping_windows_are_feathered_so_no_seam_grid_appears():
+    """Butt-jointed 256 windows print a grid across the whole map (the artefact this fixes).
+
+    The fake model returns a left-to-right ramp *within each window*, which is the worst case: with
+    no overlap the result is a sawtooth whose teeth drop a full unit at every window boundary. With
+    feathering the join must be gentle.
+    """
+    if __import__("importlib").util.find_spec("torch") is None:
+        return  # base env has no torch; the real path is covered by the GPU smoke
+    import torch as _t
+
+    from biomarker_service.infer import OVERLAP, predict_tile
+
+    class RampModel(_t.nn.Module):
+        def forward(self, x):
+            ramp = _t.linspace(-6.0, 6.0, 256).view(1, 1, 1, 256)
+            return ramp.expand(x.shape[0], NUM_CLASSES, 256, 256).contiguous()
+
+    assert OVERLAP > 0
+    mif = predict_tile(np.zeros((256, 768, 3), dtype=np.uint8), RampModel().eval())
+    row = mif[0, 128, :]
+    steps = np.abs(np.diff(row))
+    # A butt-jointed sawtooth steps by ~1.0 at each seam; a feathered one never comes close.
+    assert steps.max() < 0.2, f"discontinuity of {steps.max():.3f} — windows are not blended"
