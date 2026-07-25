@@ -47,12 +47,15 @@ fetched out-of-band (D4).
 | `2026-07-22-…-cell-classification-design-review.md` | Adversarial, code-grounded review of the Increment 1 design (1 blocking + 4 should-fix findings, all folded into the design) | ✅ review complete |
 | `2026-07-22-…-cell-classification-typed-counts-plan.md` | Increment 1 implementation plan — 10 task-by-task TDD tasks (CellViT ×3, agent ×4, frontend ×2, system prompt ×1) | ✅ shipped |
 
-### Increment 3 — virtual biomarkers & cell-level phenotyping (design)
+### Increment 3 — virtual biomarkers, cell phenotyping & the marker map
 | Doc | What it is | State |
 |---|---|---|
 | `2026-07-24-…-inc3a-cell-biomarker-phenotype-design.md` | **Inc 3a** design: fuse GigaTIME-Flash virtual mIF × CellViT nuclei → per-cell biomarker phenotype (new `biomarker` service :8022, `phenotype_cells` tool, phenotype-coloured overlay). Tier-2 of a two-tier virtual-proteomics stack (Tier-1 HEX/MICA deferred → Inc 3c). 9 grilling-confirmed decisions; review folded | 🟡 design, review-folded 2026-07-24; no code yet |
 | `2026-07-24-…-inc3a-cell-biomarker-phenotype-design-review.md` | Adversarial, code-grounded review (1 blocking + 6 should-fix + 3 open). Blocking: GigaTIME outputs a marker-**presence probability** (sigmoid), not intensity. Should-fix: magnification pinning, windowed raster, checkpoint key-remap fidelity, centroid↔mIF alignment, null-bbox clean-fail, adaptive-threshold degeneracy guard | ✅ review complete, folded |
 | `2026-07-24-…-inc3a-cell-biomarker-phenotype-plan.md` | **Inc 3a** task-by-task TDD plan — 15 tasks (biomarker service ×8, agent ×3, frontend ×2, infra ×1, verify ×1); real-weights-first, all review findings folded per-task | ✅ COMPLETE — real GigaTIME-Flash deployed (100% remap), GPU-smoke + agent-E2E verified; local-only, not pushed |
+| `2026-07-24-…-inc3b-marker-map-design.md` | **Inc 3b** design: the virtual proteome as an **imaging modality** — pyramidal virtual-mIF composite + phenotype map (nuclei at true shape), agent-independent `Markers` panel, region and whole-slide from one pipeline. 13 grilling decisions; supersedes two Inc 3a decisions (parent = `seg_hash`; slide-level thresholds) | 🟢 review-folded |
+| `2026-07-24-…-inc3b-marker-map-design-review.md` | Adversarial, code-grounded review (2 blocking + 6 should-fix + 3 open). Blocking: nuclei double-counted/chopped at every job-tile seam; `204` for uncovered tiles breaks OSD's `<img>` loader | ✅ review complete, folded |
+| `2026-07-24-…-inc3b-marker-map-plan.md` | **Inc 3b** task-by-task TDD plan — 25 tasks in three phases (region → whole slide → query/absorb) | 🟢 **Phase 1 COMPLETE** — real GigaTIME + real CellViT, browser-E2E 15/15 green; Phases 2–3 not started |
 
 ### Superseded / historical
 | Doc | What it is | Superseded by |
