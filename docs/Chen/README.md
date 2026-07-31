@@ -70,6 +70,9 @@ fetched out-of-band (D4).
 | Doc | What it is |
 |---|---|
 | `2026-07-14-…-cpath-toolbox-agent-literature-review.md` | CPath toolbox-agent literature review (TissueLab / NOVA / SPARK; HistomicsTK / Histolytics tools) |
+| `2026-07-30-tissue-seg-classification-literature-review.md` | Tissue segmentation + classification landscape; TissueLab re-review against the clone; closes the T1 gap left open by the 2026-07-14 review |
+| `2026-07-30-…-inc4-tissue-segmentation-design.md` | Inc 4 (Route B): dense tissue-class map as a stackable viewer layer — 7 decisions, artifact, tile API, panel |
+| `2026-07-30-…-inc4-tissue-segmentation-review.md` | What implementation and measurement changed about that design (2 defects, `OVERLAP` decided by A/B, bit-exact arch gate) |
 
 ### Other track (not the copilot)
 | Doc | What it is |
