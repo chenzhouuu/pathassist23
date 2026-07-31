@@ -27,13 +27,17 @@ import {
   describeStage, findReadySegmentation, findTissueRow, formatPercent, isRunning, isStopped,
   isStopping, layerLevels, layerSignature, levelOffsetFor, startLabel, tileParams, tsrOf,
 } from './tissueUtils.js';
+import { formatRoi, useRegionSelect } from './useRegionSelect.js';
 
 const POLL_MS = 2500;
 
 export default function TissuePanel() {
   const activeItem = useStore((s) => s.activeItem);
   const viewer = useStore((s) => s.viewer);
-  const copilotRoi = useStore((s) => s.copilotRoi);
+  // The region is shared app state, but this panel can now ask for one itself instead of
+  // depending on the user having drawn a box in the Copilot tab first.
+  const { roi: copilotRoi, awaiting: awaitingRoi, start: drawRoi, cancel: cancelRoi,
+          clear: clearRoi, show: showRoi } = useRegionSelect();
   const itemId = activeItem?._id || null;
 
   const [catalog, setCatalog] = useState(null);
@@ -223,11 +227,40 @@ export default function TissuePanel() {
           </div>
         )}
         {segRow && (
+          <div className="mk-roi">
+            {/* While waiting for the drag the prompt is the whole row, whether or not a region
+                already exists — the instruction is what matters at that moment. */}
+            {awaitingRoi && (
+              <button type="button" className="mk-roi-draw wide awaiting" onClick={cancelRoi}>
+                Drag a box on the slide — click to cancel
+              </button>
+            )}
+            {!awaitingRoi && copilotRoi && (
+              <>
+                <button
+                  type="button" className="mk-roi-chip" onClick={showRoi}
+                  title="Bring this region back into view"
+                >
+                  <RectIcon />{formatRoi(copilotRoi)}
+                </button>
+                <button type="button" className="mk-roi-x" onClick={clearRoi}
+                        title="Clear the region">✕</button>
+                <button type="button" className="mk-roi-draw" onClick={drawRoi}>Redraw</button>
+              </>
+            )}
+            {!awaitingRoi && !copilotRoi && (
+              <button type="button" className="mk-roi-draw wide" onClick={drawRoi}>
+                Draw a region
+              </button>
+            )}
+          </div>
+        )}
+        {segRow && (
           <div className="mk-actions">
             <button
               type="button" className="mk-btn"
               disabled={busy || isRunning(row) || !copilotRoi}
-              title={copilotRoi ? '' : 'Draw a region on the slide first'}
+              title={copilotRoi ? '' : 'Draw a region first — the button above frames one'}
               onClick={() => run(false)}
             >
               {startLabel(row, false)}
@@ -338,7 +371,7 @@ export default function TissuePanel() {
           <div className="mk-actions">
             <button
               type="button" className="mk-btn" disabled={!copilotRoi} onClick={measureRoi}
-              title={copilotRoi ? '' : 'Draw a region on the slide first'}
+              title={copilotRoi ? '' : 'Draw a region first — the button above frames one'}
             >
               Measure region
             </button>
@@ -353,6 +386,15 @@ export default function TissuePanel() {
         Predicted tissue classes over the covered area. Research use only.
       </div>
     </div>
+  );
+}
+
+function RectIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="2" aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="1" strokeDasharray="4 3" />
+    </svg>
   );
 }
 
