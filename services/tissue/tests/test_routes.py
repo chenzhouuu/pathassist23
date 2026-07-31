@@ -189,3 +189,39 @@ def test_a_region_job_is_still_allowed_on_a_nearly_full_volume(client, monkeypat
 def test_an_undeterminable_volume_never_blocks_a_job(client, monkeypatch):
     monkeypatch.setattr(routes_mod, "_free_gb", lambda _p: None)
     assert client.post("/tissue", json={"slide_ref": ITEM, "seg_hash": SEG}).status_code == 200
+
+
+# ── stopping a build ───────────────────────────────────────────────────────────────
+
+def test_cancelling_an_unknown_job_is_a_404_not_a_silent_ok(client):
+    r = client.post("/tissue/cancel/nope")
+    assert r.status_code == 404
+
+
+def test_cancel_reports_the_job_status_it_actually_left_behind(app, client, tmp_path):
+    """A running job stays running until it reaches its own clean boundary — the route says so
+    rather than reporting a stop that has not happened yet."""
+    import threading
+
+    started, stop_seen = threading.Event(), threading.Event()
+
+    def work(report):
+        started.set()
+        while not report.stopping():
+            stop_seen.wait(0.01)
+        return {"stopped": True}
+
+    job_id = app.config["JOBS"].submit(work)
+    assert started.wait(5)
+
+    body = client.post(f"/tissue/cancel/{job_id}").get_json()
+    assert body["status"] == "running"
+    assert body["stage"] == "stopping"
+
+    for _ in range(500):
+        st = client.get(f"/tissue/status/{job_id}").get_json()
+        if st["status"] == "cancelled":
+            break
+        threading.Event().wait(0.01)
+    assert st["status"] == "cancelled"
+    assert st["result"] == {"stopped": True}

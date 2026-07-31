@@ -119,6 +119,7 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
                 contours=app.config["CONTOURS"](item=slide_ref, seg_hash=seg_hash),
                 read_window=reader, predict=app.config["PREDICT"],
                 store_mpp=s.store_mpp, overlap=s.overlap, report=report,
+                should_stop=getattr(report, "stopping", None),
             )
 
         job_id = app.config["JOBS"].submit(work)
@@ -131,6 +132,19 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
     @app.get("/tissue/status/<job_id>")
     def job_status(job_id: str):
         st = app.config["JOBS"].status(job_id)
+        if st is None:
+            return jsonify({"detail": "unknown job"}), 404
+        return jsonify(st)
+
+    @app.post("/tissue/cancel/<job_id>")
+    def job_cancel(job_id: str):
+        """Ask a job to stop at its next core-tile boundary.
+
+        Returns immediately with the job's *current* status — a running job is still running until
+        it finishes the core it is on (seconds on the GPU, up to a minute on CPU). Whatever it has
+        already computed stays on disk and re-running the same request resumes from there.
+        """
+        st = app.config["JOBS"].cancel(job_id)
         if st is None:
             return jsonify({"detail": "unknown job"}), 404
         return jsonify(st)

@@ -112,10 +112,18 @@ def write_json(path: Path, doc: dict) -> None:
 
 @dataclass
 class Coverage:
-    """Which level-0 core tiles have been computed for this artifact."""
+    """Which level-0 core tiles have been computed for this artifact, and their running tallies.
+
+    The tallies live here, in the *same* file and therefore the same atomic write as the tile list,
+    rather than in ``summary.json``. They describe exactly the tiles in ``done``, and a tally that
+    can disagree with the tile list it describes is worse than no tally at all: a job stopped or
+    killed part-way would resume, count only the cores it happened to run itself, and publish those
+    fractions under the core count of every core ever computed.
+    """
 
     core: int = CORE
     done: set[tuple[int, int]] = None  # type: ignore[assignment]
+    totals: dict | None = None
 
     def __post_init__(self) -> None:
         if self.done is None:
@@ -127,11 +135,14 @@ class Coverage:
         if not doc:
             return cls()
         return cls(core=int(doc.get("core", CORE)),
-                   done={(int(a), int(b)) for a, b in doc.get("done", [])})
+                   done={(int(a), int(b)) for a, b in doc.get("done", [])},
+                   totals=doc.get("totals") or None)
 
     def save(self, root: Path) -> None:
-        write_json(root / "coverage.json",
-                   {"core": self.core, "done": [[a, b] for a, b in sorted(self.done)]})
+        doc = {"core": self.core, "done": [[a, b] for a, b in sorted(self.done)]}
+        if self.totals is not None:
+            doc["totals"] = self.totals
+        write_json(root / "coverage.json", doc)
 
     def add(self, tx: int, ty: int) -> None:
         """Idempotent — re-running a covered tile leaves coverage unchanged."""

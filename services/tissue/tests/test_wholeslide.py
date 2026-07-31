@@ -158,3 +158,160 @@ def test_seam_metric_is_flat_on_a_smooth_field_and_spikes_on_a_grid():
     grid = smooth.copy()
     grid[:, 31::32] += 0.5
     assert seam_gradient_ratio(grid, 32) > 3.0
+
+
+# ── stopping and resuming ──────────────────────────────────────────────────────────
+
+def _stop_after(n):
+    """A should_stop that lets `n` core tiles through, then asks the job to stop."""
+    seen = {"n": 0}
+
+    def should_stop():
+        if seen["n"] >= n:
+            return True
+        seen["n"] += 1
+        return False
+
+    return should_stop
+
+
+def test_a_stopped_job_leaves_a_complete_map_of_a_smaller_area(tmp_path):
+    """Not a damaged map of a larger one: the pyramid and meta are written either way, so what is
+    covered is viewable and measurable the moment the job stops."""
+    res = run_region(
+        root=tmp_path, art="a1", backend=TEST, slide=SLIDE, bbox=None,
+        tissue_tiles=TILES, contours=ALL_TISSUE, read_window=reader, predict=predict,
+        store_mpp=1.0, should_stop=_stop_after(2),
+    )
+    assert res["stopped"] is True
+    assert res["remaining"] == 2
+    assert res["n_core_tiles"] == 2
+    assert read_json(meta_path(tmp_path)) is not None
+    assert read_class_tile(tmp_path, 1, 0, 0) is not None          # the pyramid exists
+    assert sum(res["fraction"].values()) == pytest.approx(1.0, abs=1e-3)
+    # …and the area claimed is the area actually analysed, not the area requested
+    assert res["covered_mm2"] == pytest.approx((1.024 ** 2) / 2, rel=0.02)
+
+
+def test_resuming_a_stopped_job_reproduces_the_uninterrupted_result(tmp_path):
+    stopped = run_region(
+        root=tmp_path / "part", art="a1", backend=TEST, slide=SLIDE, bbox=None,
+        tissue_tiles=TILES, contours=ALL_TISSUE, read_window=reader, predict=predict,
+        store_mpp=1.0, should_stop=_stop_after(2),
+    )
+    assert stopped["stopped"] is True
+    resumed = _run(tmp_path / "part")
+    assert "stopped" not in resumed
+    assert resumed["n_core_tiles"] == 4
+    assert resumed["fraction"] == _run(tmp_path / "clean")["fraction"]
+
+
+def test_an_interrupted_job_resumes_without_losing_its_tallies(tmp_path):
+    """The killed-container case — the only way to stop this job before there was a stop button.
+
+    Coverage advances once per core, so the tallies must too. Kept apart, a resumed job counts only
+    the cores it happened to run itself and then publishes those fractions under the core count and
+    the area of every core ever computed.
+    """
+    clean = _run(tmp_path / "clean")
+
+    root = tmp_path / "crashed"
+    calls = {"n": 0}
+
+    def flaky(x, y, w, h):
+        calls["n"] += 1
+        if calls["n"] > 2:
+            raise RuntimeError("container went away")
+        return reader(x, y, w, h)
+
+    with pytest.raises(RuntimeError, match="went away"):
+        run_region(
+            root=root, art="a1", backend=TEST, slide=SLIDE, bbox=None, tissue_tiles=TILES,
+            contours=ALL_TISSUE, read_window=flaky, predict=predict, store_mpp=1.0,
+        )
+    assert len(Coverage.load(root).done) == 2
+
+    resumed = _run(root)
+    assert resumed["n_core_tiles"] == clean["n_core_tiles"] == 4
+    assert resumed["fraction"] == clean["fraction"]
+    assert resumed["covered_mm2"] == clean["covered_mm2"]
+
+
+def test_tallies_ride_the_same_atomic_write_as_the_tile_list(tmp_path):
+    _run(tmp_path)
+    cov = Coverage.load(tmp_path)
+    assert cov.totals is not None
+    assert cov.totals["tissue_px"] == read_json(summary_path(tmp_path))["tissue_px"]
+
+
+def test_an_artifact_written_before_the_tallies_moved_still_extends_correctly(tmp_path):
+    """Backward compatibility: summary.json is the fallback for artifacts already on disk."""
+    _run(tmp_path, bbox={"x": 0, "y": 0, "width": CORE, "height": CORE})
+    cov = Coverage.load(tmp_path)
+    cov.totals = None                                    # as an old artifact would be
+    cov.save(tmp_path)
+    assert "totals" not in read_json(tmp_path / "coverage.json")
+
+    res = _run(tmp_path)
+    assert res["n_core_tiles"] == 4
+    assert res["fraction"] == _run(tmp_path / "clean")["fraction"]
+
+
+def test_coverage_with_no_tally_to_match_it_is_recomputed_rather_than_trusted(tmp_path):
+    """The pre-fix interrupted job: rasters on disk, nothing recording what is in them.
+
+    Publishing anything here means publishing the fractions of the cores this run happened to do
+    under the core count and the area of every core on disk. Redoing them is the only answer that
+    cannot be quietly wrong.
+    """
+    clean = _run(tmp_path / "clean")
+
+    root = tmp_path / "legacy"
+    _run(root)
+    (root / "summary.json").unlink()                 # as an interrupted pre-fix job would leave it
+    cov = Coverage.load(root)
+    cov.totals = None
+    cov.save(root)
+
+    res = _run(root)
+    assert res["n_core_tiles"] == 4
+    assert res["covered_mm2"] == clean["covered_mm2"]
+    assert res["fraction"] == clean["fraction"]
+
+
+def test_discarded_coverage_takes_its_rasters_with_it(tmp_path):
+    """Rasters no coverage entry claims are still served as tiles and still counted by /stats over
+    a bbox — one artifact giving two accounts of itself."""
+    root = tmp_path / "legacy"
+    _run(root)
+    (root / "summary.json").unlink()
+    cov = Coverage.load(root)
+    cov.totals = None
+    cov.save(root)
+
+    stale = sorted(p.name for p in (root / "classes" / "0").glob("*.png"))
+    assert stale                                     # there is something to orphan
+
+    # a region job that only covers one core must not leave the other three cores' rasters behind
+    res = _run(root, bbox={"x": 0, "y": 0, "width": CORE, "height": CORE})
+    assert res["n_core_tiles"] == 1
+    kept = sorted(p.name for p in (root / "classes" / "0").glob("*.png"))
+    assert kept == ["0_0.png", "0_1.png", "1_0.png", "1_1.png"]
+    assert len(kept) < len(stale)
+
+
+def test_a_summary_describing_fewer_tiles_than_coverage_is_not_trusted_either(tmp_path):
+    """An old artifact extended and then interrupted: summary.json exists but is stale."""
+    clean = _run(tmp_path / "clean")
+
+    root = tmp_path / "stale"
+    _run(root, bbox={"x": 0, "y": 0, "width": CORE, "height": CORE})
+    assert read_json(summary_path(root))["n_core_tiles"] == 1
+    cov = Coverage.load(root)                        # coverage jumps ahead of the summary
+    cov.done |= set(TILES)
+    cov.totals = None
+    cov.save(root)
+
+    res = _run(root)
+    assert res["n_core_tiles"] == 4
+    assert res["covered_mm2"] == clean["covered_mm2"]

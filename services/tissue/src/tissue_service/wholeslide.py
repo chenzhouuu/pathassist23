@@ -62,9 +62,15 @@ class SlideInfo:
 def run_region(
     *, root: Path, art: str, backend: Backend, slide: SlideInfo,
     bbox: dict | None, tissue_tiles: list[tuple[int, int]], contours: dict | None,
-    read_window, predict, store_mpp: float, overlap: int = 0, report=None,
+    read_window, predict, store_mpp: float, overlap: int = 0, report=None, should_stop=None,
 ) -> dict:
-    """Compute (or extend) a slide's tissue map. Returns the job result dict."""
+    """Compute (or extend) a slide's tissue map. Returns the job result dict.
+
+    ``should_stop`` is polled once per core tile — the only boundary where stopping is free.
+    Coverage and its tallies have just been persisted, so a stopped job leaves a *complete* map of
+    a smaller area rather than a damaged map of a larger one, and pressing the same button again
+    resumes exactly where it left off.
+    """
     say = report or (lambda *_a, **_k: None)
     root.mkdir(parents=True, exist_ok=True)
 
@@ -78,14 +84,36 @@ def run_region(
         raise RuntimeError("nothing to analyse: the requested area holds no tissue")
 
     cov = Coverage.load(root)
+    totals = _load_totals(root, backend, cov)
+    if totals is None:
+        # Covered tiles whose tallies are missing or describe a different number of tiles: a job
+        # interrupted back when the tallies were only written at the very end. Nothing on disk
+        # records what is in those rasters, so recompute rather than publish the fractions of a
+        # subset under the core count and the area of all of them.
+        #
+        # The rasters go with the coverage that described them. Left behind they would be claimed
+        # by no coverage entry yet still served as tiles and still counted by /stats over a bbox —
+        # one artifact giving two accounts of itself, which is the failure this whole path exists
+        # to prevent.
+        logger.warning("tissue artifact %s: %d covered tiles have no tallies to match — "
+                       "discarding them and recomputing", art, len(cov.done))
+        _discard_rasters(root)
+        cov = Coverage()
+        totals = _load_totals(root, backend, cov)
+
     todo = cov.missing(tiles)
     logger.info("tissue job: %d tiles requested, %d already covered, %d to do",
                 len(tiles), len(tiles) - len(todo), len(todo))
 
-    totals = _load_totals(root, backend)
     model_scale = slide.mpp / backend.input_mpp
 
+    done = 0
+    stopped = False
     for i, (tx, ty) in enumerate(todo):
+        if should_stop is not None and should_stop():
+            stopped = True
+            logger.info("tissue job stopped after %d of %d tiles", done, len(todo))
+            break
         say("tiles", i / max(1, len(todo)))
         win = haloed_read_window(tx, ty, slide.width, slide.height)
         if win is None:
@@ -96,17 +124,26 @@ def run_region(
             model_scale=model_scale, totals=totals,
         )
         cov.add(tx, ty)
+        cov.totals = totals
         cov.save(root)
+        done += 1
 
-    say("pyramid", 0.9)
+    # Even a stopped job finalises: the pyramid is what makes the covered area viewable at all, and
+    # it is a small fraction of one core's cost.
+    say("pyramid", 0.9 if not stopped else done / max(1, len(todo)))
     n_levels = levels_for(_ceil_div(slide.width, s), _ceil_div(slide.height, s))
     build_levels(root, backend, n_levels)
 
     _write_meta(root=root, art=art, backend=backend, slide=slide, offset=offset,
                 store_mpp=slide.mpp * s, n_levels=n_levels, overlap=overlap)
     summary = _write_summary(root, backend, totals, cov, s, slide)
-    say("done", 1.0)
-    return {"art_hash": art, "n_tiles": len(cov.done), **summary}
+    result = {"art_hash": art, "n_tiles": len(cov.done), **summary}
+    if stopped:
+        result.update(stopped=True, remaining=len(todo) - done)
+        say("stopped", done / max(1, len(todo)))
+    else:
+        say("done", 1.0)
+    return result
 
 
 def _tiles_for(bbox: dict | None, tissue_tiles: list[tuple[int, int]],
@@ -225,9 +262,37 @@ def _build_parent(root: Path, backend: Backend, z: int, px: int, py: int) -> Non
 
 # ── accumulation and metadata ──────────────────────────────────────────────────────
 
-def _load_totals(root: Path, backend: Backend) -> dict:
-    """Running per-class tallies, so extending coverage extends the statistics."""
-    doc = read_json(summary_path(root)) or {}
+def _discard_rasters(root: Path) -> None:
+    """Drop both stored layers of an artifact whose coverage record cannot be trusted.
+
+    Scoped to the two layer directories under an already path-validated artifact root, and only
+    ever reached from the recovery above — never from an ordinary job.
+    """
+    import shutil
+
+    for layer in ("classes", "probs"):
+        shutil.rmtree(root / layer, ignore_errors=True)
+
+
+def _load_totals(root: Path, backend: Backend, cov: Coverage) -> dict | None:
+    """Running per-class tallies, so extending coverage extends the statistics.
+
+    Read from the coverage file, which is the only place they cannot drift out of step with the
+    tile list they describe. ``summary.json`` is the fallback for artifacts built before the
+    tallies moved there — but only when its own core count still matches the coverage, because it
+    is written at the end of a job and an interrupted one leaves it describing fewer tiles than
+    are on disk.
+
+    Returns ``None`` when coverage exists but no tally can be trusted to describe it.
+    """
+    if not cov.done:
+        doc = {}                    # tallies describe `done`; nothing covered means nothing tallied
+    elif cov.totals is not None:
+        doc = cov.totals
+    else:
+        doc = read_json(summary_path(root)) or {}
+        if doc.get("n_core_tiles") != len(cov.done):
+            return None
     pixels = doc.get("pixels") or {}
     soft = doc.get("soft") or {}
     return {
