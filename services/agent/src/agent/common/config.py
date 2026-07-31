@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # phenotypes. Empty ⇒ phenotype_cells reports the service isn't configured.
     biomarker_service_url: str = ""
 
+    # tissue service (Inc 4): dense tissue-class segmentation (Route B). Empty ⇒ the Tissue panel
+    # and its routes report the service isn't configured.
+    tissue_service_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
