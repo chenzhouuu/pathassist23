@@ -46,6 +46,66 @@ export async function listSlideIndex(itemId) {
   return data.indexes || [];
 }
 
+// ── Preprocess DAG (Inc 2b-3): segment → patch → features, one artifact row per stage ──────
+
+function postJson(itemId, path, body, what) {
+  return fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/${path}`,
+    {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body || {}),
+    },
+  ).then((r) => asJson(r, what));
+}
+
+// List a slide's DAG artifacts (segmentation / patching / features rows), reconciled server-side
+// against the worker for any in-flight build. [] for a slide that has never been preprocessed.
+export async function listArtifacts(itemId) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/artifacts`,
+    { headers: authHeaders() },
+  );
+  const data = await asJson(r, 'List preprocess artifacts');
+  return data.artifacts || [];
+}
+
+// Stage 1 — enqueue a tissue segmentation. Returns the durable artifact row (its art_hash is the
+// seg_hash the tiling stage needs).
+export function startSegment(itemId, params = {}) {
+  const body = {};
+  for (const k of ['segmenter', 'seg_conf_thresh',
+    'remove_artifacts', 'remove_holes', 'remove_penmarks']) {
+    if (params[k] !== undefined && params[k] !== null) body[k] = params[k];
+  }
+  return postJson(itemId, 'segment', body, 'Start segmentation');
+}
+
+// Stage 2 — enqueue a patch grid on a ready segmentation (`seg_hash`). 409 if it isn't built.
+export function startPatch(itemId, { seg_hash, mag, patch_size, overlap } = {}) {
+  const body = { seg_hash };
+  if (mag != null) body.mag = mag;
+  if (patch_size != null) body.patch_size = patch_size;
+  if (overlap != null) body.overlap = overlap;
+  return postJson(itemId, 'patch', body, 'Start tiling');
+}
+
+// Stage 3 — enqueue feature extraction on a ready patch grid (`patch_hash`). 409 if it isn't built.
+export function startFeatures(itemId, { patch_hash, encoder } = {}) {
+  const body = { patch_hash };
+  if (encoder) body.encoder = encoder;
+  return postJson(itemId, 'features', body, 'Start feature extraction');
+}
+
+// Fetch a segmentation's tissue contours (level-0 px GeoJSON) for the viewer overlay (Phase 5).
+export async function getSegmentationContours(itemId, segHash) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/segmentation/${encodeURIComponent(segHash)}/contours`,
+    { headers: authHeaders() },
+  );
+  return asJson(r, 'Load tissue contours');
+}
+
 // Enqueue a Trident index build for a slide. `params` overrides (encoder/mag/patch_size/
 // segmenter) are optional; the worker fills defaults. Returns the durable slide_index row
 // (status `queued`), which the panel then polls via listSlideIndex.

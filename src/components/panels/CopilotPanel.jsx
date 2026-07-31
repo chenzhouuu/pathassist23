@@ -101,6 +101,7 @@ export default function CopilotPanel() {
     setDrawingMode, roiSelectResult, clearRoiSelectResult,
     copilotRoi, setCopilotRoi, restoreCopilotRoi, shownRoi, setShownRoi, viewer,
     setCopilotNuclei, clearCopilotNuclei, showNucleiOverlay, toggleNucleiOverlay,
+    setCopilotPhenotypes,
     addCopilotRegion, clearCopilotRegions,
   } = useStore();
   const [input, setInput] = useState('');
@@ -249,6 +250,12 @@ export default function CopilotPanel() {
           if (evt.type === 'tool_call_result' && evt.artifact?.kind === 'nuclei') {
             fetchTurnArtifact(convId, evt.artifact.ref)
               .then((n) => setCopilotNuclei(n))
+              .catch(() => {});
+          }
+          // A phenotype_cells artifact (Inc 3a) → pull per-cell phenotypes into the overlay.
+          if (evt.type === 'tool_call_result' && evt.artifact?.kind === 'phenotype') {
+            fetchTurnArtifact(convId, evt.artifact.ref)
+              .then((p) => setCopilotPhenotypes(p))
               .catch(() => {});
           }
           // A described region rides inline (bbox + magnification) — paint it as a rectangle.

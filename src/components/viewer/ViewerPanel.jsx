@@ -9,6 +9,12 @@ import AnnotationCanvas from '../annotations/AnnotationCanvas.jsx';
 import ViewerToolbar from './ViewerToolbar.jsx';
 import MeasureTool from './MeasureTool.jsx';
 import NucleiOverlay from './NucleiOverlay.jsx';
+import PhenotypeOverlay from './PhenotypeOverlay.jsx';
+import RegionOverlay from './RegionOverlay.jsx';
+import TissueOverlay from './TissueOverlay.jsx';
+import HeatmapOverlay from './HeatmapOverlay.jsx';
+import EvidencePane from './EvidencePane.jsx';
+import useViewportSync from './useViewportSync.js';
 import { GIRDER_BASE } from '../../config/girder.js';
 import { hexToRgba } from '../annotations/annotationUtils.js';
 
@@ -62,18 +68,21 @@ export default function ViewerPanel() {
   const {
     activeItem, setViewer, setTilesInfo, tilesInfo,
     drawingMode, setDrawingMode, drawColor,
+    taskHeatmap, taskViewMode,
   } = useStore();
+  // Shared viewport lock for Side-By-Side (Inc 2c); the main viewer registers itself in initOSD.
+  const sync = useViewportSync();
   useEffect(() => { tilesInfoRef.current = tilesInfo; }, [tilesInfo]);
   const activeColor = drawColor || '#4da6ff';
 
   const [status, setStatus] = useState({ state:'idle', msg:'', type:null, files:null });
   const [zoom, setZoom] = useState('—');
   const [showZoomOverlay, setShowZoomOverlay] = useState(false);
+  const splitEvidence = !!taskHeatmap && taskViewMode === 'split' && status.state === 'ok';
 
   // ── Init OSD ────────────────────────────────────────────────────────────────
   const initOSD = useCallback(() => {
     if (osdRef.current || !containerRef.current || !window.OpenSeadragon) return;
-    const token = localStorage.getItem('girderToken') || '';
     osdRef.current = window.OpenSeadragon({
       element: containerRef.current,
       prefixUrl: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/',
@@ -93,12 +102,16 @@ export default function ViewerPanel() {
       visibilityRatio: 0.05,
       defaultZoomLevel: 0,
       zoomPerScroll: 1.5,
+      // Retain several pyramid levels so zooming back out does not refetch tiles.
+      maxImageCacheCount: 1000,
+      // Leave eight of Girder's 32 workers free for metadata and annotation APIs.
+      imageLoaderLimit: 24,
+      immediateRender: true,
       smoothTileEdgesMinZoom: Infinity,
-      crossOriginPolicy: 'Anonymous',
-      ajaxHeaders: { 'Girder-Token': token },
       gestureSettingsMouse: { scrollToZoom:true, clickToZoom:false, dblClickToZoom:true, flickEnabled:true },
     });
     setViewer(osdRef.current);
+    sync.register(osdRef.current);
     osdReady.current = true;
     osdRef.current.addHandler('zoom', (e) => {
       if (!e.zoom) { setZoom('—'); return; }
@@ -238,9 +251,7 @@ export default function ViewerPanel() {
     setStatus({ state:'loading', msg:`Loading ${item.name}…`, type:null, files:null });
     setTilesInfo(null);
 
-    // Keep token fresh in OSD ajax headers
     const token = localStorage.getItem('girderToken') || '';
-    if (osd.ajaxHeaders) osd.ajaxHeaders['Girder-Token'] = token;
 
     // ── STRATEGY 1: large_image tiles ──────────────────────────────────────
     try {
@@ -458,18 +469,45 @@ export default function ViewerPanel() {
           </div>
         )}
 
-        {/* OSD container — always mounted */}
-        <div ref={containerRef} id="osd-viewer" className="w-full h-full"
-          style={{ opacity: status.state === 'ok' ? 1 : 0, transition:'opacity 0.3s' }}/>
+        {/* Slide row. In the Task panel's Side-By-Side mode this splits into the clean slide and
+            a viewport-locked evidence pane; every other overlay stays on the left pane only, so
+            annotations and measurements are never duplicated. */}
+        <div className="absolute inset-0 flex">
+          <div className="relative h-full" style={{ flex:'1 1 0%', minWidth:0 }}>
+            {/* OSD container — always mounted */}
+            <div ref={containerRef} id="osd-viewer" className="w-full h-full"
+              style={{ opacity: status.state === 'ok' ? 1 : 0, transition:'opacity 0.3s' }}/>
 
-        {/* Copilot nuclei overlay (below the annotation canvas) */}
-        {activeItem && status.state === 'ok' && <NucleiOverlay viewer={osdRef}/>}
+            {/* Copilot nuclei overlay (below the annotation canvas) */}
+            {activeItem && status.state === 'ok' && <NucleiOverlay viewer={osdRef}/>}
 
-        {/* Annotation canvas */}
-        {activeItem && status.state === 'ok' && <AnnotationCanvas viewer={osdRef}/>}
+            {/* Copilot cell-phenotype overlay — phenotype_cells lineage dots (Inc 3a) */}
+            {activeItem && status.state === 'ok' && <PhenotypeOverlay viewer={osdRef}/>}
 
-        {/* Measure tool overlay */}
-        {activeItem && status.state === 'ok' && <MeasureTool viewer={osdRef}/>}
+            {/* Copilot region overlay — described-region rectangles (Perceptor / MedGemma) */}
+            {activeItem && status.state === 'ok' && <RegionOverlay viewer={osdRef}/>}
+
+            {/* Tissue segmentation overlay — Preprocess contours (Inc 2b-3) */}
+            {activeItem && status.state === 'ok' && <TissueOverlay viewer={osdRef}/>}
+
+            {/* Task evidence map, blended into this pane in Overlay mode (Inc 2c) */}
+            {activeItem && status.state === 'ok' && taskHeatmap && taskViewMode === 'overlay'
+              && <HeatmapOverlay viewer={osdRef}/>}
+
+            {/* Annotation canvas */}
+            {activeItem && status.state === 'ok' && <AnnotationCanvas viewer={osdRef}/>}
+
+            {/* Measure tool overlay */}
+            {activeItem && status.state === 'ok' && <MeasureTool viewer={osdRef}/>}
+
+            {splitEvidence && <span className="viewer-pane-tag">H&amp;E</span>}
+          </div>
+
+          {splitEvidence && (
+            <EvidencePane mainViewer={osdRef} sync={sync} alpha={1}
+              slideKey={activeItem?._id} />
+          )}
+        </div>
 
         {status.state === 'ok' && showZoomOverlay && zoom && zoom !== '—' && (
           <div className="viewer-zoom-overlay">

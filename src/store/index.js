@@ -82,7 +82,8 @@ export const useStore = create((set, get) => ({
   clearActiveNavigation: () =>
     set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [],
           copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,
-          copilotRegions: [] }),
+          copilotPhenotypes: null,
+          copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -95,7 +96,7 @@ export const useStore = create((set, get) => ({
       chatMessages: [],          // clear AskPA conversation when slide changes
       chatPendingAttachment: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotRegions: [],   // drop grounded/shown region + overlay from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -122,7 +123,7 @@ export const useStore = create((set, get) => ({
       selectedAnnotation: null,
       drawingMode: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotRegions: [],   // drop grounded/shown region + overlay from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -233,6 +234,15 @@ export const useStore = create((set, get) => ({
   clearCopilotNuclei: () => set({ copilotNuclei: null }),
   toggleNucleiOverlay: () => set((s) => ({ showNucleiOverlay: !s.showNucleiOverlay })),
 
+  // Copilot cell-phenotype overlay (increment 3a): the per-cell phenotypes a phenotype_cells run
+  // produced ({ points, classes:lineage, cells:[{phenotype,flags,markers}] }), painted by
+  // PhenotypeOverlay. Setting new phenotypes shows them.
+  copilotPhenotypes: null,
+  showPhenotypeOverlay: true,
+  setCopilotPhenotypes: (p) => set({ copilotPhenotypes: p, showPhenotypeOverlay: true }),
+  clearCopilotPhenotypes: () => set({ copilotPhenotypes: null }),
+  togglePhenotypeOverlay: () => set((s) => ({ showPhenotypeOverlay: !s.showPhenotypeOverlay })),
+
   // Copilot region overlay (increment 2c): the regions a describe_region call read, painted
   // as labelled rectangles by RegionOverlay. Each is { bbox:{x,y,width,height}, magnification }.
   // Accumulated across a turn (a Perceptor may describe several regions), keyed by bbox so a
@@ -248,6 +258,29 @@ export const useStore = create((set, get) => ({
   }),
   clearCopilotRegions: () => set({ copilotRegions: [] }),
   toggleRegionsOverlay: () => set((s) => ({ showRegionsOverlay: !s.showRegionsOverlay })),
+
+  // Tissue segmentation overlay (Inc 2b-3): the tissue contours a segmentation stage produced,
+  // painted as outlined polygons by TissueOverlay and toggled from the Preprocess panel. GeoJSON
+  // FeatureCollection of Polygons in level-0 px. Setting contours reveals the overlay; dropped on
+  // slide change (like the copilot region overlays).
+  tissueContours: null,                              // GeoJSON FeatureCollection | null
+  showTissueOverlay: false,
+  setTissueContours: (gj) => set({ tissueContours: gj, showTissueOverlay: !!gj }),
+  clearTissueContours: () => set({ tissueContours: null, showTissueOverlay: false }),
+  toggleTissueOverlay: () => set((s) => ({ showTissueOverlay: !s.showTissueOverlay })),
+
+  // ── Task evidence map (Inc 2c) ────────────────────────────────────────────
+  // The per-patch signed class evidence a downstream task produced, plus how the viewer shows it.
+  // `taskHeatmap` holds the prediction document ({coords, evidence, attention, patch_px, ...});
+  // the overlay bakes it into a grid canvas. 'split' renders a second synced pane (CLAM's
+  // "Side By Side"); 'overlay' blends it into the single pane.
+  taskHeatmap: null,
+  taskViewMode: 'overlay',
+  taskOpacity: 0.55,
+  setTaskHeatmap: (doc) => set({ taskHeatmap: doc }),
+  clearTaskHeatmap: () => set({ taskHeatmap: null, taskViewMode: 'overlay' }),
+  setTaskViewMode: (mode) => set({ taskViewMode: mode === 'split' ? 'split' : 'overlay' }),
+  setTaskOpacity: (v) => set({ taskOpacity: Math.max(0, Math.min(1, Number(v) || 0)) }),
 
   // ── Projects ──────────────────────────────────────────────────────────────
   activeProject: null,
