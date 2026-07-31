@@ -12,6 +12,7 @@
 // and the artifact's own meta), so the UI never claims a class the deployed backend does not
 // predict, and a recolour can never drift from what the map was rasterised with.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import '../../styles/panels.css';
 import { useStore } from '../../store/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import {

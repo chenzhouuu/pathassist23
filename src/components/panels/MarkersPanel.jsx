@@ -11,6 +11,7 @@
 // near-equivalent labels all come from the service (GET /biomarker/catalog), and every number
 // shown is a **predicted marker-positivity probability**, slide-relative, research use only.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import '../../styles/panels.css';
 import { useStore } from '../../store/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import { getBiomarkerMeta, getCatalog, startBiomarker } from '../../api/biomarkerApi.js';
