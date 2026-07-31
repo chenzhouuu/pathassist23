@@ -96,3 +96,46 @@ def test_transparent_tile_is_a_real_png_not_a_204():
     assert TRANSPARENT_TILE.startswith(b"\x89PNG")
     assert len(TRANSPARENT_TILE) > 50
     assert encode_png(np.zeros((TILE, TILE, 4), np.uint8)).startswith(b"\x89PNG")
+
+
+def test_a_served_tile_is_not_encoded_at_archive_effort():
+    """`optimize=True` here cost 184 ms against 14 ms, to save 6.7% of the bytes.
+
+    It was the dominant cost of mounting the map — worse than reading every probability plane off
+    disk by two orders of magnitude. The guard is a *ratio* against the archive-effort encode of
+    the same array, so it measures the choice rather than the speed of the machine running it.
+    """
+    import io
+    import time
+
+    from PIL import Image
+
+    rng = np.random.default_rng(0)
+    # The shape that makes it expensive: flat class colours, but a continuous alpha ramp, which is
+    # exactly what "alpha follows confidence" produces.
+    rgba = np.zeros((TILE, TILE, 4), np.uint8)
+    rgba[..., :3] = np.array([0xD5, 0x5E, 0x00], np.uint8)
+    rgba[..., 3] = rng.integers(0, 256, (TILE, TILE), dtype=np.uint8)
+
+    def archive() -> bytes:
+        buf = io.BytesIO()
+        Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
+
+    encode_png(rgba), archive()                      # warm both paths
+
+    t0 = time.perf_counter()
+    served = encode_png(rgba)
+    t_served = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    stored = archive()
+    t_archive = time.perf_counter() - t0
+
+    assert served.startswith(b"\x89PNG")
+    assert t_served * 3 < t_archive, (
+        f"served tile took {t_served * 1000:.0f} ms vs {t_archive * 1000:.0f} ms at archive "
+        "effort — the encoder is back to optimising tiles nobody keeps"
+    )
+    # And the bytes it gives up for that are a rounding error on a tile cached for a day.
+    assert len(served) < len(stored) * 1.5

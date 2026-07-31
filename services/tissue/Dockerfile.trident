@@ -33,7 +33,11 @@ ENV TISSUE_WEIGHTS=/weights/tissue \
     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 EXPOSE 8023
 
+# One worker, many threads — see services/tissue/Dockerfile for why the worker count must stay 1.
+# It matters more here: a second worker would also load a second copy of the model onto the GPU.
+#
 # A whole-slide job runs for tens of minutes inside one worker thread; the HTTP timeout only has
 # to cover the enqueue plus tile reads, but tile renders read cold disk, so keep it long.
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8023", "--timeout", "900", \
-     "tissue_service.app:create_app()"]
+ENV TISSUE_THREADS=8
+CMD ["sh", "-c", "exec gunicorn -w 1 --threads ${TISSUE_THREADS:-8} -b 0.0.0.0:8023 \
+     --timeout 900 'tissue_service.app:create_app()'"]

@@ -149,6 +149,36 @@ def test_all_three_render_modes_answer(client, tmp_path):
     assert client.get(f"/tissue/{ITEM}/{ah}/tile/nope/0/0/0.png").status_code == 400
 
 
+def test_tiles_render_correctly_under_concurrency(app, tmp_path):
+    """The service runs one worker with many threads, so tile renders overlap in one process.
+
+    That is only safe because rendering is a file read plus numpy with no shared mutable state.
+    Assert it: the same tile requested from many threads at once must come back byte-identical to
+    the same tile requested alone, and a different tile must still be different.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    ah, _ = _artifact(tmp_path)
+    url = f"/tissue/{ITEM}/{ah}/tile/classes/0/0/0.png"
+    other = f"/tissue/{ITEM}/{ah}/tile/probs/0/0/0.png"
+
+    with app.test_client() as c:
+        alone = c.get(url).data
+
+    def fetch(path):
+        with app.test_client() as c:
+            r = c.get(path)
+            assert r.status_code == 200
+            return r.data
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        same = list(ex.map(fetch, [url] * 16))
+        mixed = list(ex.map(fetch, [url, other] * 8))
+
+    assert all(d == alone for d in same), "a concurrent render disagreed with a solo one"
+    assert len({d for d in mixed}) == 2, "concurrent renders of different tiles collided"
+
+
 def test_region_stats_count_only_the_requested_rectangle(client, tmp_path):
     ah, _ = _artifact(tmp_path)
     # level_offset 2 ⇒ 4 level-0 px per stored px; the left half of tile (0,0) is Tumour

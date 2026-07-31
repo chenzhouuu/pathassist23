@@ -163,13 +163,23 @@ def max_prob(planes: dict[str, np.ndarray], backend: Backend) -> np.ndarray | No
     return np.max(np.stack(stack, axis=0), axis=0)
 
 
+# zlib effort for a *served* tile. `optimize=True` (max effort plus a palette search) is the wrong
+# trade here and was measured as the dominant cost of mounting the map: on a confidence-shaded tile
+# it took 184 ms against 14 ms at this level, to save 6.7% of the bytes. The alpha ramp is what
+# makes it expensive — it turns ~6 distinct RGBA values into ~640, so there is real entropy to
+# chew on. A tile is generated on demand and cached for a day; it is not an archive.
+PNG_LEVEL = 6                      # Pillow's own default
+
+
 def encode_png(rgba: np.ndarray) -> bytes:
     buf = io.BytesIO()
-    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=True)
+    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", compress_level=PNG_LEVEL)
     return buf.getvalue()
 
 
 def _transparent_png(tile: int = TILE) -> bytes:
+    # Encoded once at import and then served for every uncovered tile, so here the effort is
+    # worth it: it buys a smaller constant forever rather than per request.
     buf = io.BytesIO()
     Image.new("RGBA", (tile, tile), (0, 0, 0, 0)).save(buf, format="PNG", optimize=True)
     return buf.getvalue()
