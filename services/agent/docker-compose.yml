@@ -45,6 +45,8 @@ services:
       AGENT_PREPROCESS_SERVICE_URL: ${AGENT_PREPROCESS_SERVICE_URL:-http://preprocess:8030}
       # The biomarker service (Inc 3a). Empty ⇒ phenotype_cells is unavailable.
       AGENT_BIOMARKER_SERVICE_URL: ${AGENT_BIOMARKER_SERVICE_URL:-http://biomarker:8022}
+      # The dense tissue segmentation service (Inc 4). Empty ⇒ the Tissue panel is unavailable.
+      AGENT_TISSUE_SERVICE_URL: ${AGENT_TISSUE_SERVICE_URL:-http://tissue:8023}
     volumes:
       - ./src:/app/src        # live code — edit-and-reload during the increment loop
     command: >
@@ -175,7 +177,39 @@ services:
       - preprocess_cache:/pcache:ro
       - ${PREPROCESS_SLIDES_DIR:-/home/chen/data2/BRCA-TEST}:/data2:ro
 
+  # Dense tissue segmentation (Inc 4). Route B: a ResNet50-UNet trained on BCSS, producing a
+  # paletted class raster + per-class probability pyramid the viewer mounts like the H&E.
+  tissue:
+    # Long-form so the tissue override can merge in the GPU (Dockerfile.trident) image.
+    build:
+      context: ../tissue
+    ports: ["8023:8023"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Same Girder as the gateway — the service reads region pixels with the user's token.
+      TISSUE_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
+      TISSUE_ARTIFACT_CACHE: /cache
+      TISSUE_PREPROCESS_CACHE: /pcache
+      TISSUE_SLIDES_ROOT: ${TISSUE_SLIDES_ROOT:-/data2}
+      # Stored raster resolution. The service converts this to an integer octave offset against
+      # the slide's own mpp, so the tile grid stays aligned; meta.json reports what was used.
+      TISSUE_STORE_MPP: ${TISSUE_STORE_MPP:-1.0}
+      # Sliding-window overlap in model-input px. 0 unless the measured seam gradient says more.
+      TISSUE_OVERLAP: ${TISSUE_OVERLAP:-0}
+      # Force a device. Empty ⇒ GPU when it has room, CPU when the shared card is full.
+      TISSUE_DEVICE: ${TISSUE_DEVICE:-}
+    volumes:
+      - tissue_cache:/cache
+      # The preprocess DAG's artifacts, READ-ONLY: the job reads a slide's tissue contours from
+      # the segmentation stage instead of re-segmenting, and masks everything outside them.
+      - preprocess_cache:/pcache:ro
+      - ${PREPROCESS_SLIDES_DIR:-/home/chen/data2/BRCA-TEST}:/data2:ro
+      # BCSS checkpoint (CC-BY-NC-4.0), read-only.
+      - ${TISSUE_WEIGHTS_DIR:-/home/chen/data2/tissue_seg}:/weights/tissue:ro
+
 volumes:
   copilot_pgdata:
   preprocess_cache:
   biomarker_cache:
+  tissue_cache:

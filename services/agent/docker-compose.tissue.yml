@@ -1,0 +1,22 @@
+# services/agent/docker-compose.tissue.yml — opt-in override: run the tissue service on the REAL
+# GPU path (Inc 4, Route B). The base compose ships the GPU-free image, which serves an artifact
+# that already exists but answers POST /tissue with 503 — there is deliberately no dev stub,
+# because a fabricated tissue map produces area fractions that look exactly like real ones.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tissue.yml up -d --build tissue
+#
+# The BCSS checkpoint (fcn_resnet50_unet-bcss.pth, 147 MB) is expected at
+# /home/chen/data2/tissue_seg and is mounted read-only by the base compose. Its licence is
+# CC-BY-NC-4.0 (non-commercial); that fact travels in meta.json and /tissue/catalog.
+services:
+  tissue:
+    build:
+      context: ../tissue
+      dockerfile: Dockerfile.trident
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
