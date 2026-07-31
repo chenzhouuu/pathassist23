@@ -13,7 +13,8 @@ import httpx
 
 @dataclass(frozen=True)
 class RegionsResult:
-    """find_regions retrieval outcome: ranked level-0 candidate boxes + provenance."""
+    """find_regions retrieval outcome: ranked level-0 candidate boxes + provenance. Candidates to
+    verify downstream, not findings — there is no retrieval-side confidence score."""
 
     regions: list[dict]
     top_score: float
@@ -43,6 +44,33 @@ async def trigger_preprocess(
             await client.aclose()
 
 
+async def trigger_stage(
+    *,
+    base_url: str,
+    stage: str,
+    item: str,
+    params: dict,
+    token: str | None,
+    timeout: float = 30.0,
+    client: httpx.AsyncClient | None = None,
+) -> dict:
+    """POST /{stage} (segment|patch|features) to enqueue one DAG stage; returns the worker's ack.
+
+    Raises ``httpx.HTTPStatusError`` on a 4xx/5xx (the route maps a 409 — upstream stage not built
+    — back to the caller, and anything else to a 502).
+    """
+    payload = {"item": item, "girder_token": token, **params}
+    owns = client is None
+    client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
+    try:
+        resp = await client.post(f"/{stage}", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if owns:
+            await client.aclose()
+
+
 async def get_job_status(
     *,
     base_url: str,
@@ -62,6 +90,72 @@ async def get_job_status(
             await client.aclose()
 
 
+async def get_contours(
+    *,
+    base_url: str,
+    item: str,
+    seg_hash: str,
+    timeout: float = 15.0,
+    client: httpx.AsyncClient | None = None,
+) -> dict | None:
+    """GET /contours for a segmentation; returns the level-0 GeoJSON, or None on 404."""
+    owns = client is None
+    client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
+    try:
+        resp = await client.get("/contours", params={"item": item, "seg_hash": seg_hash})
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if owns:
+            await client.aclose()
+
+
+async def list_tasks(
+    *,
+    base_url: str,
+    timeout: float = 15.0,
+    client: httpx.AsyncClient | None = None,
+) -> dict:
+    """GET /tasks; returns {tasks: [...], available: bool}.
+
+    ``available`` is False on a CPU worker — the registry is still served so the panel can render
+    the task card and say why it cannot run, rather than looking broken.
+    """
+    owns = client is None
+    client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
+    try:
+        resp = await client.get("/tasks")
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if owns:
+            await client.aclose()
+
+
+async def get_prediction(
+    *,
+    base_url: str,
+    item: str,
+    pred_hash: str,
+    timeout: float = 30.0,
+    client: httpx.AsyncClient | None = None,
+) -> dict | None:
+    """GET /prediction for a prediction artifact; the full document, or None on 404."""
+    owns = client is None
+    client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
+    try:
+        resp = await client.get("/prediction", params={"item": item, "pred_hash": pred_hash})
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if owns:
+            await client.aclose()
+
+
 async def find_regions(
     *,
     base_url: str,
@@ -70,13 +164,20 @@ async def find_regions(
     k: int,
     token: str | None,
     encoder: str | None = None,
+    feat_hash: str | None = None,
     timeout: float = 60.0,
     client: httpx.AsyncClient | None = None,
 ) -> RegionsResult | None:
-    """POST /find_regions; None when the slide isn't indexed for text search (404/409)."""
+    """POST /find_regions; None when the slide isn't indexed for text search (404/409).
+
+    ``feat_hash`` pins the DAG feature artifact (feat/{hash}/features.h5) the worker should read;
+    omit it to let the worker resolve the legacy flat index by params (back-compat).
+    """
     payload = {"item": item, "query": query, "k": k, "girder_token": token}
     if encoder:
         payload["encoder"] = encoder
+    if feat_hash:
+        payload["feat_hash"] = feat_hash
     owns = client is None
     client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
     try:

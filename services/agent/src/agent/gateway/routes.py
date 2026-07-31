@@ -8,10 +8,35 @@ from sse_starlette.sse import EventSourceResponse
 from ..common.config import get_settings
 from ..loop import AgentLoop, StubAgentLoop
 from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
+from ..loop.biomarker_map_client import (
+    enqueue_map,
+    get_map_json,
+    get_tile,
+    map_job_status,
+)
 from ..loop.events import RunFinished
-from ..loop.preprocess_client import get_job_status, trigger_preprocess
+from ..loop.preprocess_client import (
+    get_contours,
+    get_job_status,
+    get_prediction,
+    list_tasks,
+    trigger_preprocess,
+    trigger_stage,
+)
+from ..loop.tissue_map_client import (
+    cancel_tissue,
+    enqueue_tissue,
+    get_tissue_json,
+    get_tissue_tile,
+    tissue_job_status,
+)
 from ..loop.tools import ToolContext
-from ..store import ConversationStore, SlideIndexStore
+from ..store import (
+    ConversationStore,
+    MemoryPreprocessArtifactStore,
+    PreprocessArtifactStore,
+    SlideIndexStore,
+)
 from .auth import require_user
 from .sse import sse_json
 
@@ -64,11 +89,33 @@ def get_preprocess_url() -> str | None:
     return get_settings().preprocess_service_url or None
 
 
+def get_biomarker_url() -> str | None:
+    """The configured biomarker service URL (None ⇒ phenotype_cells is unavailable)."""
+    return get_settings().biomarker_service_url or None
+
+
+def get_tissue_url() -> str | None:
+    """The configured tissue service URL (None ⇒ the Tissue panel is unavailable)."""
+    return get_settings().tissue_service_url or None
+
+
 def get_slide_index_store(request: Request) -> SlideIndexStore:
     """Resolve the process-wide SlideIndexStore set up by the app lifespan."""
     store = getattr(request.app.state, "slide_index", None)
     if store is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Slide index unavailable")
+    return store
+
+
+def get_preprocess_artifact_store(request: Request) -> PreprocessArtifactStore:
+    """Resolve the process-wide PreprocessArtifactStore (Inc 2b-3 DAG control plane).
+
+    Falls back to an in-memory store if unset (DB-free tests) so the DAG routes stay testable.
+    """
+    store = getattr(request.app.state, "preprocess_artifacts", None)
+    if store is None:
+        store = MemoryPreprocessArtifactStore()
+        request.app.state.preprocess_artifacts = store
     return store
 
 
@@ -194,6 +241,8 @@ async def post_turn(
     cellvit_url: str | None = Depends(get_cellvit_url),
     pathvlm_url: str | None = Depends(get_pathvlm_url),
     preprocess_url: str | None = Depends(get_preprocess_url),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+    preprocess_artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
 ) -> EventSourceResponse:
     """Run one Claude-Code-style autonomous turn, streaming the typed event trace.
 
@@ -223,7 +272,8 @@ async def post_turn(
     ctx = ToolContext(
         owner=_uid(user), conversation_id=conversation_id, artifacts=artifacts,
         girder_token=token, cellvit_url=cellvit_url, pathvlm_url=pathvlm_url,
-        preprocess_url=preprocess_url,
+        preprocess_url=preprocess_url, biomarker_url=biomarker_url,
+        preprocess_artifacts=preprocess_artifacts,
     )
 
     async def turn_stream():
@@ -361,6 +411,709 @@ async def list_slide_index(
                 await _reconcile(slide_index, item, row["params_hash"], js)
         rows = await slide_index.list_indexes(item=item)
     return {"indexes": rows}
+
+
+# ── Preprocess DAG (segment → patch → features control plane — Inc 2b-3) ──────────
+
+
+class SegmentRequest(BaseModel):
+    """Tissue-segmentation params; the worker fills defaults (HEST / conf 0.5)."""
+
+    segmenter: str | None = None
+    seg_conf_thresh: float | None = None
+    remove_artifacts: bool = False
+    remove_holes: bool = False
+    remove_penmarks: bool = False
+
+
+class PatchRequest(BaseModel):
+    """Tiling params; runs on a ready segmentation (``seg_hash``)."""
+
+    seg_hash: str
+    mag: int | None = None
+    patch_size: int | None = None
+    overlap: int | None = None
+
+
+class FeaturesRequest(BaseModel):
+    """Feature-extraction params; runs on a ready patch grid (``patch_hash``)."""
+
+    patch_hash: str
+    encoder: str | None = None
+
+
+class PredictRequest(BaseModel):
+    """Downstream-task inference; runs on a ready feature index (``feat_hash``)."""
+
+    feat_hash: str
+    task_id: str
+
+
+# The prediction summary the panel reads straight off the artifact row. Per-patch arrays stay on
+# disk and are fetched separately by the heatmap route.
+_RESULT_KEYS = (
+    "task_id", "model_ver", "classes", "probs", "pred_index", "pred_label", "n_patches",
+    "elapsed_ms",
+)
+
+# The tissue map's composition, carried on the artifact row for both a finished and a stopped
+# build. `stopped`/`remaining` ride along so the panel can offer Resume and say how much is left.
+_TISSUE_RESULT_KEYS = (
+    "art_hash", "n_tiles", "n_core_tiles", "fraction", "fraction_soft", "tsr", "covered_mm2",
+    "stopped", "remaining",
+)
+
+
+async def _reconcile_artifact(
+    store: PreprocessArtifactStore, item: str, art_hash: str, js: dict, kind: str | None = None,
+) -> None:
+    """Fold a worker /status reply into the durable artifact row (only the gateway writes)."""
+    st = js.get("status")
+    if st == "cancelled":
+        # A stopped build is not a failed one: it left a smaller but complete map on disk, with
+        # coverage and tallies to match, so its numbers are carried exactly as a finished build's
+        # are. Progress stays where the worker left it — that fraction is the honest one.
+        res = js.get("result") or {}
+        await store.set_status(
+            item=item, art_hash=art_hash, status="cancelled", stage="stopped",
+            progress=js.get("progress"),
+            n_items=res.get("n_core_tiles"),
+            result={k: res[k] for k in _TISSUE_RESULT_KEYS if k in res} or None,
+        )
+    elif st == "ready":
+        n_patches = js.get("n_patches")
+        n_items = n_patches if n_patches is not None else js.get("n_contours")
+        result = None
+        if kind == "prediction":
+            result = {k: js[k] for k in _RESULT_KEYS if k in js}
+        elif kind == "biomarker":
+            # The biomarker worker reports through a JobQueue, so its payload sits under
+            # "result" rather than at the top level like the preprocess stages.
+            res = js.get("result") or {}
+            result = {k: res[k] for k in ("art_hash", "n_tiles", "n_new_tiles", "n_cells",
+                                          "seconds") if k in res}
+            n_items = res.get("n_cells", n_items)
+        elif kind == "tissue":
+            # Same JobQueue shape as the biomarker worker: the payload sits under "result".
+            # The composition is carried on the row so the panel can render numbers straight from
+            # /artifacts without a second round trip to the tissue worker.
+            res = js.get("result") or {}
+            result = {k: res[k] for k in _TISSUE_RESULT_KEYS if k in res}
+            n_items = res.get("n_core_tiles", n_items)
+        await store.set_status(
+            item=item, art_hash=art_hash, status="ready", stage="done", progress=1.0,
+            n_items=n_items, dim=js.get("dim"),
+            artifact_ref=(
+                js.get("features_ref") or js.get("coords_ref") or js.get("contours_ref")
+                or js.get("prediction_ref")
+            ),
+            result=result or None,
+        )
+    elif st == "failed":
+        await store.set_status(
+            item=item, art_hash=art_hash, status="failed",
+            error=js.get("error") or "preprocess failed",
+        )
+    elif st in ("queued", "running"):
+        await store.set_status(
+            item=item, art_hash=art_hash, status=st,
+            stage=js.get("stage"), progress=js.get("progress"),
+        )
+
+
+_WORKER_REFUSALS = {
+    status.HTTP_404_NOT_FOUND: "the preprocess service does not know that task",
+    status.HTTP_409_CONFLICT: "upstream stage not built yet",
+    status.HTTP_503_SERVICE_UNAVAILABLE: "the preprocess worker cannot run downstream tasks",
+}
+
+
+async def _trigger_dag_stage(
+    *, preprocess_url: str | None, stage: str, item: str, params: dict, token: str | None,
+) -> dict:
+    """Proxy a non-blocking POST /{stage} to the worker, mapping HTTP failures to gateway errors."""
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    try:
+        return await trigger_stage(
+            base_url=preprocess_url, stage=stage, item=item, params=params, token=token
+        )
+    except httpx.HTTPStatusError as exc:
+        # The worker's own refusals are meaningful to the panel and are forwarded verbatim:
+        # 409 upstream stage not built · 404 unknown task · 503 this image ships without torch.
+        # Anything else is a genuine gateway-side failure.
+        code = exc.response.status_code
+        if code in _WORKER_REFUSALS:
+            try:
+                detail = exc.response.json().get("detail", _WORKER_REFUSALS[code])
+            except ValueError:
+                detail = _WORKER_REFUSALS[code]
+            raise HTTPException(code, detail) from exc
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"the preprocess service rejected the request: {exc}"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+
+
+@router.post("/slides/{item}/segment")
+async def start_segment(
+    item: str,
+    body: SegmentRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """Enqueue a tissue segmentation and record its durable artifact row."""
+    params = {k: v for k, v in body.model_dump().items() if v is not None}
+    run = await _trigger_dag_stage(
+        preprocess_url=preprocess_url, stage="segment", item=item, params=params, token=token
+    )
+    return await artifacts.upsert_artifact(
+        item=item, kind="segmentation", art_hash=run["seg_hash"], parent_hash=None,
+        params={k: run[k] for k in (
+            "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks",
+        ) if k in run},
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.post("/slides/{item}/patch")
+async def start_patch(
+    item: str,
+    body: PatchRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """Enqueue a patch grid on a ready segmentation (409 if that segmentation isn't built)."""
+    params = {k: v for k, v in body.model_dump().items() if v is not None}
+    run = await _trigger_dag_stage(
+        preprocess_url=preprocess_url, stage="patch", item=item, params=params, token=token
+    )
+    return await artifacts.upsert_artifact(
+        item=item, kind="patching", art_hash=run["patch_hash"], parent_hash=run["seg_hash"],
+        params={k: run[k] for k in ("mag", "patch_size", "overlap") if k in run},
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.post("/slides/{item}/features")
+async def start_features(
+    item: str,
+    body: FeaturesRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """Enqueue feature extraction on a ready patch grid (409 if that patch grid isn't built)."""
+    params = {k: v for k, v in body.model_dump().items() if v is not None}
+    run = await _trigger_dag_stage(
+        preprocess_url=preprocess_url, stage="features", item=item, params=params, token=token
+    )
+    return await artifacts.upsert_artifact(
+        item=item, kind="features", art_hash=run["feat_hash"], parent_hash=run["patch_hash"],
+        params={"encoder": run.get("encoder")}, status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.get("/slides/{item}/artifacts")
+async def list_slide_artifacts(
+    item: str,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """List a slide's DAG artifacts, reconciling in-flight builds against the worker."""
+    rows = await artifacts.list_artifacts(item=item)
+    dirty = False
+    for row in rows:
+        if row["status"] not in ("queued", "running") or not row.get("job_id"):
+            continue
+        # Map builds run in DIFFERENT workers, so each kind is polled at its own base URL;
+        # everything else about the row is identical.
+        kind = row["kind"]
+        base = {"biomarker": biomarker_url, "tissue": tissue_url}.get(kind, preprocess_url)
+        if not base:
+            continue
+        poll = {"biomarker": map_job_status, "tissue": tissue_job_status}.get(kind, get_job_status)
+        try:
+            js = await poll(base_url=base, job_id=row["job_id"])
+        except httpx.HTTPError:
+            continue  # worker unreachable — keep the last known state
+        await _reconcile_artifact(artifacts, item, row["art_hash"], js, row["kind"])
+        dirty = True
+    if dirty:
+        rows = await artifacts.list_artifacts(item=item)
+    return {"artifacts": rows}
+
+
+@router.get("/tasks")
+async def list_downstream_tasks(
+    user: dict = Depends(require_user),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """The downstream-task registry (Inc 2c), plus whether this worker can actually run one."""
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    try:
+        return await list_tasks(base_url=preprocess_url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+
+
+@router.post("/slides/{item}/predict")
+async def start_predict(
+    item: str,
+    body: PredictRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """Enqueue a task prediction on a ready feature index.
+
+    409 if that feature index isn't built; 503 if the worker ships without torch — both are the
+    worker's own refusals, forwarded so the panel can say which it is.
+    """
+    params = body.model_dump()
+    run = await _trigger_dag_stage(
+        preprocess_url=preprocess_url, stage="predict", item=item, params=params, token=token
+    )
+    return await artifacts.upsert_artifact(
+        item=item, kind="prediction", art_hash=run["pred_hash"], parent_hash=run["feat_hash"],
+        params={"task_id": run.get("task_id"), "model_ver": run.get("model_ver")},
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.get("/slides/{item}/prediction/{pred_hash}/heatmap")
+async def get_prediction_heatmap(
+    item: str,
+    pred_hash: str,
+    user: dict = Depends(require_user),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """A prediction's per-patch arrays — level-0 coords, attention and signed class evidence.
+
+    Kept off the artifact row on purpose: this is thousands of floats, fetched only when a heatmap
+    is actually drawn.
+    """
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    try:
+        doc = await get_prediction(base_url=preprocess_url, item=item, pred_hash=pred_hash)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no prediction for that pred_hash")
+    return doc
+
+
+@router.get("/slides/{item}/segmentation/{seg_hash}/contours")
+async def get_segmentation_contours(
+    item: str,
+    seg_hash: str,
+    user: dict = Depends(require_user),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+) -> dict:
+    """Proxy a segmentation's tissue contours (level-0 GeoJSON) for the viewer overlay (Phase 5)."""
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    try:
+        gj = await get_contours(base_url=preprocess_url, item=item, seg_hash=seg_hash)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+    if gj is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no segmentation contours for that seg_hash")
+    return gj
+
+
+# ── Biomarker map (Inc 3b): virtual-mIF + phenotype tile pyramids, agent-independent ─────
+#
+# The compute lives in the biomarker service (D2); this is the control plane + an authenticated
+# tile proxy. Artifact rows ride the SAME table as the preprocess DAG with kind="biomarker" and
+# parent_hash=seg_hash, so /tasks polling, progress and restartability come free.
+
+
+class BiomarkerRequest(BaseModel):
+    """Enqueue a map build. ``bbox`` omitted/null ⇒ the whole slide (D5)."""
+
+    seg_hash: str
+    bbox: dict | None = None
+
+
+def _need_biomarker(url: str | None) -> str:
+    if not url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The biomarker service is not configured (AGENT_BIOMARKER_SERVICE_URL)",
+        )
+    return url
+
+
+_MAP_REFUSALS = {
+    status.HTTP_400_BAD_REQUEST: "the biomarker worker rejected those parameters",
+    status.HTTP_404_NOT_FOUND: "the biomarker worker does not know that artifact",
+    status.HTTP_503_SERVICE_UNAVAILABLE: "the biomarker worker has no GigaTIME-Flash weights",
+}
+
+
+def _map_error(exc: httpx.HTTPError) -> HTTPException:
+    """Forward the worker's own refusals; anything else is a genuine gateway-side failure."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in _MAP_REFUSALS:
+            try:
+                detail = exc.response.json().get("detail", _MAP_REFUSALS[code])
+            except ValueError:
+                detail = _MAP_REFUSALS[code]
+            return HTTPException(code, detail)
+    return HTTPException(
+        status.HTTP_502_BAD_GATEWAY, f"could not reach the biomarker service: {exc}"
+    )
+
+
+@router.get("/biomarker/catalog")
+async def biomarker_catalog(
+    user: dict = Depends(require_user),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+) -> dict:
+    """Presets, marker vocabulary, phenotype palette — so the panel hardcodes no biology."""
+    try:
+        doc = await get_map_json(base_url=_need_biomarker(biomarker_url), path="/biomarker/catalog")
+    except httpx.HTTPError as exc:
+        raise _map_error(exc) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "biomarker catalog unavailable")
+    return doc
+
+
+@router.post("/slides/{item}/biomarker")
+async def start_biomarker(
+    item: str,
+    body: BiomarkerRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+) -> dict:
+    """Enqueue (or extend) this slide's marker/phenotype map and record its artifact row."""
+    try:
+        run = await enqueue_map(
+            base_url=_need_biomarker(biomarker_url), item=item,
+            seg_hash=body.seg_hash, bbox=body.bbox, token=token,
+        )
+    except httpx.HTTPError as exc:
+        raise _map_error(exc) from exc
+    return await artifacts.upsert_artifact(
+        item=item, kind="biomarker", art_hash=run["art_hash"], parent_hash=body.seg_hash,
+        params={"scope": run.get("scope"), "bbox": body.bbox},
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.get("/slides/{item}/biomarker/{art_hash}/meta")
+async def biomarker_meta(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+) -> dict:
+    """The artifact's layer geometry, thresholds, coverage and whole-map counts."""
+    try:
+        doc = await get_map_json(
+            base_url=_need_biomarker(biomarker_url),
+            path=f"/biomarker/{item}/{art_hash}/meta",
+        )
+    except httpx.HTTPError as exc:
+        raise _map_error(exc) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no biomarker map for that hash")
+    return doc
+
+
+@router.get("/slides/{item}/biomarker/{art_hash}/cells/{tx}/{ty}")
+async def biomarker_cells(
+    item: str,
+    art_hash: str,
+    tx: int,
+    ty: int,
+    user: dict = Depends(require_user),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+) -> dict:
+    """One core tile's per-cell records — hover, region stats and export read this."""
+    try:
+        doc = await get_map_json(
+            base_url=_need_biomarker(biomarker_url),
+            path=f"/biomarker/{item}/{art_hash}/cells/{tx}/{ty}",
+        )
+    except httpx.HTTPError as exc:
+        raise _map_error(exc) from exc
+    return doc or {"cells": []}
+
+
+@router.get("/slides/{item}/biomarker/{art_hash}/tile/{layer}/{z}/{x}/{y}.png")
+async def biomarker_tile(
+    item: str,
+    art_hash: str,
+    layer: str,
+    z: int,
+    x: int,
+    y: int,
+    request: Request,
+    user: dict = Depends(require_user),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+) -> Response:
+    """Authenticated proxy for one composited tile.
+
+    The channel selection, colours and display transfer function all live in the query string
+    (D3), so they are forwarded verbatim — the gateway never interprets them. Cache headers are
+    passed through too, because an unchanged (art_hash, threshold_rev, query) tile is immutable
+    and re-fetching it on every pan is the one thing that would make this feel slow.
+    """
+    try:
+        tile = await get_tile(
+            base_url=_need_biomarker(biomarker_url),
+            path=f"/biomarker/{item}/{art_hash}/tile/{layer}/{z}/{x}/{y}.png",
+            params=dict(request.query_params),
+        )
+    except httpx.HTTPError as exc:
+        raise _map_error(exc) from exc
+    headers = {}
+    if tile.cache_control:
+        headers["Cache-Control"] = tile.cache_control
+    if tile.etag:
+        headers["ETag"] = tile.etag
+    return Response(
+        content=tile.body, media_type=tile.content_type,
+        status_code=tile.status_code, headers=headers,
+    )
+
+
+# ── Tissue map (Inc 4): dense tissue-class segmentation, agent-independent ───────────────
+#
+# The compute lives in the tissue service on :8023 (D2); this is the control plane plus an
+# authenticated tile proxy. Artifact rows ride the SAME table as the preprocess DAG with
+# kind="tissue" and parent_hash=seg_hash, so /artifacts polling, progress and restartability come
+# free — exactly as for kind="biomarker".
+
+
+class TissueRequest(BaseModel):
+    """Enqueue a tissue-map build. ``bbox`` omitted/null ⇒ the whole slide."""
+
+    seg_hash: str
+    bbox: dict | None = None
+    backend: str | None = None
+
+
+def _need_tissue(url: str | None) -> str:
+    if not url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The tissue service is not configured (AGENT_TISSUE_SERVICE_URL)",
+        )
+    return url
+
+
+_TISSUE_REFUSALS = {
+    status.HTTP_400_BAD_REQUEST: "the tissue worker rejected those parameters",
+    status.HTTP_404_NOT_FOUND: "the tissue worker does not know that artifact",
+    status.HTTP_503_SERVICE_UNAVAILABLE: "the tissue worker has no segmentation weights",
+}
+
+
+def _tissue_error(exc: httpx.HTTPError) -> HTTPException:
+    """Forward the worker's own refusals; anything else is a genuine gateway-side failure."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in _TISSUE_REFUSALS:
+            try:
+                detail = exc.response.json().get("detail", _TISSUE_REFUSALS[code])
+            except ValueError:
+                detail = _TISSUE_REFUSALS[code]
+            return HTTPException(code, detail)
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, f"could not reach the tissue service: {exc}")
+
+
+@router.get("/tissue/catalog")
+async def tissue_catalog(
+    user: dict = Depends(require_user),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """Backends, their class lists and palettes — so the panel hardcodes no biology."""
+    try:
+        doc = await get_tissue_json(base_url=_need_tissue(tissue_url), path="/tissue/catalog")
+    except httpx.HTTPError as exc:
+        raise _tissue_error(exc) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "tissue catalog unavailable")
+    return doc
+
+
+@router.post("/slides/{item}/tissue")
+async def start_tissue(
+    item: str,
+    body: TissueRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """Enqueue (or extend) this slide's tissue map and record its artifact row."""
+    try:
+        run = await enqueue_tissue(
+            base_url=_need_tissue(tissue_url), item=item, seg_hash=body.seg_hash,
+            bbox=body.bbox, backend=body.backend, token=token,
+        )
+    except httpx.HTTPError as exc:
+        raise _tissue_error(exc) from exc
+    return await artifacts.upsert_artifact(
+        item=item, kind="tissue", art_hash=run["art_hash"], parent_hash=body.seg_hash,
+        params={"scope": run.get("scope"), "bbox": body.bbox, "backend": run.get("backend")},
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.post("/slides/{item}/tissue/{art_hash}/cancel")
+async def cancel_tissue_build(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """Stop this slide's running tissue build at its next core-tile boundary.
+
+    A whole-slide map is hours of work holding the tissue service's only worker, so it has to be
+    interruptible. What is already computed stays: the artifact keeps its coverage and tallies, and
+    starting the same build again resumes from there rather than from the beginning.
+
+    The durable row is **not** written here — the worker owns the transition, and marking the row
+    stopped while the worker is still finishing a core would be undone by the next reconciliation.
+    """
+    row = await artifacts.get_artifact(item=item, art_hash=art_hash)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no tissue build for that hash")
+    if not row.get("job_id"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "that tissue build has no running job to stop"
+        )
+    try:
+        return await cancel_tissue(base_url=_need_tissue(tissue_url), job_id=row["job_id"])
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != status.HTTP_404_NOT_FOUND:
+            raise _tissue_error(exc) from exc
+        # The worker has never heard of this job — it was restarted out from under the row, which
+        # leaves the panel polling a build that will never move again. Stop is the right moment to
+        # settle that: the job is gone, so say so. Whatever it computed is still on disk and
+        # starting the build again resumes from there.
+        await artifacts.set_status(
+            item=item, art_hash=art_hash, status="cancelled", stage="stopped",
+            error=None,
+        )
+        return {"job_id": row["job_id"], "status": "cancelled", "stage": "stopped",
+                "detail": "the tissue worker restarted; this build is no longer running"}
+    except httpx.HTTPError as exc:
+        raise _tissue_error(exc) from exc
+
+
+@router.get("/slides/{item}/tissue/{art_hash}/meta")
+async def tissue_meta(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """The artifact's backend, class list, layer geometry, coverage and composition."""
+    try:
+        doc = await get_tissue_json(
+            base_url=_need_tissue(tissue_url), path=f"/tissue/{item}/{art_hash}/meta",
+        )
+    except httpx.HTTPError as exc:
+        raise _tissue_error(exc) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no tissue map for that hash")
+    return doc
+
+
+@router.get("/slides/{item}/tissue/{art_hash}/stats")
+async def tissue_stats(
+    item: str,
+    art_hash: str,
+    request: Request,
+    user: dict = Depends(require_user),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """Class composition for a sub-rectangle (``bbox=x,y,w,h``) or the whole artifact."""
+    try:
+        doc = await get_tissue_json(
+            base_url=_need_tissue(tissue_url), path=f"/tissue/{item}/{art_hash}/stats",
+            params=dict(request.query_params),
+        )
+    except httpx.HTTPError as exc:
+        raise _tissue_error(exc) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no tissue map for that hash")
+    return doc
+
+
+@router.get("/slides/{item}/tissue/{art_hash}/tile/{layer}/{z}/{x}/{y}.png")
+async def tissue_tile(
+    item: str,
+    art_hash: str,
+    layer: str,
+    z: int,
+    x: int,
+    y: int,
+    request: Request,
+    user: dict = Depends(require_user),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> Response:
+    """Authenticated proxy for one rendered tile.
+
+    The class selection, colours, opacity and render mode all live in the query string, so they
+    are forwarded verbatim — the gateway never interprets them. Cache headers pass through too,
+    because an unchanged (art_hash, coverage, query) tile is immutable.
+    """
+    try:
+        tile = await get_tissue_tile(
+            base_url=_need_tissue(tissue_url),
+            path=f"/tissue/{item}/{art_hash}/tile/{layer}/{z}/{x}/{y}.png",
+            params=dict(request.query_params),
+        )
+    except httpx.HTTPError as exc:
+        raise _tissue_error(exc) from exc
+    headers = {}
+    if tile.cache_control:
+        headers["Cache-Control"] = tile.cache_control
+    if tile.etag:
+        headers["ETag"] = tile.etag
+    return Response(
+        content=tile.body, media_type=tile.content_type,
+        status_code=tile.status_code, headers=headers,
+    )
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

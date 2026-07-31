@@ -57,6 +57,31 @@ CREATE TABLE IF NOT EXISTS slide_index (
 );
 CREATE INDEX IF NOT EXISTS slide_index_item_idx
     ON slide_index (girder_item, updated_at DESC);
+CREATE TABLE IF NOT EXISTS preprocess_artifact (
+    id           BIGSERIAL PRIMARY KEY,
+    girder_item  TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    art_hash     TEXT NOT NULL,
+    parent_hash  TEXT,
+    params       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status       TEXT NOT NULL DEFAULT 'queued',
+    stage        TEXT,
+    progress     REAL NOT NULL DEFAULT 0,
+    job_id       TEXT,
+    n_items      INTEGER,
+    dim          INTEGER,
+    artifact_ref TEXT,
+    error        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (girder_item, art_hash)
+);
+CREATE INDEX IF NOT EXISTS preprocess_artifact_item_idx
+    ON preprocess_artifact (girder_item, updated_at DESC);
+-- Inc 2c: the 'prediction' kind carries an outcome, not just a pointer. `params` stays inputs-only;
+-- this holds the summary (classes / probs / pred_index / n_patches / elapsed_ms) so the panel can
+-- show the last call straight out of list_artifacts. Per-patch arrays never live here.
+ALTER TABLE preprocess_artifact ADD COLUMN IF NOT EXISTS result JSONB;
 """
 
 

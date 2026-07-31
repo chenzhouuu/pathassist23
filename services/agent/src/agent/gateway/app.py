@@ -7,7 +7,7 @@ from ..common.config import get_settings
 from ..loop import build_agent
 from ..loop.artifacts import InMemoryArtifactStore
 from ..loop.girder_annotations import GirderAnnotationStore
-from ..store import PgSlideIndexStore, PgStore
+from ..store import PgPreprocessArtifactStore, PgSlideIndexStore, PgStore
 from .routes import router
 
 
@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
     app.state.store = await PgStore.connect(settings.database_url)
     # The slide-index control plane (Inc 2b) shares the same pool + schema (one connect, one DDL).
     app.state.slide_index = PgSlideIndexStore(app.state.store.pool)
+    # The preprocess-DAG control plane (Inc 2b-3): one row per artifact (segment/patch/features).
+    app.state.preprocess_artifacts = PgPreprocessArtifactStore(app.state.store.pool)
     try:
         yield
     finally:

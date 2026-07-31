@@ -40,6 +40,8 @@ services:
       # data2 weight caches, read-write so a first-run gated download persists back to data2.
       - ${PREPROCESS_HF_DIR:-/home/chen/data2/hf}:/weights/hf
       - ${PREPROCESS_TRIDENT_DIR:-/home/chen/data2/trident}:/weights/trident
+      # Downstream-task MIL checkpoints (Inc 2c) — read-only; nothing here is ever downloaded.
+      - ${PREPROCESS_MIL_DIR:-/home/chen/data2/models/mil}:/weights/mil:ro
     # The source .svs mount (/data2, read-only) is inherited from the base compose; widen it beyond
     # BRCA-TEST by setting PREPROCESS_SLIDES_DIR=/home/chen/data2 in services/agent/.env.
     deploy:
