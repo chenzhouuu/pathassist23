@@ -12,14 +12,31 @@ def test_health_ok():
     assert r.status_code == 200 and r.get_json()["service"] == "pathvlm"
 
 
-def test_create_app_warms_up_when_checkpoint_configured(monkeypatch):
+def test_a_configured_checkpoint_starts_cold_and_reaps(monkeypatch):
+    """The default holds no VRAM at boot — the first describe loads, the reaper releases."""
     monkeypatch.setenv("PATHVLM_MEDGEMMA_CKPT", "/weights/ckpt")
+    monkeypatch.delenv("PATHVLM_WARM_START", raising=False)
     get_settings.cache_clear()
-    warmed = []
+    warmed, reaped = [], []
     monkeypatch.setattr(app_module, "warm_up", lambda: warmed.append(1))
+    monkeypatch.setattr(app_module, "start_idle_reaper", lambda: reaped.append(1))
     try:
         app_module.create_app()
-        assert warmed == [1]  # model preload wired to a configured checkpoint
+        assert warmed == [] and reaped == [1]
+    finally:
+        get_settings.cache_clear()
+
+
+def test_warm_start_opts_back_into_preloading(monkeypatch):
+    monkeypatch.setenv("PATHVLM_MEDGEMMA_CKPT", "/weights/ckpt")
+    monkeypatch.setenv("PATHVLM_WARM_START", "1")
+    get_settings.cache_clear()
+    warmed, reaped = [], []
+    monkeypatch.setattr(app_module, "warm_up", lambda: warmed.append(1))
+    monkeypatch.setattr(app_module, "start_idle_reaper", lambda: reaped.append(1))
+    try:
+        app_module.create_app()
+        assert warmed == [1] and reaped == [1]  # preloaded, still reaped once quiet
     finally:
         get_settings.cache_clear()
 
@@ -27,11 +44,13 @@ def test_create_app_warms_up_when_checkpoint_configured(monkeypatch):
 def test_create_app_skips_warm_up_for_stub(monkeypatch):
     monkeypatch.setenv("PATHVLM_MEDGEMMA_CKPT", "")
     get_settings.cache_clear()
-    calls = []
+    calls, reaped = [], []
     monkeypatch.setattr(app_module, "warm_up", lambda: calls.append(1))
+    monkeypatch.setattr(app_module, "start_idle_reaper", lambda: reaped.append(1))
     try:
         app_module.create_app()
-        assert calls == []  # the GPU-free stub never loads a model
+        # The GPU-free stub never loads a model, so it also has nothing to reap — no thread.
+        assert calls == [] and reaped == []
     finally:
         get_settings.cache_clear()
 

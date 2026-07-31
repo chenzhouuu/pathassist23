@@ -13,7 +13,7 @@ import httpx
 from flask import Flask, jsonify, request
 
 from .config import get_settings
-from .infer import describe_array, warm_up
+from .infer import describe_array, start_idle_reaper, warm_up
 from .region import fetch_region_at_mag
 
 
@@ -22,10 +22,15 @@ def create_app() -> Flask:
     app.config["READ_REGION"] = fetch_region_at_mag  # injectable seams (tests override these)
     app.config["DESCRIBE"] = describe_array
 
-    # Preload MedGemma synchronously on the worker's main thread when a checkpoint is configured;
-    # the stub needs no model. warm_up is best-effort and never raises.
-    if get_settings().use_model:
-        warm_up()
+    # The default is a cold start: the first describe pays the load, and the card stays free until
+    # then. PATHVLM_WARM_START=1 preloads synchronously on the worker's main thread instead, for a
+    # deployment that would rather spend the VRAM than the first request's latency. Either way the
+    # reaper hands the weights back once the Perceptor goes quiet. The stub needs no model.
+    settings = get_settings()
+    if settings.use_model:
+        if settings.warm_start:
+            warm_up()
+        start_idle_reaper()
 
     @app.get("/health")
     def health():

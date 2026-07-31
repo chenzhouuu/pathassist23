@@ -18,3 +18,26 @@ def test_get_settings_reads_prefixed_env(monkeypatch):
     s = get_settings()
     assert s.use_model is True and s.girder_base == "http://g/api/v1"
     get_settings.cache_clear()
+
+
+def test_idle_unload_defaults_to_fifteen_minutes_and_a_cold_start():
+    """The shared GPU is the default: nothing resident until asked, released once quiet."""
+    s = Settings()
+    assert s.idle_ttl == 900.0
+    assert s.warm_start is False
+
+
+def test_idle_policy_is_env_overridable(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("PATHVLM_IDLE_TTL", "0")        # 0 = the old always-resident behaviour
+    monkeypatch.setenv("PATHVLM_WARM_START", "true")
+    s = get_settings()
+    assert s.idle_ttl == 0.0 and s.warm_start is True
+    get_settings.cache_clear()
+
+
+def test_warm_start_flag_rejects_junk(monkeypatch):
+    get_settings.cache_clear()
+    monkeypatch.setenv("PATHVLM_WARM_START", "maybe")
+    assert get_settings().warm_start is False
+    get_settings.cache_clear()
