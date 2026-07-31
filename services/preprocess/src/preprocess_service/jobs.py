@@ -12,6 +12,8 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from .gpu import release_cuda_cache
+
 logger = logging.getLogger(__name__)
 
 # A job is `fn(report)` where report(stage: str, progress: float) updates this job's status.
@@ -65,3 +67,11 @@ class JobQueue:
                 self._set(job_id, status="failed", error=str(exc))
             finally:
                 self._q.task_done()
+                # Reclaim at the *job* boundary, not only inside the stage. A stage's own `finally`
+                # runs while the exception is still unwinding, and the live traceback strongly
+                # references every frame it passed through — including the one holding the patch
+                # encoder — so the model still counts as allocated and empty_cache() frees nothing
+                # (measured on an OOM'd run: reserved 2.35 → 2.35 GiB). Here the handler above has
+                # finished and CPython has dropped its `as exc` binding, taking the frame chain with
+                # it, so an OOM'd job actually gives the GPU back before the next one starts.
+                release_cuda_cache()

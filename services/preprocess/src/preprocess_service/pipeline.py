@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from .artifacts import write_contours_geojson, write_features_h5
+from .gpu import cuda_cache_released
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ def run_pipeline(
     """Segment → patch → extract features for ``slide_path``; write artifacts into ``sink``."""
     cb: OnStage = on_stage or (lambda *_: None)
     if use_trident:
-        return _trident_pipeline(slide_path, params, sink, cb, batch_limit)
+        with cuda_cache_released():
+            return _trident_pipeline(slide_path, params, sink, cb, batch_limit)
     return _stub_pipeline(slide_path, params, sink, cb)
 
 
@@ -123,9 +125,11 @@ def _trident_pipeline(
     job_dir = sink["dir"]
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # Text-search encoders must live in the shared contrastive space (F1): conch_v1 needs projection
-    enc_kwargs = {"with_proj": True, "normalize": True} if encoder_name == "conch_v1" else {}
-    encoder = encoder_factory(encoder_name, **enc_kwargs)
+    # The encoder ID carries its embedding space (config.ENCODER_KWARGS): `conch_v1` is Trident's
+    # default vision tower, `conch_v1_text` adds the contrastive projection find_regions searches.
+    from .config import encoder_kwargs, encoder_model
+
+    encoder = encoder_factory(encoder_model(encoder_name), **encoder_kwargs(encoder_name))
     seg_model = segmentation_model_factory(segmenter)
 
     with load_wsi(slide_path=str(slide_path), lazy_init=False) as slide:
