@@ -1,0 +1,39 @@
+# services/tissue/Dockerfile.trident — the REAL dense tissue segmenter GPU image (Inc 4).
+#
+# The default `Dockerfile` ships the GPU-free base (503 on POST /tissue). THIS image carries torch
+# + torchvision and runs the vendored ResNet50-UNet against the BCSS checkpoint. Selected in
+# compose with:
+#   TISSUE_DOCKERFILE=Dockerfile.trident  (build) + weights mounted at /weights/tissue.
+#
+# Same driver-535-proven base as cellvit / pathvlm / biomarker / preprocess: this host is driver
+# 535 (CUDA <= 12.2), so torch==2.2.2 (+cu121) is pinned so no transitive dep pulls a cu13x wheel.
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
+
+# libopenslide0 backs the local slide read tier: a whole-slide job reads hundreds of 2560px
+# windows, and routing every one through Girder means a PNG encode+decode per window.
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libopenslide0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# torch==2.2.2 repeated so torchvision's unpinned torch dep can't upgrade the base's cu121 build.
+# torchvision supplies the resnet50 encoder the checkpoint's `backbone.*` keys load into.
+# tiatoolbox is deliberately NOT installed: only its architecture is vendored (BSD-3), and the
+# package would drag openslide-python, shapely, scikit-image, zarr and its own WSIReader.
+RUN pip install --no-cache-dir \
+      "torch==2.2.2" \
+      "torchvision==0.17.2" \
+      flask "httpx>=0.27" "numpy<2" pillow gunicorn openslide-python
+
+WORKDIR /app
+COPY src ./src
+ENV PYTHONPATH=/app/src
+
+# The BCSS checkpoint is read from a read-only mount; weights are CC-BY-NC-4.0 (non-commercial)
+# and that fact travels in meta.json and /tissue/catalog.
+ENV TISSUE_WEIGHTS=/weights/tissue \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+EXPOSE 8023
+
+# A whole-slide job runs for tens of minutes inside one worker thread; the HTTP timeout only has
+# to cover the enqueue plus tile reads, but tile renders read cold disk, so keep it long.
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8023", "--timeout", "900", \
+     "tissue_service.app:create_app()"]
