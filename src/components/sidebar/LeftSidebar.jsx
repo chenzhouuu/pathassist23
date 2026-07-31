@@ -206,6 +206,7 @@ function CaseItemsPanel({ caseContext }) {
           <span className="flex-1 truncate text-xs font-semibold" style={{ color: '#c27aff' }}>
             {caseContext.caseId}
           </span>
+          <PanelCollapseButton side="left" />
           <button
             onClick={() => { clearCaseContext(); setPage('second-opinion'); }}
             className="text-xs px-1.5 py-0.5 rounded transition-colors"
@@ -286,6 +287,36 @@ function CaseItemsPanel({ caseContext }) {
 }
 
 // ─── Main sidebar ─────────────────────────────────────────────────────────────
+function PanelCollapseButton({ side = 'left' }) {
+  const { setLeftPanelOpen, setRightPanelOpen } = useStore();
+  const hide = () => (side === 'left' ? setLeftPanelOpen(false) : setRightPanelOpen(false));
+  const label = side === 'left' ? 'Hide left panel' : 'Hide workspace panel';
+  return (
+    <button
+      type="button"
+      className="viewer-panel-collapse-btn"
+      onClick={hide}
+      title={label}
+      aria-label={label}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        {side === 'left' ? (
+          <>
+            <path d="M9 4v16" />
+            <polyline points="14 9 17 12 14 15" />
+          </>
+        ) : (
+          <>
+            <path d="M15 4v16" />
+            <polyline points="10 9 7 12 10 15" />
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
 export default function LeftSidebar() {
   const { leftPanelOpen, leftPanelTab, setLeftPanelTab, caseContext, hasRole } = useStore();
   const [search, setSearch] = useState('');
@@ -317,6 +348,7 @@ export default function LeftSidebar() {
             <div className="viewer-panel-eyebrow">Slide Tools</div>
             <div className="viewer-panel-title">Annotations</div>
           </div>
+          <PanelCollapseButton side="left" />
         </div>
         <div className="viewer-inline-tabbar">
           <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('slides')}>Slides</button>
@@ -338,6 +370,7 @@ export default function LeftSidebar() {
             <div className="viewer-panel-eyebrow">Slide Tools</div>
             <div className="viewer-panel-title">Layers</div>
           </div>
+          <PanelCollapseButton side="left" />
         </div>
         <div className="viewer-inline-tabbar">
           <button type="button" className="viewer-inline-tab" onClick={() => setLeftPanelTab('slides')}>Slides</button>
@@ -364,7 +397,10 @@ export default function LeftSidebar() {
           <div className="viewer-panel-eyebrow">Navigation</div>
           <div className="viewer-panel-title">Collections</div>
         </div>
-        <div className="viewer-panel-count">{filtered?.length || 0}</div>
+        <div className="viewer-panel-topbar-actions">
+          <div className="viewer-panel-count">{filtered?.length || 0}</div>
+          <PanelCollapseButton side="left" />
+        </div>
       </div>
 
       {canAnnotate && (

@@ -8,6 +8,9 @@ import AnalysisPanel from './AnalysisPanel.jsx';
 import PathChatPanel from './PathChatPanel.jsx';
 import CopilotPanel from './CopilotPanel.jsx';
 import PreprocessPanel from './PreprocessPanel.jsx';
+import TaskPanel from './TaskPanel.jsx';
+import MarkersPanel from './MarkersPanel.jsx';
+import TissuePanel from './TissuePanel.jsx';
 
 const MIN_W = 248;
 const MAX_W = 780;
@@ -75,6 +78,19 @@ export default function RightPanel() {
         <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
         <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
       </svg> },
+    { id:'markers',     label:'Markers', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="8" cy="9" r="3"/><circle cx="15" cy="14" r="3"/><circle cx="16" cy="7" r="2"/>
+      </svg> },
+    { id:'tissue',      label:'Tissue', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 12c3-4 6-4 9 0s6 4 9 0"/><path d="M3 6c3-4 6-4 9 0s6 4 9 0"/>
+        <path d="M3 18c3-4 6-4 9 0s6 4 9 0"/>
+      </svg> },
+    { id:'task',        label:'Task', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg> },
     { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -137,7 +153,7 @@ export default function RightPanel() {
           </button>
         ))}
       </div>
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {rightPanelTab === 'metadata'    && <MetadataPanel/>}
         {rightPanelTab === 'panels'      && <PanelsPanel/>}
         {rightPanelTab === 'ai'          && <AIPanel/>}
@@ -145,6 +161,9 @@ export default function RightPanel() {
         {rightPanelTab === 'chat'        && <PathChatPanel/>}
         {rightPanelTab === 'copilot'     && <CopilotPanel/>}
         {rightPanelTab === 'preprocess'  && <PreprocessPanel/>}
+        {rightPanelTab === 'task'        && <TaskPanel/>}
+        {rightPanelTab === 'markers'     && <MarkersPanel/>}
+        {rightPanelTab === 'tissue'      && <TissuePanel/>}
       </div>
     </div>
   );
