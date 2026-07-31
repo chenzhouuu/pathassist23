@@ -51,6 +51,18 @@ export async function startTissue(itemId, { seg_hash, bbox = null, backend = nul
   return asJson(r, 'Start tissue segmentation');
 }
 
+// Ask a running build to stop at its next core-tile boundary. Returns the job's *current* status:
+// the worker finishes the tile it is on first, so this resolves while the job is still `running`
+// with stage `stopping`, and the panel learns the rest from its next poll. Everything already
+// computed stays on disk — starting the same build again resumes from there.
+export async function cancelTissue(itemId, artHash) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/tissue/${encodeURIComponent(artHash)}/cancel`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  return asJson(r, 'Stop tissue segmentation');
+}
+
 // Backend, class list, layer geometry, coverage and composition for a built artifact.
 export async function getTissueMeta(itemId, artHash) {
   const r = await fetch(

@@ -99,6 +99,31 @@ export function isRunning(row) {
   return !!row && (row.status === 'queued' || row.status === 'running');
 }
 
+/** A build was stopped part-way and can be picked up again — coverage makes resuming free. */
+export function isStopped(row) {
+  return row?.status === 'cancelled';
+}
+
+/**
+ * Whether Stop should be offered, and whether it has already been pressed.
+ *
+ * The request is already in flight while the worker finishes its current core tile, so the button
+ * has to disable itself for that window rather than invite a second click that does nothing.
+ */
+export function canStop(row) {
+  return isRunning(row) && !!row.job_id && row.stage !== 'stopping';
+}
+
+export function isStopping(row) {
+  return isRunning(row) && row.stage === 'stopping';
+}
+
+/** A resumable build labels its start button honestly. */
+export function startLabel(row, whole) {
+  if (!whole) return 'Segment region';
+  return isStopped(row) ? 'Resume whole slide' : 'Segment whole slide';
+}
+
 /** Panel copy for a build's state. Concrete enough to tell the job is alive. */
 export function describeStage(row) {
   if (!row) return 'Not built';
@@ -107,6 +132,16 @@ export function describeStage(row) {
     const n = row.result?.n_core_tiles ?? row.n_items;
     return n ? `Ready — ${Number(n).toLocaleString()} tiles` : 'Ready';
   }
+  // A stopped build is not a failed one: it holds a complete map of a smaller area, so it says
+  // what it covered and what is left rather than reporting an error.
+  if (isStopped(row)) {
+    const n = row.result?.n_core_tiles ?? row.n_items;
+    const left = row.result?.remaining;
+    const covered = n ? `${Number(n).toLocaleString()} tiles` : 'part of the slide';
+    return left ? `Stopped — ${covered}, ${Number(left).toLocaleString()} left`
+                : `Stopped — ${covered}`;
+  }
+  if (isStopping(row)) return 'Stopping — finishing the current tile';
   const pct = Math.round((row.progress || 0) * 100);
   const stage = { tiles: 'Segmenting tiles', pyramid: 'Building pyramid',
                   starting: 'Starting' }[row.stage] || 'Working';

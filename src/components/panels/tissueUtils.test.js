@@ -4,6 +4,7 @@ import {
   DEFAULT_HIDDEN,
   LAYER_FOR_RENDER,
   backendNames,
+  canStop,
   classesOf,
   colorsOf,
   compositionCsv,
@@ -14,9 +15,12 @@ import {
   findTissueRow,
   formatPercent,
   isRunning,
+  isStopped,
+  isStopping,
   layerLevels,
   layerSignature,
   levelOffsetFor,
+  startLabel,
   tileParams,
   tsrOf,
 } from './tissueUtils.js';
@@ -220,5 +224,54 @@ describe('csv export', () => {
     expect(lines[1]).toContain('12.43');
     expect(lines[1]).toContain('bcss_fcn_unet');
     expect(lines[1].startsWith('Tumour,100,0.5,0.46')).toBe(true);
+  });
+});
+
+describe('stopping a build', () => {
+  const RUNNING = { kind: 'tissue', status: 'running', stage: 'tiles', progress: 0.32,
+                    job_id: 'j1' };
+  const STOPPED = { kind: 'tissue', status: 'cancelled', stage: 'stopped', progress: 0.32,
+                    n_items: 140, result: { n_core_tiles: 140, remaining: 294 } };
+
+  it('offers Stop only while there is a job to stop', () => {
+    expect(canStop(RUNNING)).toBe(true);
+    expect(canStop({ ...RUNNING, status: 'queued' })).toBe(true);
+    expect(canStop({ ...RUNNING, status: 'ready' })).toBe(false);
+    expect(canStop(STOPPED)).toBe(false);
+    expect(canStop(null)).toBe(false);
+    // a row the gateway never got a job id for cannot be stopped, so the button must not pretend
+    expect(canStop({ ...RUNNING, job_id: null })).toBe(false);
+  });
+
+  it('disables Stop once it has been pressed, because the request is already in flight', () => {
+    const stopping = { ...RUNNING, stage: 'stopping' };
+    expect(isStopping(stopping)).toBe(true);
+    expect(canStop(stopping)).toBe(false);
+    expect(describeStage(stopping)).toBe('Stopping — finishing the current tile');
+  });
+
+  it('reports a stopped build as stopped rather than as failed', () => {
+    expect(isStopped(STOPPED)).toBe(true);
+    expect(describeStage(STOPPED)).toBe('Stopped — 140 tiles, 294 left');
+    // …and never as an error, which would imply the numbers on disk are not to be trusted
+    expect(describeStage(STOPPED)).not.toContain('Failed');
+  });
+
+  it('says what it covered even when the worker did not report what is left', () => {
+    expect(describeStage({ ...STOPPED, result: { n_core_tiles: 12 } }))
+      .toBe('Stopped — 12 tiles');
+    expect(describeStage({ status: 'cancelled', stage: 'stopped' }))
+      .toBe('Stopped — part of the slide');
+  });
+
+  it('labels the start button Resume once a build has been stopped', () => {
+    expect(startLabel(null, true)).toBe('Segment whole slide');
+    expect(startLabel(RUNNING, true)).toBe('Segment whole slide');
+    expect(startLabel(STOPPED, true)).toBe('Resume whole slide');
+    expect(startLabel(STOPPED, false)).toBe('Segment region');
+  });
+
+  it('does not treat a stopped build as still running', () => {
+    expect(isRunning(STOPPED)).toBe(false);
   });
 });

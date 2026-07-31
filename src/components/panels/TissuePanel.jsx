@@ -15,16 +15,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import {
-  getTissueCatalog, getTissueMeta, getTissueStats, startTissue, tileAjaxHeaders, tileUrl,
+  cancelTissue, getTissueCatalog, getTissueMeta, getTissueStats, startTissue, tileAjaxHeaders,
+  tileUrl,
 } from '../../api/tissueApi.js';
 import {
   buildTileSource, removeLayer, setBasePreference, syncLayer,
 } from '../viewer/overlayLayers.js';
 import {
   DEFAULT_CONF_FLOOR, DEFAULT_HIDDEN, DEFAULT_OPACITY, LAYER_FOR_RENDER, RENDERS, RENDER_LABEL,
-  backendNames, classesOf, colorsOf, compositionCsv, compositionRows, coverageSummary,
-  describeStage, findReadySegmentation, findTissueRow, formatPercent, isRunning, layerLevels,
-  layerSignature, levelOffsetFor, tileParams, tsrOf,
+  backendNames, canStop, classesOf, colorsOf, compositionCsv, compositionRows, coverageSummary,
+  describeStage, findReadySegmentation, findTissueRow, formatPercent, isRunning, isStopped,
+  isStopping, layerLevels, layerSignature, levelOffsetFor, startLabel, tileParams, tsrOf,
 } from './tissueUtils.js';
 
 const POLL_MS = 2500;
@@ -58,7 +59,11 @@ export default function TissuePanel() {
 
   const row = findTissueRow(rows);
   const segRow = findReadySegmentation(rows);
-  const artHash = row?.status === 'ready' || row?.progress > 0 ? row?.art_hash : null;
+  // The artifact's identity, which exists from the moment a build is enqueued. Deliberately not
+  // gated on status: a just-queued build reports progress 0, and gating here left Stop with
+  // nothing to address and unmounted a map that was already on screen. What the overlay needs is
+  // `meta`, which only exists once there is something to draw — that is the guard, below.
+  const artHash = row?.art_hash || null;
 
   const classes = useMemo(() => classesOf(meta, catalog, backend), [meta, catalog, backend]);
   const colors = useMemo(() => colorsOf(meta, catalog, backend), [meta, catalog, backend]);
@@ -149,6 +154,15 @@ export default function TissuePanel() {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
 
+  // Stopping is cooperative: the worker finishes the core tile it is on, so this returns while the
+  // job is still running. Refreshing straight away is what turns the button into "Stopping…".
+  const stop = async () => {
+    if (!itemId || !artHash) return;
+    setBusy(true); setError(null);
+    try { await cancelTissue(itemId, artHash); await refresh(); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
   const runSegmentation = async () => {
     setBusy(true); setError(null);
     try { await startSegment(itemId); await refresh(); } catch (e) { setError(e.message); }
@@ -216,15 +230,34 @@ export default function TissuePanel() {
               title={copilotRoi ? '' : 'Draw a region on the slide first'}
               onClick={() => run(false)}
             >
-              Segment region
+              {startLabel(row, false)}
             </button>
             <button
               type="button" className="mk-btn"
               disabled={busy || isRunning(row)}
               onClick={() => run(true)}
             >
-              Segment whole slide
+              {startLabel(row, true)}
             </button>
+            {isRunning(row) && (
+              <button
+                type="button" className="mk-btn mk-btn-stop"
+                disabled={busy || !canStop(row)}
+                title={
+                  'Stops after the tile it is on. What is already computed is kept, and starting '
+                  + 'again resumes from there.'
+                }
+                onClick={stop}
+              >
+                {isStopping(row) ? 'Stopping…' : 'Stop'}
+              </button>
+            )}
+          </div>
+        )}
+        {isRunning(row) && (
+          <div className="mk-note mk-dim">
+            This build holds the tissue worker until it finishes — other tissue jobs queue behind
+            it. Stopping keeps everything already computed.
           </div>
         )}
         {cov && (
