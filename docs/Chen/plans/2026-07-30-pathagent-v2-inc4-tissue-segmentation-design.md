@@ -386,3 +386,37 @@ on this cohort's slides. T12/T13 turn each of these into a number.
 Two design changes came out of the work and are folded into §4.1 and §3: `overlap` is part of
 `art_hash` (it changes the numbers, so it is identity), and the backend falls back to CPU when the
 shared card is full rather than marking the service unavailable.
+
+---
+
+## 13. Stopping a build (added 2026-07-31)
+
+The design specified no cancel path, and a review of the panel found the consequence: a whole-slide
+build is hours of work holding the service's **only** worker, and the sole way out was
+`docker compose restart tissue`. Added, with the semantics stated here because they are the whole
+point of the feature.
+
+**A stop is cooperative and lands on a core-tile boundary.** A thread cannot be killed mid-tensor;
+`Progress.stopping()` is polled once per core, which is the only place where coverage and its
+tallies have just been persisted. Latency is therefore one core — **measured at 24 s on CPU**, and
+a fraction of that on the GPU.
+
+**A stopped build is a smaller map, not a broken one.** The pyramid is still built and
+`meta.json` / `summary.json` are still written, so what was covered is viewable and measurable the
+moment it stops. It reconciles onto the artifact row as `cancelled` — never `failed`, which would
+discard real measurements — carrying its composition, its covered area, and `remaining`.
+
+**Resume is the same button.** Coverage already made a second job extend the first; the panel just
+labels it *Resume whole slide* once a build has been stopped.
+
+**What made this more than a button: the tallies had to become atomic with the coverage.**
+Coverage was persisted per core, the tallies only at the end of a job. Any interruption left the
+two disagreeing, and the resumed job published the fractions of the cores *it* ran under the core
+count and the area of **all** of them — measured at exactly **half the true area** on a 4-core
+regression case. The tallies now live in `coverage.json` and ride the same atomic write. The rule
+is one line: *tallies describe `done`*.
+
+For artifacts predating that, `summary.json` is honoured only while its own `n_core_tiles` matches
+the coverage; otherwise the job discards those rasters and recomputes. Discarding the rasters is
+part of it — orphaned tiles are still served, and still counted by `/stats` over a bbox, so leaving
+them would give one artifact two contradictory accounts of itself.

@@ -41,6 +41,53 @@ Fixed: `_load_on_best_device` catches a CUDA OOM and loads on CPU, `/health` rep
 result — which is itself the useful finding that a region job is minutes and a whole-slide job is
 not worth starting without the card.
 
+### B3 — a whole-slide build could not be stopped (found in review, 2026-07-31)
+
+The design never specified a cancel path, and none was built: `JobQueue` had `submit`/`status` and
+nothing else. A whole-slide map is hours of work holding the service's **only** worker thread, so
+every other tissue job — including a five-second region job on another slide — queued behind it
+with no way out except `docker compose restart tissue`, which is a sledgehammer that also takes
+whatever else is queued.
+
+Fixed as a **cooperative** stop, because a thread cannot be killed mid-tensor and should not be:
+
+- `Progress` (what a job is handed) is callable exactly as the old reporter was, and additionally
+  answers `stopping()`. A job that ignores cancellation needs no changes.
+- `run_region` polls it **once per core tile** — the one boundary where stopping is free, because
+  coverage and its tallies have just been persisted.
+- A stopped job still builds its pyramid and writes `meta`/`summary`. It therefore leaves a
+  **complete map of a smaller area**, not a damaged map of a larger one, and the same button
+  resumes it.
+- `POST /tissue/cancel/{job}` returns the job's *current* status. A running job stays `running`
+  with stage `stopping` until it reaches the boundary; reporting it stopped before it is would be
+  a lie the panel then shows the user.
+- A `cancelled` build reconciles onto the artifact row as `cancelled`, **not** `failed`, carrying
+  its composition and `remaining` — a failed row would discard real measurements.
+
+### B4 — an interrupted job resumed with wrong statistics (found by B3's own tests)
+
+This one predates the stop button and is the reason it could not simply be added. Coverage was
+persisted **per core tile**; the running tallies were persisted **only at the very end of a job**,
+in `summary.json`. Any interruption — the container restart that was the only way to stop a build
+— therefore left coverage ahead of the tallies. On resume, `missing()` skipped the covered cores,
+so their pixels were never counted, and the job published the fractions of the cores *it* happened
+to run under the core count and the area of **all** of them.
+
+Measured on the regression test: a 4-core map interrupted after 2 cores and resumed reported
+`covered_mm2` **0.524 against a true 1.049 — exactly half the slide's area, silently.**
+
+Fixed structurally rather than by ordering two writes more carefully: the tallies moved **into
+`coverage.json`**, so they ride the same atomic `write_json` as the tile list they describe and
+cannot disagree with it. The rule is now stated once — *tallies describe `done`* — and an empty
+`done` means zero tallies regardless of what any other file says.
+
+For artifacts already on disk, `summary.json` remains the fallback **only when its own
+`n_core_tiles` still matches the coverage**. When nothing on disk can be trusted to describe the
+covered tiles, the job logs a warning and recomputes them rather than publishing a number it
+cannot stand behind. (A first attempt at that recovery re-read the stale summary after clearing
+coverage and over-counted by exactly one core — caught by the stale-summary test, which is why
+that test exists.)
+
 ---
 
 ## 2. Decided by measurement, not by the design's rule
@@ -148,6 +195,11 @@ the tile URL and unchecking another class changes it; the viewer survives both p
 - **The whole-slide run is in flight on CPU** (434 tissue cores, `bbox: null`, extending the same
   artifact through coverage). Its purpose is to exercise the tissue-tile-driven list and a
   wide-extent pyramid; the throughput number it yields will be a CPU number.
+- **The stop path is verified by tests, not yet on that live job.** Deploying it restarts the
+  tissue container, which ends the in-flight build at 202/434 cores — and because that build was
+  started by the pre-B4 code, its 202 covered cores have no tallies on disk and would be recomputed
+  on resume. Whether to spend that is the user's call, so the image is built and the restart is
+  not taken unilaterally.
 - **Free-space guard** (`min_free_gb`) is configured but not yet enforced in the job.
 - **Scope held**: no agent tool, no downstream filtering of Inc 2b/2c/3b, no self-trained backend
   (D6).
