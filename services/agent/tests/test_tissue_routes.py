@@ -208,3 +208,101 @@ def test_a_running_row_is_reconciled_against_the_tissue_worker(client, art_store
     assert row["result"]["tsr"] == 0.418
     assert row["result"]["covered_mm2"] == 12.4
     assert row["n_items"] == 47
+
+
+# ── stopping a build ───────────────────────────────────────────────────────────────
+
+def test_stop_reaches_the_worker_with_the_row_s_own_job_id(client, monkeypatch):
+    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+
+    seen = {}
+
+    async def cancel(*, base_url, job_id, client=None):
+        seen.update(base_url=base_url, job_id=job_id)
+        return {"job_id": job_id, "status": "running", "stage": "stopping"}
+
+    monkeypatch.setattr(routes_mod, "cancel_tissue", cancel)
+    r = client.post(f"{_BASE}/item1/tissue/tis0001/cancel")
+    assert r.status_code == 200
+    assert seen == {"base_url": _TISSUE, "job_id": "j1"}
+    # still running: the worker finishes the core it is on, and saying otherwise would be a lie
+    assert r.json()["stage"] == "stopping"
+
+
+def test_stopping_a_build_that_was_never_started_is_a_404(client, monkeypatch):
+    monkeypatch.setattr(routes_mod, "cancel_tissue", _unused_cancel)
+    assert client.post(f"{_BASE}/item1/tissue/nope/cancel").status_code == 404
+
+
+async def _unused_cancel(**_kw):
+    raise AssertionError("the worker must not be called for an unknown artifact")
+
+
+def test_a_stopped_build_is_recorded_as_stopped_not_failed(client, art_store, monkeypatch):
+    """It left a smaller but complete map, so its numbers are carried exactly as a finished
+    build's are — a `failed` row would throw away real measurements."""
+    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+
+    async def status(*, base_url, job_id, client=None):
+        return {"status": "cancelled", "stage": "stopped", "progress": 0.32,
+                "result": {"art_hash": "tis0001", "n_core_tiles": 140, "covered_mm2": 36.9,
+                           "tsr": 0.51, "fraction": {"Tumour": 0.4},
+                           "stopped": True, "remaining": 294}}
+
+    monkeypatch.setattr(routes_mod, "tissue_job_status", status)
+    rows = client.get(f"{_BASE}/item1/artifacts").json()["artifacts"]
+    row = next(r for r in rows if r["kind"] == "tissue")
+    assert row["status"] == "cancelled"
+    assert row["error"] is None
+    assert row["result"]["covered_mm2"] == 36.9
+    assert row["result"]["remaining"] == 294          # so the panel can say what is left
+    assert row["n_items"] == 140
+    assert row["progress"] == 0.32                    # not 1.0: it did not finish
+
+
+def test_a_stopped_row_is_not_polled_again(client, monkeypatch):
+    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+    polls = {"n": 0}
+
+    async def status(*, base_url, job_id, client=None):
+        polls["n"] += 1
+        return {"status": "cancelled", "stage": "stopped", "progress": 0.5, "result": {}}
+
+    monkeypatch.setattr(routes_mod, "tissue_job_status", status)
+    client.get(f"{_BASE}/item1/artifacts")
+    client.get(f"{_BASE}/item1/artifacts")
+    assert polls["n"] == 1
+
+
+def test_resuming_a_stopped_build_reuses_the_same_artifact_row(client, art_store, monkeypatch):
+    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue(job_id="j2"))
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+    rows = [r for r in _rows(art_store) if r["kind"] == "tissue"]
+    assert len(rows) == 1
+    assert rows[0]["job_id"] == "j2"
+    assert rows[0]["status"] == "queued"
+
+
+def test_stopping_a_build_whose_worker_restarted_settles_the_row(client, art_store, monkeypatch):
+    """A worker restart leaves the row polling a job that will never move again — Stop is the
+    right moment to settle it, not to raise a confusing 'unknown artifact'."""
+    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+
+    async def cancel(*, base_url, job_id, client=None):
+        raise httpx.HTTPStatusError(
+            "unknown job", request=httpx.Request("POST", "/tissue/cancel/j1"),
+            response=httpx.Response(404, json={"detail": "unknown job"}),
+        )
+
+    monkeypatch.setattr(routes_mod, "cancel_tissue", cancel)
+    r = client.post(f"{_BASE}/item1/tissue/tis0001/cancel")
+    assert r.status_code == 200
+    assert r.json()["status"] == "cancelled"
+    row = next(x for x in _rows(art_store) if x["kind"] == "tissue")
+    assert row["status"] == "cancelled"
+    assert row["error"] is None            # a restart is not a failure of the build

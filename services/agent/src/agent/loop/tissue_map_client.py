@@ -63,6 +63,25 @@ async def tissue_job_status(
             await client.aclose()
 
 
+async def cancel_tissue(
+    *, base_url: str, job_id: str, client: httpx.AsyncClient | None = None,
+) -> dict:
+    """Ask a running build to stop at its next clean boundary; returns its current status.
+
+    Returns rather than waits: the worker finishes the core tile it is on first, so the honest
+    answer here is "still running, stopping" and the panel learns the rest from its next poll.
+    """
+    owns = client is None
+    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
+    try:
+        resp = await client.post(f"/tissue/cancel/{job_id}")
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if owns:
+            await client.aclose()
+
+
 async def get_tissue_json(
     *, base_url: str, path: str, params: dict | None = None,
     client: httpx.AsyncClient | None = None,
