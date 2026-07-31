@@ -8,11 +8,16 @@ dist/
 .claude/worktrees/
 # contains server IPs / personal paths
 .claude/settings.local.json
-# per-session work logs
-.claude/logs/
+# per-session work logs. The `**/` matters: a pattern with an interior slash is
+# anchored to this file's directory, so a bare `.claude/logs/` misses the copies
+# that appear under services/*/ when a session runs from a service directory.
+**/.claude/logs/
 
 # Locally cloned reference repos (TRIDENT, WSI-Agents, ...)
 github/
+
+# Scratch screenshots kept while chasing a bug
+fix/
 
 # Local env overrides (contain secrets)
 .env.local
