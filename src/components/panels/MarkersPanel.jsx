@@ -15,7 +15,7 @@ import { useStore } from '../../store/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import { getBiomarkerMeta, getCatalog, startBiomarker } from '../../api/biomarkerApi.js';
 import {
-  removeMarkerLayers, setBackdrop, setBaseOpacity, syncMarkerLayer,
+  clearMarkerLayers, setMarkersBase, syncMarkerLayer,
 } from '../viewer/markerLayers.js';
 import {
   DAPI_WEIGHT, DEFAULT_DISPLAY, FALLBACK_PRESET, MODES, MODE_LABEL,
@@ -114,17 +114,14 @@ export default function MarkersPanel() {
       itemId, artHash, layer: LAYER_FOR[mode] || null, meta, params,
     });
     // "Remove the H&E background" is the base layer's opacity, not a separate black rectangle.
-    setBaseOpacity(viewer, mode === 'he' ? 1 : heFade);
-    setBackdrop(viewer, mode === 'he' ? '' : '#000');
+    // Declared as this panel's *preference* — the Tissue panel may be open too (Inc 4 D4).
+    setMarkersBase(viewer, mode === 'he'
+      ? null
+      : { opacity: heFade, backdrop: '#000' });
   }, [viewer, signature, itemId, artHash, mode, meta, params, heFade]);
 
   // Leaving the panel (or the slide) must not leave a map stranded on the viewer.
-  useEffect(() => () => {
-    if (!viewer) return;
-    removeMarkerLayers(viewer);
-    setBaseOpacity(viewer, 1);
-    setBackdrop(viewer, '');
-  }, [viewer]);
+  useEffect(() => () => { clearMarkerLayers(viewer); }, [viewer]);
 
   // ── actions ───────────────────────────────────────────────────────────────────
   const run = async (whole) => {
