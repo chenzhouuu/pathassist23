@@ -13,14 +13,15 @@ import httpx
 _TIMEOUT = 60.0
 
 
-def _path(kind: str, item: str, art_hash: str) -> str:
-    """Where this kind's bytes live, in its owning service's own URL vocabulary.
+# Services that own exactly one artifact kind name it in the path, so the kind is implicit:
+# `/tissue/{item}/{hash}`. The preprocess service owns four, so it takes the row's kind and maps
+# it to its own directory layout — the gateway does not need to know that layout.
+_OWN_KIND_IS_THE_PATH = ("tissue", "biomarker", "nuclei")
 
-    `tissue` and `biomarker` each own one kind, so the kind is implicit in their path. The
-    preprocess service owns four, so it takes the row's `kind` and maps it to its directory
-    layout itself — the gateway does not need to know that layout.
-    """
-    if kind in ("tissue", "biomarker"):
+
+def _path(kind: str, item: str, art_hash: str) -> str:
+    """Where this kind's bytes live, in its owning service's own URL vocabulary."""
+    if kind in _OWN_KIND_IS_THE_PATH:
         return f"/{kind}/{item}/{art_hash}"
     return f"/artifacts/{kind}/{item}/{art_hash}"
 
