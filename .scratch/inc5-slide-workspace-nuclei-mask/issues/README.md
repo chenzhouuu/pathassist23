@@ -33,3 +33,30 @@ Decided while breaking this down, and not in the plan:
   always-mounted owner first — the shape the canvas overlays already use. 03a does that for tissue;
   03b brings the rest across and deletes the old switches.
 - The uncommitted tissue/biomarker delete endpoints in the working tree belong to ticket 04.
+
+## What running it on a real slide turned up
+
+All nine tickets were verified against the live stack (TCGA-3C-AAAU, 151392×37993, 434 tissue
+cores), not only against tests. Five defects came out of that, and none of them were visible from
+the test suite:
+
+- **The gateway asked cellvit for a nuclei artifact's bytes at the wrong path.** `nuclei` fell into
+  the preprocess branch of the address table. Usage reported 0 for every nuclei artifact, and a
+  delete removed the durable row while leaving the directory on disk. The route tests double out
+  the client, so a wrong URL still "reaches the worker" — the test now pins each kind against the
+  route its service registers.
+- **The counts and the coverage disagreed mid-run.** `summary.json` is written once at the end,
+  coverage after every core, and the meta route paired a live tile list with stale counts. On the
+  test slide it was reporting 7,616 nuclei over 26 cores; the real figure was 10,790.
+- **The mask only appeared when the job ended**, which for a whole slide is over an hour. Cores are
+  now drawn as they land.
+- **The CellViT worker wedges** past twenty-odd consecutive `process_wsi` calls: the thread blocks
+  in `ray.get()` inside vendored code with the actors alive at ~0 % CPU and the GPU idle, and never
+  returns. Seen twice (after 21 cores, then 26) and confirmed by stack dump. Not interruptible from
+  here, so the session is now rebuilt every 12 inferences. A mitigation, not a fix — the upstream
+  behaviour is unexplained. It was also on the interactive `/segment` path, just more slowly.
+- **The deployed tissue and preprocess containers predated ticket 04**, so their usage endpoints
+  404'd. A rebuild, not a code change, but it is why the confirm dialog showed no size.
+
+Measured, for plan R3: **~7 s and ~0.8 MB per core** on the GPU box, so a 434-core whole slide is
+roughly **50 minutes and 350 MB** of class + cover + instance rasters.
