@@ -337,7 +337,7 @@ export const useStore = create((set, get) => ({
   setMarkerLayerParams: (patch) =>
     set((s) => ({ markerLayerParams: { ...s.markerLayerParams, ...patch } })),
 
-  // The same, for the nuclei mask. Patches nucleiUtils' NUCLEI_LAYER_DEFAULTS.
+  // The same, for the nuclei mask. Patches workspace/nuclei.js' NUCLEI_LAYER_DEFAULTS.
   nucleiLayerParams: {},
   setNucleiLayerParams: (patch) =>
     set((s) => ({ nucleiLayerParams: { ...s.nucleiLayerParams, ...patch } })),

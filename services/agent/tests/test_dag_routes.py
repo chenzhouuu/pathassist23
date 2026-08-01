@@ -277,81 +277,19 @@ async def test_a_size_the_worker_cannot_give_is_not_a_refusal(client, art_store,
     assert r.status_code == 200 and r.json()["bytes"] == 0
 
 
-# ── nuclei (Inc 5, ticket 05) ──────────────────────────────────────────────────────
+# ── nuclei (Inc 5 · 05; moved out in Inc 6 · 05) ───────────────────────────────────
+#
+# Submitting, stopping and reconciling a nuclei build are no longer this file's subject: nuclei
+# dispatches onto the Girder job queue now, and this file's client pins `plugin_url` to None. The
+# nine tests that were here are in `test_dispatch_routes.py`, rewritten around what replaced each
+# one — a dispatch that writes no row, a refusal raised before the run is queued, and a report that
+# creates the row when the bytes exist. What stays below is the read side, which did not move.
 
 
 def _with_cellvit(client):
     from agent.gateway.routes import get_cellvit_url
     client.app.dependency_overrides[get_cellvit_url] = lambda: "http://cellvit:8020"
     return client
-
-
-def _fake_enqueue(seen=None, **ack):
-    async def enqueue(*, base_url, item, bbox, token, seg_hash=None, client=None):
-        if seen is not None:
-            seen.append({"bbox": bbox, "seg_hash": seg_hash})
-        return ack
-    return enqueue
-
-
-@pytest.mark.anyio
-async def test_nuclei_records_a_row_with_no_parent(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_nuclei", _fake_enqueue(
-        art_hash="n1", job_id="j9", status="queued", backend="cellvit-sam-h", scope="region",
-    ))
-    _with_cellvit(client)
-
-    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": {"x": 0, "y": 0,
-                                                            "width": 512, "height": 512}})
-    assert r.status_code == 200
-    row = r.json()
-    assert row["kind"] == "nuclei" and row["art_hash"] == "n1"
-    # A nucleus outline does not depend on a segmentation — a tissue mask is coverage, not identity.
-    assert row["parent_hash"] is None
-    assert row["params"]["backend"] == "cellvit-sam-h"
-    assert row["params"]["scope"] == "region"
-
-
-def test_nuclei_without_a_configured_worker_is_503(client):
-    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": {"x": 0, "y": 0, "w": 1, "h": 1}})
-    assert r.status_code == 503
-
-
-def test_the_workers_own_refusal_is_forwarded(client, monkeypatch):
-    req = httpx.Request("POST", "http://cellvit:8020/nuclei")
-    resp = httpx.Response(400, json={"detail": "a whole-slide run needs seg_hash"}, request=req)
-
-    async def refuse(*, base_url, item, bbox, token, seg_hash=None, client=None):
-        raise httpx.HTTPStatusError("bad request", request=req, response=resp)
-    monkeypatch.setattr(routes_mod, "enqueue_nuclei", refuse)
-    _with_cellvit(client)
-
-    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": None})
-    assert r.status_code == 400
-    assert "seg_hash" in r.json()["detail"]
-
-
-@pytest.mark.anyio
-async def test_a_finished_nuclei_build_puts_its_counts_on_the_row(client, art_store, monkeypatch):
-    # Queued with a job id, which is what makes the list route poll the worker for it.
-    await art_store.upsert_artifact(
-        item="item9", kind="nuclei", art_hash="n1", parent_hash=None, params={}, job_id="j9",
-    )
-
-    async def status(*, base_url, job_id, client=None):
-        return {"status": "ready", "result": {
-            "art_hash": "n1", "n_nuclei": 1234, "n_tiles": 3, "area_mm2": 0.75,
-            "counts_by_class": {"Neoplastic": 1000, "Inflammatory": 234},
-        }}
-    monkeypatch.setattr(routes_mod, "nuclei_job_status", status)
-    _with_cellvit(client)
-
-    rows = client.get(f"{_BASE}/item9/artifacts").json()["artifacts"]
-    row = next(r for r in rows if r["art_hash"] == "n1")
-    assert row["status"] == "ready"
-    assert row["n_items"] == 1234                       # what the Workspace counts
-    assert row["result"]["counts_by_class"]["Neoplastic"] == 1000
-    assert row["result"]["n_tiles"] == 3
 
 
 @pytest.mark.anyio
@@ -414,131 +352,6 @@ def test_a_bad_class_spec_stays_a_400_rather_than_becoming_a_502(client, monkeyp
 def test_a_tile_without_a_configured_worker_is_503(client):
     r = client.get(f"{_BASE}/item9/nuclei/n1/tile/classes/0/0/0.png")
     assert r.status_code == 503
-
-
-# ── whole slide, stop, resume (Inc 5, ticket 07) ───────────────────────────────────
-
-
-@pytest.mark.anyio
-async def test_a_whole_slide_run_carries_the_segmentation_without_making_it_a_parent(
-    client, art_store, monkeypatch,
-):
-    """The mask decides which cores are worth the GPU — coverage, not identity. So it rides in
-    params as provenance and leaves no DAG edge, and deleting it later is not refused on this
-    artifact's account."""
-    seen = []
-    monkeypatch.setattr(routes_mod, "enqueue_nuclei", _fake_enqueue(
-        seen, art_hash="n1", job_id="j9", status="queued",
-        backend="cellvit-sam-h", scope="slide",
-    ))
-    _with_cellvit(client)
-
-    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": None, "seg_hash": "s1"})
-    assert r.status_code == 200
-    assert seen[0] == {"bbox": None, "seg_hash": "s1"}
-    row = r.json()
-    assert row["parent_hash"] is None
-    assert row["params"]["seg_hash"] == "s1"
-    assert row["params"]["scope"] == "slide"
-
-
-@pytest.mark.anyio
-async def test_stop_asks_the_worker_and_leaves_the_row_to_the_worker(
-    client, art_store, monkeypatch,
-):
-    await art_store.upsert_artifact(
-        item="item9", kind="nuclei", art_hash="n1", parent_hash=None, params={}, job_id="j9",
-    )
-    seen = []
-
-    async def cancel(*, base_url, job_id, client=None):
-        seen.append((base_url, job_id))
-        return {"job_id": job_id, "status": "running", "stage": "stopping"}
-    monkeypatch.setattr(routes_mod, "cancel_nuclei", cancel)
-    _with_cellvit(client)
-
-    r = client.post(f"{_BASE}/item9/nuclei/n1/cancel")
-    assert r.status_code == 200
-    assert seen[0] == ("http://cellvit:8020", "j9")
-    # Cooperative: the worker finishes the core it is on, so the row stays running until the next
-    # reconciliation. Writing "stopped" here would be a lie the panel then shows.
-    assert r.json()["stage"] == "stopping"
-    assert (await art_store.get_artifact(item="item9", art_hash="n1"))["status"] == "queued"
-
-
-@pytest.mark.anyio
-async def test_stopping_a_build_the_worker_has_forgotten_settles_the_row(
-    client, art_store, monkeypatch,
-):
-    """A worker restart leaves the panel polling a build that will never move again. Stop is the
-    right moment to settle it — what it computed is on disk and starting again resumes."""
-    await art_store.upsert_artifact(
-        item="item9", kind="nuclei", art_hash="n1", parent_hash=None, params={}, job_id="j9",
-    )
-    req = httpx.Request("POST", "http://cellvit:8020/nuclei/cancel/j9")
-    resp = httpx.Response(404, json={"detail": "unknown job"}, request=req)
-
-    async def gone(*, base_url, job_id, client=None):
-        raise httpx.HTTPStatusError("unknown job", request=req, response=resp)
-    monkeypatch.setattr(routes_mod, "cancel_nuclei", gone)
-    _with_cellvit(client)
-
-    r = client.post(f"{_BASE}/item9/nuclei/n1/cancel")
-    assert r.status_code == 200 and r.json()["status"] == "cancelled"
-    assert (await art_store.get_artifact(item="item9", art_hash="n1"))["status"] == "cancelled"
-
-
-@pytest.mark.anyio
-async def test_stopping_a_build_that_was_never_started(client, art_store, monkeypatch):
-    await _seed(art_store, "item9", "nuclei", "n1")          # no job_id
-    _with_cellvit(client)
-    assert client.post(f"{_BASE}/item9/nuclei/n1/cancel").status_code == 409
-    assert client.post(f"{_BASE}/item9/nuclei/nope/cancel").status_code == 404
-
-
-@pytest.mark.anyio
-async def test_a_stopped_nuclei_build_keeps_its_counts_on_the_row(
-    client, art_store, monkeypatch,
-):
-    """A stopped build is not a failed one: it holds a complete artifact of a smaller area, and
-    its numbers are folded in exactly as a finished build's are — through the nuclei key table,
-    not the tissue map's, which carries neither the class histogram nor a count."""
-    await art_store.upsert_artifact(
-        item="item9", kind="nuclei", art_hash="n1", parent_hash=None, params={}, job_id="j9",
-    )
-
-    async def status(*, base_url, job_id, client=None):
-        return {"status": "cancelled", "stage": "stopped", "progress": 0.35, "result": {
-            "art_hash": "n1", "n_nuclei": 412, "n_tiles": 2, "area_mm2": 2.1,
-            "counts_by_class": {"Neoplastic": 300, "Connective": 112},
-            "stopped": True, "remaining": 5,
-        }}
-    monkeypatch.setattr(routes_mod, "nuclei_job_status", status)
-    _with_cellvit(client)
-
-    rows = client.get(f"{_BASE}/item9/artifacts").json()["artifacts"]
-    row = next(r for r in rows if r["art_hash"] == "n1")
-    assert row["status"] == "cancelled" and row["stage"] == "stopped"
-    assert row["n_items"] == 412
-    assert row["result"]["counts_by_class"]["Neoplastic"] == 300
-    assert row["result"]["remaining"] == 5
-    # Not 1.0: a stopped build reporting done would misdescribe what is on disk.
-    assert row["progress"] == 0.35
-
-
-def test_a_full_cache_is_forwarded_as_a_refusal_the_panel_can_read(client, monkeypatch):
-    req = httpx.Request("POST", "http://cellvit:8020/nuclei")
-    resp = httpx.Response(507, json={"detail": "only 0.5 GB free on the nuclei cache"},
-                          request=req)
-
-    async def refuse(*, base_url, item, bbox, token, seg_hash=None, client=None):
-        raise httpx.HTTPStatusError("no room", request=req, response=resp)
-    monkeypatch.setattr(routes_mod, "enqueue_nuclei", refuse)
-    _with_cellvit(client)
-
-    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": None, "seg_hash": "s1"})
-    assert r.status_code == 507
-    assert "0.5 GB free" in r.json()["detail"]
 
 
 # ── biomarker is built on nuclei (Inc 5, ticket 09) ────────────────────────────────

@@ -13,9 +13,14 @@ reconciles it against the worker's /status. Return dicts are JSON-ready for the 
 
   artifact → {"item_id": str, "kind": str, "art_hash": str, "parent_hash": str|None,
               "params": dict, "status": str, "stage": str|None, "progress": float,
-              "job_id": str|None, "n_items": int|None, "dim": int|None,
-              "artifact_ref": str|None, "result": dict|None, "error": str|None,
-              "created_at": iso8601, "updated_at": iso8601}
+              "job_id": str|None, "girder_job_id": str|None, "n_items": int|None,
+              "dim": int|None, "artifact_ref": str|None, "result": dict|None,
+              "error": str|None, "created_at": iso8601, "updated_at": iso8601}
+
+``girder_job_id`` is the run that produced this row's bytes (Inc 6 · 05). It is provenance, not
+control: it is written when the run reports, points at a job that is already over, and is the link
+from an artifact to the log of the work that made it. ``job_id`` is the *service's* own transient
+id and only means anything for the kinds still on the pre-Inc-6 path.
 
 Distinct from ``agent.loop.artifacts.ArtifactStore`` (that one holds a *turn's* bulk tool geometry).
 """
@@ -26,7 +31,7 @@ import asyncpg
 
 _COLS = (
     "girder_item, kind, art_hash, parent_hash, params, status, stage, progress, "
-    "job_id, n_items, dim, artifact_ref, result, error, created_at, updated_at"
+    "job_id, girder_job_id, n_items, dim, artifact_ref, result, error, created_at, updated_at"
 )
 
 
@@ -37,6 +42,7 @@ def _row(r: asyncpg.Record | None) -> dict | None:
         "item_id": r["girder_item"], "kind": r["kind"], "art_hash": r["art_hash"],
         "parent_hash": r["parent_hash"], "params": r["params"], "status": r["status"],
         "stage": r["stage"], "progress": r["progress"], "job_id": r["job_id"],
+        "girder_job_id": r["girder_job_id"],
         "n_items": r["n_items"], "dim": r["dim"], "artifact_ref": r["artifact_ref"],
         "result": r["result"], "error": r["error"], "created_at": r["created_at"].isoformat(),
         "updated_at": r["updated_at"].isoformat(),
@@ -50,6 +56,7 @@ class PreprocessArtifactStore(ABC):
     async def upsert_artifact(
         self, *, item: str, kind: str, art_hash: str, parent_hash: str | None,
         params: dict, status: str = "queued", job_id: str | None = None,
+        girder_job_id: str | None = None,
     ) -> dict:
         """Create the artifact row (or reset an existing one to a fresh build), return it."""
 
@@ -58,6 +65,7 @@ class PreprocessArtifactStore(ABC):
         self, *, item: str, art_hash: str, status: str, stage: str | None = None,
         progress: float | None = None, n_items: int | None = None, dim: int | None = None,
         artifact_ref: str | None = None, result: dict | None = None, error: str | None = None,
+        girder_job_id: str | None = None,
     ) -> None:
         """Update a build's live state (from the worker's /status reconciliation)."""
 
@@ -89,12 +97,14 @@ class MemoryPreprocessArtifactStore(PreprocessArtifactStore):
 
     async def upsert_artifact(
         self, *, item, kind, art_hash, parent_hash, params, status="queued", job_id=None,
+        girder_job_id=None,
     ):
         self._seq += 1
         row = {
             "item_id": item, "kind": kind, "art_hash": art_hash, "parent_hash": parent_hash,
             "params": dict(params or {}), "status": status, "stage": None, "progress": 0.0,
-            "job_id": job_id, "n_items": None, "dim": None, "artifact_ref": None,
+            "job_id": job_id, "girder_job_id": girder_job_id,
+            "n_items": None, "dim": None, "artifact_ref": None,
             "result": None, "error": None,
             "created_at": self._TS, "updated_at": self._TS, "_seq": self._seq,
         }
@@ -103,12 +113,14 @@ class MemoryPreprocessArtifactStore(PreprocessArtifactStore):
 
     async def set_status(
         self, *, item, art_hash, status, stage=None, progress=None, n_items=None,
-        dim=None, artifact_ref=None, result=None, error=None,
+        dim=None, artifact_ref=None, result=None, error=None, girder_job_id=None,
     ):
         row = self._rows.get((item, art_hash))
         if row is None:
             return
         row["status"] = status
+        if girder_job_id is not None:
+            row["girder_job_id"] = girder_job_id
         if stage is not None:
             row["stage"] = stage
         if progress is not None:
@@ -149,26 +161,28 @@ class PgPreprocessArtifactStore(PreprocessArtifactStore):
 
     async def upsert_artifact(
         self, *, item, kind, art_hash, parent_hash, params, status="queued", job_id=None,
+        girder_job_id=None,
     ):
         row = await self._pool.fetchrow(
             f"""
             INSERT INTO preprocess_artifact
-                (girder_item, kind, art_hash, parent_hash, params, status, job_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (girder_item, kind, art_hash, parent_hash, params, status, job_id, girder_job_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (girder_item, art_hash) DO UPDATE SET
                 kind = EXCLUDED.kind, parent_hash = EXCLUDED.parent_hash,
                 params = EXCLUDED.params, status = EXCLUDED.status, job_id = EXCLUDED.job_id,
+                girder_job_id = EXCLUDED.girder_job_id,
                 stage = NULL, progress = 0, n_items = NULL, dim = NULL, artifact_ref = NULL,
                 result = NULL, error = NULL, updated_at = now()
             RETURNING {_COLS}
             """,
-            item, kind, art_hash, parent_hash, dict(params or {}), status, job_id,
+            item, kind, art_hash, parent_hash, dict(params or {}), status, job_id, girder_job_id,
         )
         return _row(row)  # type: ignore[return-value]
 
     async def set_status(
         self, *, item, art_hash, status, stage=None, progress=None, n_items=None,
-        dim=None, artifact_ref=None, result=None, error=None,
+        dim=None, artifact_ref=None, result=None, error=None, girder_job_id=None,
     ):
         await self._pool.execute(
             """
@@ -181,11 +195,12 @@ class PgPreprocessArtifactStore(PreprocessArtifactStore):
                 artifact_ref = COALESCE($8, artifact_ref),
                 result = COALESCE($9, result),
                 error = COALESCE($10, error),
+                girder_job_id = COALESCE($11, girder_job_id),
                 updated_at = now()
             WHERE girder_item = $1 AND art_hash = $2
             """,
             item, art_hash, status, stage, progress, n_items, dim, artifact_ref,
-            dict(result) if result is not None else None, error,
+            dict(result) if result is not None else None, error, girder_job_id,
         )
 
     async def get_artifact(self, *, item, art_hash):

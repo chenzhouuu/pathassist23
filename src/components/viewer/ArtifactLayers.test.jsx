@@ -39,6 +39,7 @@ import { getSegmentationContours } from '../../api/preprocessApi.js';
 import { syncMarkerLayer } from './markerLayers.js';
 import { buildTileSource, removeLayer, syncLayer } from './overlayLayers.js';
 import { useStore } from '../../store/index.js';
+import { useRunsStore } from '../../store/runs.js';
 
 const META = {
   slide: { width: 40000, height: 30000 },
@@ -75,6 +76,7 @@ describe('ArtifactLayers', () => {
       nucleiLayerParams: {},
       tissueContours: {},
     });
+    useRunsStore.setState({ byId: {} });
   });
 
   it('draws nothing while no artifact is switched on', async () => {
@@ -312,10 +314,12 @@ describe('the nuclei mask', () => {
   });
 
   it('re-reads a growing artifact and stops when the build does (Inc 5 · 07)', async () => {
+    // The signal is the *job*, not the artifact row (Inc 6 · 05): a nuclei build has no row until
+    // its bytes exist, so "is this mask still growing" is a question about the run.
     vi.useFakeTimers();
     try {
       getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 1 } });
-      useStore.setState({ artifactRuns: { nuc1: true } });
+      useRunsStore.setState({ byId: { j1: { id: 'j1', artHash: 'nuc1', status: 2 } } });
       render(<ArtifactLayers />);
       useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
       await vi.waitFor(() => expect(getNucleiMeta).toHaveBeenCalled());
@@ -326,7 +330,7 @@ describe('the nuclei mask', () => {
       await vi.waitFor(() => expect(nucleiCalls().at(-1)[1].signature).toContain('rev=2'));
 
       // Once the build is over there is nothing new to see, so it stops asking.
-      useStore.setState({ artifactRuns: {} });
+      useRunsStore.setState({ byId: { j1: { id: 'j1', artHash: 'nuc1', status: 3 } } });
       await vi.advanceTimersByTimeAsync(100);
       const settled = getNucleiMeta.mock.calls.length;
       await vi.advanceTimersByTimeAsync(20000);

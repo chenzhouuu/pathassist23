@@ -26,7 +26,7 @@ from girder_worker.app import app
 from girder_worker.utils import JobStatus, girder_job
 
 from ..routing import base_url, route_for
-from ..runner import HTTP_TIMEOUT, drive, report_terminal
+from ..runner import HTTP_TIMEOUT, drive, report_terminal, service_payload
 from ..status import Status, progress_message
 
 
@@ -68,7 +68,7 @@ def run_analysis(self, *, kind: str, item: str, art_hash: str, params: dict,
             message=progress_message(status),
         )
 
-    payload = {"item": item, "girder_token": girder_token, **(params or {})}
+    payload = service_payload(kind, item, girder_token, params)
     with httpx.Client(base_url=base_url(route), timeout=HTTP_TIMEOUT) as client:
         status = drive(client, kind, payload, report=report, is_canceled=lambda: self.canceled)
 
@@ -77,7 +77,8 @@ def run_analysis(self, *, kind: str, item: str, art_hash: str, params: dict,
         # reported to the gateway: nothing usable reached the disk.
         raise RuntimeError(status.error or f"{kind} failed")
 
-    report_terminal(gateway_url, girder_token, item, art_hash, status)
+    report_terminal(gateway_url, girder_token, item, art_hash, status,
+                    kind=kind, params=params, girder_job_id=_job_id(jm))
 
     if status.state == "cancelled" and jm is not None:
         # A cooperative stop returns normally, so without this the job would settle on SUCCESS and
@@ -86,3 +87,21 @@ def run_analysis(self, *, kind: str, item: str, art_hash: str, params: dict,
 
     return {"kind": kind, "item": item, "art_hash": art_hash,
             "status": status.state, "result": status.result}
+
+
+def _job_id(jm) -> str | None:
+    """This run's Girder job id, off the update URL girder_worker handed the JobManager.
+
+    The job is minted by the `create_task_job` hook during `apply_async`, so its id does not exist
+    when the kwargs are built and cannot be passed in. What the worker *is* given is
+    `jobInfoSpec.url` — `{apiUrl}/job/{jobId}` — which is the id's only carrier on this side
+    (girder_worker/utils.py, `JobManager.url`).
+
+    Best-effort by design: `girder_job_id` records which run produced an artifact's bytes, and a
+    row with the bytes and no provenance is worth more than a failed report.
+    """
+    url = getattr(jm, "url", None)
+    if not url:
+        return None
+    tail = str(url).rstrip("/").rsplit("/", 1)[-1]
+    return tail or None

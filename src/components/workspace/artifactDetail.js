@@ -18,7 +18,7 @@
 import {
   RENDERS, RENDER_LABEL, classRows, colorsOf, coverageSummary, formatArea, formatCount,
   hasInstances, layerLevels, totalNuclei, withNucleiDefaults,
-} from '../panels/nucleiUtils.js';
+} from './nuclei.js';
 
 /** The name a class is stored and displayed under has to be the same string, or hiding breaks. */
 const segment = (name, count, fraction, colors, hidden) => ({

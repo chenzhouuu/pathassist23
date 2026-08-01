@@ -4,6 +4,8 @@
 construction — a wrong path or a wrong method fails here rather than reaching a queue.
 """
 
+import json
+
 import httpx
 import pytest
 
@@ -12,6 +14,7 @@ from girder_pathassist.runner import (
     drive,
     read_status,
     request_cancel,
+    service_payload,
     submit,
 )
 
@@ -52,6 +55,20 @@ def test_nuclei_and_segmentation_do_not_share_a_route():
         submit(c, "segmentation", {})
         submit(c, "nuclei", {})
     assert seen == ["http://svc/segment", "http://svc/nuclei"]
+
+
+def test_the_slide_goes_under_the_key_each_service_names_it_by():
+    """Not uniform, and not made uniform: the preprocess service says `item` and the three
+    JobQueue services say `slide_ref`. This was measured rather than read — the first nuclei
+    dispatch came back `400: slide_ref is required` (Inc 6 · 05)."""
+    assert service_payload("segmentation", "i1", "tok", {"segmenter": "hest"}) == {
+        "item": "i1", "girder_token": "tok", "segmenter": "hest",
+    }
+    assert service_payload("nuclei", "i1", "tok", {"bbox": None, "seg_hash": "s1"}) == {
+        "slide_ref": "i1", "girder_token": "tok", "bbox": None, "seg_hash": "s1",
+    }
+    for kind in ("tissue", "biomarker"):
+        assert "slide_ref" in service_payload(kind, "i1", None, None)
 
 
 def test_a_refusal_carries_the_services_own_words():
@@ -251,6 +268,32 @@ def test_the_gateway_hears_the_outcome_at_the_artifact_it_named():
     assert seen["url"] == "http://gw/api/slides/item1/artifacts/hash1/result"
     assert seen["token"] == "tok"
     assert '"status": "ready"' in seen["body"] or '"status":"ready"' in seen["body"]
+
+
+def test_the_report_carries_what_the_row_would_have_to_be_created_from():
+    """A kind on the D9 shape has no row until this call arrives (Inc 6 · 05), so the report is
+    the row's first write and has to name the kind and the params it was run with."""
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.read().decode())
+        return json_response(200, {})
+
+    transport = httpx.MockTransport(handler)
+    import girder_pathassist.runner as runner
+
+    real_post = httpx.post
+    httpx.post = lambda url, **kw: httpx.Client(transport=transport).post(url, **kw)
+    try:
+        runner.report_terminal("http://gw/api", "tok", "item1", "hash1", _ready_status(),
+                               kind="nuclei", params={"bbox": None, "seg_hash": "s1"},
+                               girder_job_id="girder-job-9")
+    finally:
+        httpx.post = real_post
+
+    assert seen["body"]["kind"] == "nuclei"
+    assert seen["body"]["params"] == {"bbox": None, "seg_hash": "s1"}
+    assert seen["body"]["girder_job_id"] == "girder-job-9"
 
 
 def test_a_gateway_that_is_down_does_not_fail_the_run():

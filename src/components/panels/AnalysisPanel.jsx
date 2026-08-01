@@ -10,8 +10,9 @@
 // list, and the Runs section beneath the catalog (03) is where every run — this slide's, other
 // slides', other users' — is watched.
 //
-// Native entries still submit to their existing endpoints. Moving each kind onto the Celery path is
-// 05–07, one at a time, and until a kind moves its own tab stays where it is.
+// Native entries submit to their existing gateway endpoints; what is behind one is what moves.
+// **Nuclei moved in 05** — it is a Girder job now, stopped from Runs, and this panel is the only
+// place it can be started. The other four follow in 06–07, and until a kind moves its tab stays.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';

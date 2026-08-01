@@ -93,8 +93,23 @@ export default function WorkspacePanel() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Artifacts ∪ the runs in flight for this slide, unioned on `art_hash` — the hash is computed
+  // before the job is dispatched, so a ghost row becomes a real row under the same React key and
+  // nothing flickers (plan §5).
+  const described = useMemo(() => {
+    const views = sortArtifacts(rows).map((row) => describeArtifact(row));
+    return joinRuns(views, Object.values(runsById), slideKeyOf(activeItem));
+  }, [rows, runsById, activeItem]);
+
+  // A run starting or finishing is exactly when this list changes, and for a kind on the D9 shape
+  // it is the *only* signal: nuclei has no artifact row until its bytes exist, so the ghost row
+  // becoming a real one is a job leaving the unfinished set and nothing else would have asked.
+  const liveRuns = described.filter((v) => v.run).length;
+  useEffect(() => { refresh(); }, [liveRuns]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Poll only while something is actually building — a slide whose artifacts are all finished is
-  // a static list, and the endpoint reconciles against the workers on every call.
+  // a static list, and the endpoint reconciles against the workers on every call. The runs feed
+  // has its own poller, so this one covers the kinds whose progress still lives on the row.
   const building = rows.some(isInFlight);
   useEffect(() => {
     if (!building) {
@@ -104,14 +119,6 @@ export default function WorkspacePanel() {
     pollRef.current = setInterval(() => { refresh(); }, POLL_MS);
     return () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
   }, [building, refresh]);
-
-  // Artifacts ∪ the runs in flight for this slide, unioned on `art_hash` — the hash is computed
-  // before the job is dispatched, so a ghost row becomes a real row under the same React key and
-  // nothing flickers (plan §5).
-  const described = useMemo(() => {
-    const views = sortArtifacts(rows).map((row) => describeArtifact(row));
-    return joinRuns(views, Object.values(runsById), slideKeyOf(activeItem));
-  }, [rows, runsById, activeItem]);
 
   // A slide's meta is that slide's. Nothing carries over, and neither does what was open.
   useEffect(() => { setMeta({}); setOpenKey(null); }, [itemId]);

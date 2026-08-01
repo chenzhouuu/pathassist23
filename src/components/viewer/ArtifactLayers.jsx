@@ -22,6 +22,8 @@
 //                 what this owns is fetching the contours once and caching them by hash.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
+import { useRunsStore } from '../../store/runs.js';
+import { isUnfinished } from '../panels/analysis/runsUtils.js';
 import { getTissueMeta, tileAjaxHeaders, tileUrl } from '../../api/tissueApi.js';
 import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
 import { getNucleiMeta, tileUrl as nucleiTileUrl } from '../../api/nucleiApi.js';
@@ -38,7 +40,7 @@ import {
   classesOf as nucleiClassesOf, hasInstances, layerLevels as nucleiLevels,
   layerSignature as nucleiSignature, levelOffsetFor as nucleiOffsetFor,
   tileParams as nucleiTileParams, withNucleiDefaults,
-} from '../panels/nucleiUtils.js';
+} from '../workspace/nuclei.js';
 import { clearMarkerLayers, setMarkersBase, syncMarkerLayer } from './markerLayers.js';
 import { buildTileSource, removeLayer, setBasePreference, syncLayer } from './overlayLayers.js';
 
@@ -139,7 +141,13 @@ function NucleiTileLayer({ viewer, itemId, hash }) {
   const stored = useStore((s) => s.nucleiLayerParams);
   // A whole-slide run fills in core by core over minutes or hours. While it does, re-read the
   // artifact's coverage so the mask catches up on its own; once it stops, stop asking.
-  const building = useStore((s) => !!s.artifactRuns[hash]);
+  //
+  // Asked of the runs store, not of `artifactRuns` (Inc 6 · 05). `artifactRuns` is filled by the
+  // panels from the artifact rows they poll, and a nuclei build has **no row** until its bytes
+  // exist — so the one thing that knows a mask is still growing is the job. The other kinds keep
+  // the old source until they move too, which is why both exist here.
+  const building = useRunsStore((s) => Object.values(s.byId)
+    .some((r) => r.artHash === hash && isUnfinished(r)));
   const meta = useArtifactMeta(getNucleiMeta, itemId, hash, building ? BUILD_REFRESH_MS : 0);
   const mountedSig = useRef(null);
 

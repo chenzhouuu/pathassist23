@@ -82,6 +82,11 @@ CREATE INDEX IF NOT EXISTS preprocess_artifact_item_idx
 -- this holds the summary (classes / probs / pred_index / n_patches / elapsed_ms) so the panel can
 -- show the last call straight out of list_artifacts. Per-patch arrays never live here.
 ALTER TABLE preprocess_artifact ADD COLUMN IF NOT EXISTS result JSONB;
+-- Inc 6 · 05: which Girder job produced this row's bytes. Provenance, not control — it is written
+-- when the run reports, points at a job that is already over, and is the link from an artifact to
+-- the log of the work that made it. `job_id` above is the *service's* transient id and only means
+-- anything for the kinds still on the pre-Inc-6 path.
+ALTER TABLE preprocess_artifact ADD COLUMN IF NOT EXISTS girder_job_id TEXT;
 """
 
 

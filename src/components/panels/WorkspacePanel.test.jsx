@@ -2,7 +2,7 @@
 // §5.2 asks for, read off the artifact table and nothing else, and that a build in flight arrives
 // at ready on its own.
 import React from 'react';
-import { render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { act, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -403,6 +403,27 @@ describe('a run with no artifact row yet', () => {
     await screen.findByText('Nuclei');
     // One row, not a ghost beside a real one — they share `art_hash`, so they are one row.
     expect(screen.getAllByText('Nuclei')).toHaveLength(1);
+    expect(screen.queryByText('Starting…')).not.toBeInTheDocument();
+  });
+  it('goes and looks for the row when the run that would have written it finishes', async () => {
+    // The only signal there is (Inc 6 · 05). Nuclei has no artifact row while it builds, so the
+    // list gains its row at the moment a job leaves the unfinished set — and nothing polls the
+    // artifact list in the meantime, because from its point of view nothing was ever building.
+    useStore.setState({ activeItem: SLIDE_WITH_FILE });
+    const run = {
+      id: 'j1', created: '2026-08-01T19:48:34Z', lane: 'pathassist', slideKey: 'file-1',
+      kind: 'nuclei', artHash: 'nuc1', title: 'Nuclei segmentation', started: true,
+    };
+    listRuns.mockResolvedValue([{ ...run, status: 2 }]);
+    listArtifacts.mockResolvedValue([]);
+    render(<WorkspacePanel />);
+    await screen.findByText('Starting…');
+
+    listRuns.mockResolvedValue([{ ...run, status: 3 }]);
+    listArtifacts.mockResolvedValue([NUCLEI_ROW]);
+    await act(async () => { useRunsStore.getState().applyJobEvent({ ...run, status: 3 }); });
+
+    expect(await screen.findByText('Nuclei')).toBeInTheDocument();
     expect(screen.queryByText('Starting…')).not.toBeInTheDocument();
   });
 });

@@ -307,10 +307,29 @@ docker cp services/girder_pathassist/src/girder_pathassist \
     dsa-girder-1:/opt/girder_pathassist/src/
 docker restart dsa-girder-1
 
+# TWO containers, not one. `rest.py` runs in Girder; `driver.py`, `runner.py` and `routing.py` run
+# in the Celery worker, and a change to the route table that only reaches Girder produces a run
+# that dispatches perfectly and then dials the wrong service.
+docker cp services/girder_pathassist/src/girder_pathassist \
+    agent-celery-1:/opt/girder_pathassist/src/
+docker restart agent-celery-1
+
 # Confirm the routes are mounted (401 = there and authenticated; 404 = not loaded)
 curl -s -o /dev/null -w 'run  %{http_code}\n' -X POST -H 'Content-Type: application/json' \
     -d '{}' http://localhost:9080/api/v1/pathassist/run
 curl -s -o /dev/null -w 'runs %{http_code}\n' http://localhost:9080/api/v1/pathassist/runs
+```
+
+The analysis services follow the same pattern, and only the gateway bind-mounts its source:
+
+```bash
+# agent-copilot-1 mounts services/agent/src — a restart is enough.
+docker restart agent-copilot-1
+
+# The others do not. cellvit, for instance:
+docker cp services/cellvit/src/cellvit_service agent-cellvit-1:/app/src/
+docker restart agent-cellvit-1
+curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8020/nuclei/hash
 ```
 
 This lives in the container's writable layer, so it survives `docker restart` and dies with

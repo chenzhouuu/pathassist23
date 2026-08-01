@@ -37,6 +37,12 @@ class Route:
     cancel: str | None
     #: True when the status payload nests its result under "result" (the JobQueue shape).
     nested_result: bool
+    #: Which body key names the slide. The preprocess service says `item`; the three JobQueue
+    #: services say `slide_ref`. Named here rather than normalised in one of them, because a
+    #: rename would be a change to a live API for the benefit of a caller that is one line long.
+    #: Getting it wrong is not subtle — a nuclei dispatch answered `400: slide_ref is required`
+    #: within a second, which is how this field came to exist (Inc 6 · 05).
+    item_key: str = "item"
 
 
 ROUTES: dict[str, Route] = {
@@ -59,17 +65,17 @@ ROUTES: dict[str, Route] = {
     "nuclei": Route(
         env="PATHASSIST_CELLVIT_URL", default="http://localhost:8020",
         submit="/nuclei", status="/nuclei/status/{job_id}",
-        cancel="/nuclei/cancel/{job_id}", nested_result=True,
+        cancel="/nuclei/cancel/{job_id}", nested_result=True, item_key="slide_ref",
     ),
     "tissue": Route(
         env="PATHASSIST_TISSUE_URL", default="http://localhost:8023",
         submit="/tissue", status="/tissue/status/{job_id}",
-        cancel="/tissue/cancel/{job_id}", nested_result=True,
+        cancel="/tissue/cancel/{job_id}", nested_result=True, item_key="slide_ref",
     ),
     "biomarker": Route(
         env="PATHASSIST_BIOMARKER_URL", default="http://localhost:8022",
         submit="/biomarker", status="/biomarker/status/{job_id}",
-        cancel=None, nested_result=True,
+        cancel=None, nested_result=True, item_key="slide_ref",
     ),
 }
 

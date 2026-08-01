@@ -21,9 +21,11 @@ const render = () => rtlRender(
 // An admin sees every ai-users tab; that is the widest bar the app draws.
 const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [] };
 
+// Nuclei left in Inc 6 · 05: the run is a Girder job started from Analysis and watched in Runs,
+// and everything the tab used to show about the artifact opens on its Workspace row.
 const EXPECTED_TABS = [
   'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess',
-  'Markers', 'Tissue', 'Nuclei', 'Task', 'Panels',
+  'Markers', 'Tissue', 'Task', 'Panels',
 ];
 
 describe('RightPanel tab bar', () => {

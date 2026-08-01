@@ -14,9 +14,11 @@
 //   pa-region    the rectangle itself, via the shared `useRegionSelect` handle
 //   pa-artifact  an upstream artifact of a given kind, picked from this slide's ready rows
 //
-// `submit` still calls each tool's existing endpoint. Moving a kind onto the Celery path is 05–07,
-// one at a time, and until a kind moves its old tab stays. So this ticket changes where a tool is
-// *found*, not how it runs.
+// `submit` calls each tool's existing gateway endpoint. What is behind that endpoint is what moves:
+// **nuclei is on the Celery path since 05** and its tab is gone, so this is the only place it can be
+// started; the other four still run on their own service queues and keep their tabs until 06–07.
+// Nothing in this file distinguishes them, which is the point — a kind moving is a change to one
+// route, not to the catalog.
 //
 // Not listed: `patching` and `features`. They are interior DAG stages whose patch size is bound to
 // the encoder chosen for the features step, and that binding lives in `PreprocessPanel`'s planner.
@@ -93,7 +95,8 @@ export const NATIVE_TOOLS = [
     title: 'Nuclei segmentation',
     description:
       'CellViT-SAM-H per-nucleus segmentation and classification. A region takes seconds; a whole '
-      + 'slide takes tens of minutes and can be stopped and resumed.',
+      + 'slide takes tens of minutes, and can be stopped from Runs below and resumed by starting '
+      + 'the same run again — what a stopped build already computed is kept.',
     groups: [
       {
         label: 'Scope',

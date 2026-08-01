@@ -126,8 +126,13 @@ function RegionField({ param, region, disabled }) {
  * Marker map cannot be submitted, and a disabled dropdown with no explanation is not.
  */
 function ArtifactField({ param, value, onChange, artifacts, loading }) {
+  // Not `status === 'ready'`. A **stopped** run leaves a complete artifact of a smaller area —
+  // that is the whole point of a cooperative stop — and refusing to offer it would mean an hour of
+  // whole-slide nuclei could not be used to run a marker map. What is excluded is a build with
+  // nothing behind it yet: still queued, still running, or failed. For nuclei, which since 05 has
+  // no row at all until its bytes exist, every row is offerable and this filter passes everything.
   const rows = (artifacts || []).filter(
-    a => a.kind === param.artifactKind && a.status === 'ready',
+    a => a.kind === param.artifactKind && !['queued', 'running', 'failed'].includes(a.status),
   );
   const describe = (a) => {
     const bits = [a.art_hash.slice(0, 8)];

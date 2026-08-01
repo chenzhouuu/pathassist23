@@ -16,13 +16,7 @@ from ..loop.biomarker_map_client import (
     map_job_status,
 )
 from ..loop.events import RunFinished
-from ..loop.nuclei_client import (
-    cancel_nuclei,
-    enqueue_nuclei,
-    get_nuclei_meta,
-    get_nuclei_tile,
-    nuclei_job_status,
-)
+from ..loop.nuclei_client import get_nuclei_meta, get_nuclei_tile
 from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_run
 from ..loop.preprocess_client import (
     get_contours,
@@ -446,14 +440,22 @@ class SegmentRequest(BaseModel):
 
 
 class ArtifactResultRequest(BaseModel):
-    """How a dispatched run ended, as the Celery driver saw it (Inc 6 · ticket 01).
+    """How a dispatched run ended, as the Celery driver saw it (Inc 6 · tickets 01 and 05).
 
     Only outcomes that leave bytes on disk are accepted; a failure has no artifact to describe and
     is recorded entirely on the Girder job.
+
+    `kind` and `params` are what let a report **create** the row. A kind that has moved to the D9
+    shape (nuclei, 05) has no row until its bytes exist, so the report is the row's first write;
+    for the kinds still writing a row at dispatch they are redundant and ignored.
     """
 
     status: str
     result: dict | None = None
+    kind: str | None = None
+    params: dict | None = None
+    parent_hash: str | None = None
+    girder_job_id: str | None = None
 
 
 class PatchRequest(BaseModel):
@@ -707,22 +709,36 @@ async def report_artifact_result(
     story is the Girder job, and there is no artifact to describe.
 
     Authorised as the user who submitted the run, because the driver carries that user's token.
+
+    **A missing row is created, not refused** (Inc 6 · 05). For a kind on the D9 shape there is no
+    row until the bytes exist, so this is the row's first write and the driver has to say what kind
+    it is. Two other cases land here and both want the same answer: a row deleted from the
+    Workspace while its job was still running, and a run that stored bytes the deletion did not
+    reach. In every one of them a row exists afterwards because bytes do, which is the whole rule.
+
+    An existing row is updated in place rather than upserted, so that params the *worker* resolved
+    at dispatch (a segmenter left at its default, say) are not overwritten by the raw request the
+    driver was handed.
     """
     if body.status not in ("ready", "cancelled"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"{body.status!r} is not an outcome that leaves an artifact",
         )
-    # Asked before writing, because `set_status` mutates in place in both store implementations
-    # and cannot itself report a row that was never there. A driver reporting against an artifact
-    # this slide does not have is a real case — the row can be deleted from the Workspace while
-    # its job is still running.
     if await artifacts.get_artifact(item=item, art_hash=art_hash) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such artifact for this slide")
+        if not body.kind:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                "no such artifact for this slide, and the report does not say what kind to create",
+            )
+        await artifacts.upsert_artifact(
+            item=item, kind=body.kind, art_hash=art_hash, parent_hash=body.parent_hash,
+            params=body.params or {}, status=body.status, girder_job_id=body.girder_job_id,
+        )
 
     result = body.result or {}
     await artifacts.set_status(
-        item=item, art_hash=art_hash, status=body.status,
+        item=item, art_hash=art_hash, status=body.status, girder_job_id=body.girder_job_id,
         stage="done" if body.status == "ready" else "stopped",
         progress=1.0 if body.status == "ready" else None,
         n_items=next(
@@ -790,7 +806,13 @@ async def list_slide_artifacts(
     tissue_url: str | None = Depends(get_tissue_url),
     cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> dict:
-    """List a slide's DAG artifacts, reconciling in-flight builds against the worker."""
+    """List a slide's DAG artifacts, reconciling the kinds still on the pre-Inc-6 path.
+
+    **Nuclei is not in this loop any more** (Inc 6 · 05). A kind that has moved has no in-flight
+    row to reconcile: its row is written once, by the run that produced the bytes. What is left
+    here is the three kinds that still write a row at dispatch, and this loop — with its
+    "nothing advances unless somebody has the list open" defect — goes with the last of them (07).
+    """
     rows = await artifacts.list_artifacts(item=item)
     dirty = False
     for row in rows:
@@ -801,12 +823,12 @@ async def list_slide_artifacts(
         kind = row["kind"]
         base = _service_for(
             kind, preprocess_url=preprocess_url, biomarker_url=biomarker_url,
-            tissue_url=tissue_url, cellvit_url=cellvit_url,
+            tissue_url=tissue_url,
         )
         if not base:
             continue
         poll = {
-            "biomarker": map_job_status, "tissue": tissue_job_status, "nuclei": nuclei_job_status,
+            "biomarker": map_job_status, "tissue": tissue_job_status,
         }.get(kind, get_job_status)
         try:
             js = await poll(base_url=base, job_id=row["job_id"])
@@ -822,7 +844,9 @@ async def list_slide_artifacts(
 def _service_for(
     kind: str, *, preprocess_url, biomarker_url, tissue_url, cellvit_url=None,
 ) -> str | None:
-    """Which worker owns this kind — its bytes, and its job status. One table, both uses."""
+    """Which worker owns this kind's bytes — for the delete that removes them, and for the status
+    poll of the kinds that still have one. `cellvit_url` stays because nuclei bytes still have to
+    be deleted somewhere; only the polling half of this went in 05."""
     return {
         "biomarker": biomarker_url, "tissue": tissue_url, "nuclei": cellvit_url,
     }.get(kind, preprocess_url)
@@ -1270,70 +1294,72 @@ async def start_nuclei(
     body: NucleiRequest,
     user: dict = Depends(require_user),
     token: str | None = Depends(get_girder_token),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
     cellvit_url: str | None = Depends(get_cellvit_url),
+    plugin_url: str | None = Depends(get_plugin_url),
 ) -> dict:
-    """Enqueue (or extend) this slide's nuclei build and record its durable row.
+    """Dispatch a nuclei run onto this box's queue (Inc 6 · 05). Writes no row.
+
+    The first kind to move fully. Three things change and they are one change: the run becomes a
+    Girder job rather than a call into the cellvit worker's own queue; the content address is
+    computed *before* dispatch, because a dispatched run never comes back through the gateway; and
+    **no artifact row is written here**, because under D9 a row is the claim that bytes exist on
+    disk and at this moment none do. Until the last tile lands, this run is a job — visible in the
+    Runs list, joined into the Workspace as a ghost row on the same `art_hash` — and the row is
+    written when the driver reports (`report_artifact_result`).
 
     No `parent_hash`, even for a whole-slide run that names a `seg_hash`. Unlike the tissue and
     biomarker maps, a nucleus outline does not depend on a segmentation: the mask decides which
     tiles are worth the GPU, which is coverage, and deleting it later invalidates nothing here. It
-    is recorded in `params` as provenance, not as a DAG edge — a delete of the segmentation is
-    therefore not refused on this artifact's account, which is correct.
+    rides in `params` as provenance, not as a DAG edge — a delete of the segmentation is therefore
+    not refused on this artifact's account, which is correct.
     """
-    try:
-        run = await enqueue_nuclei(
-            base_url=_need_cellvit(cellvit_url), item=item, bbox=body.bbox,
-            seg_hash=body.seg_hash, token=token,
-        )
-    except httpx.HTTPError as exc:
-        raise _nuclei_error(exc) from exc
-    return await artifacts.upsert_artifact(
-        item=item, kind="nuclei", art_hash=run["art_hash"], parent_hash=None,
-        params={"scope": run.get("scope"), "bbox": body.bbox, "backend": run.get("backend"),
-                "seg_hash": body.seg_hash},
-        status="queued", job_id=run.get("job_id"),
-    )
-
-
-@router.post("/slides/{item}/nuclei/{art_hash}/cancel")
-async def cancel_nuclei_build(
-    item: str,
-    art_hash: str,
-    user: dict = Depends(require_user),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
-    cellvit_url: str | None = Depends(get_cellvit_url),
-) -> dict:
-    """Stop this slide's running nuclei build at its next core-tile boundary.
-
-    A whole-slide run is hours of work holding the cellvit service's only worker, so it has to be
-    interruptible. What is already computed stays: the artifact keeps its coverage and tallies, and
-    starting the same build again resumes from there rather than from the beginning.
-
-    The durable row is **not** written here — the worker owns the transition, and marking the row
-    stopped while the worker is still finishing a core would be undone by the next reconciliation.
-    """
-    row = await artifacts.get_artifact(item=item, art_hash=art_hash)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no nuclei build for that hash")
-    if not row.get("job_id"):
+    if not plugin_url:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "that nuclei build has no running job to stop"
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "nuclei runs go on the Girder job queue, which this deployment has not configured",
         )
+    # Checked here rather than left to the worker: it is the one refusal the caller can act on, and
+    # a refusal that only exists inside a queued job is a refusal nobody sees until they go looking.
+    if body.bbox is None and not body.seg_hash:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "a whole-slide run needs a tissue segmentation — segment the slide first so the job "
+            "knows which tiles hold tissue",
+        )
+
+    addressed = await _nuclei_address(cellvit_url)
+    art_hash = addressed["art_hash"]
+    scope = "region" if body.bbox is not None else "slide"
+    # Everything the service is asked for, which is also everything the row will record about how
+    # this artifact was made — the driver reports these back verbatim.
+    params = {"bbox": body.bbox, "seg_hash": body.seg_hash,
+              "scope": scope, "backend": addressed.get("backend")}
+
     try:
-        return await cancel_nuclei(base_url=_need_cellvit(cellvit_url), job_id=row["job_id"])
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code != status.HTTP_404_NOT_FOUND:
-            raise _nuclei_error(exc) from exc
-        # The worker has never heard of this job — it was restarted out from under the row, which
-        # leaves the panel polling a build that will never move again. Stop is the right moment to
-        # settle that: the job is gone, so say so. Whatever it computed is still on disk and
-        # starting the build again resumes from there.
-        await artifacts.set_status(
-            item=item, art_hash=art_hash, status="cancelled", stage="stopped", error=None,
+        ack = await dispatch_run(
+            plugin_url=plugin_url, kind="nuclei", item=item, art_hash=art_hash,
+            params=params, token=token,
         )
-        return {"job_id": row["job_id"], "status": "cancelled", "stage": "stopped",
-                "detail": "the cellvit worker restarted; this build is no longer running"}
+    except DispatchUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return {"kind": "nuclei", "art_hash": art_hash, "status": "queued", "scope": scope,
+            "backend": addressed.get("backend"), "girder_job_id": ack["jobId"]}
+
+
+async def _nuclei_address(cellvit_url: str | None) -> dict:
+    """What a nuclei run on this box would be called, and with which model. Enqueues nothing.
+
+    The gateway does not compute the hash itself for the reason `_content_address` states for the
+    preprocess DAG: a second copy of `artifacts.art_hash` is free to drift from the one the service
+    stores under, and `conch_v1` is what that looks like when it happens.
+    """
+    base = _need_cellvit(cellvit_url)
+    try:
+        async with httpx.AsyncClient(base_url=base, timeout=15.0) as client:
+            resp = await client.post("/nuclei/hash", json={})
+            resp.raise_for_status()
+            return resp.json()
     except httpx.HTTPError as exc:
         raise _nuclei_error(exc) from exc
 

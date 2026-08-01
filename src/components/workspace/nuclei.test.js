@@ -1,10 +1,16 @@
+// The nuclei artifact: what it stores, and how its mask is drawn (Inc 5 · 05-08; Inc 6 · 05).
+//
+// Was `panels/nucleiUtils.test.js`. Twelve assertions left with the panel they described — is a
+// build running, what its Stop button says, how far along it is — because a nuclei run is a Girder
+// job now and `analysis/runsUtils.test.js` asserts those questions about jobs, once, for every
+// kind. What is here is what the two remaining readers need: the numbers the expanded Workspace
+// row shows, and the tile URLs the mask is drawn from.
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_OPACITY, canStop, classRows, classesOf, colorsOf, coverageSummary, describeStage,
-  findNucleiRow, findReadySegmentation, formatArea, formatPercent, hasInstances, isRunning,
-  isStopped, isStopping, layerLevels, layerSignature, levelOffsetFor, progressPercent,
-  startLabel, summaryLine, tileParams, totalNuclei, withNucleiDefaults,
-} from './nucleiUtils.js';
+  DEFAULT_OPACITY, classRows, classesOf, colorsOf, coverageSummary, formatArea, formatCount,
+  hasInstances, layerLevels, layerSignature, levelOffsetFor, tileParams, totalNuclei,
+  withNucleiDefaults,
+} from './nuclei.js';
 
 const summary = (over = {}) => ({
   n_nuclei: 1200, n_tiles: 3, area_mm2: 12.582,
@@ -12,84 +18,12 @@ const summary = (over = {}) => ({
   ...over,
 });
 
-describe('findNucleiRow', () => {
-  it('picks the nuclei artifact out of the slide\'s rows', () => {
-    const rows = [{ kind: 'tissue' }, { kind: 'nuclei', art_hash: 'n1' }, { kind: 'features' }];
-    expect(findNucleiRow(rows).art_hash).toBe('n1');
-    expect(findNucleiRow([{ kind: 'tissue' }])).toBe(null);
-    expect(findNucleiRow()).toBe(null);
-  });
-});
-
-describe('describeStage', () => {
-  it('says where the build got to', () => {
-    expect(describeStage(null)).toBe('Not built');
-    expect(describeStage({ status: 'ready' })).toBe('Ready');
-    expect(describeStage({ status: 'running', progress: 0.5 })).toBe('Working 50%');
-    expect(describeStage({ status: 'running', stage: 'nuclei', progress: 0.5 }))
-      .toBe('Segmenting 50%');
-    expect(describeStage({ status: 'running', stage: 'raster', progress: 0.98 }))
-      .toBe('Drawing 98%');
-  });
-
-  it('carries the reason a build failed rather than sending the user to a log', () => {
-    expect(describeStage({ status: 'failed', error: 'no weights' })).toBe('Failed — no weights');
-    expect(describeStage({ status: 'failed' })).toBe('Failed — unknown error');
-  });
-
-  it('calls a stopped build stopped, and says what it holds and what is left', () => {
-    // Not an error: a stopped build is a complete artifact of a smaller area.
-    expect(describeStage({ status: 'cancelled' })).toBe('Stopped — part of the slide');
-    expect(describeStage({
-      status: 'cancelled', result: { n_nuclei: 4120, remaining: 37 },
-    })).toBe('Stopped — 4,120 nuclei, 37 tiles left');
-    expect(isStopped({ status: 'cancelled' })).toBe(true);
-  });
-
-  it('distinguishes asked-to-stop from stopped', () => {
-    const stopping = { status: 'running', stage: 'stopping', job_id: 'j1' };
-    expect(isStopping(stopping)).toBe(true);
-    expect(describeStage(stopping)).toBe('Stopping — finishing the current tile');
-    // Already asked; asking again would do nothing but flicker the button.
-    expect(canStop(stopping)).toBe(false);
-    expect(canStop({ status: 'running', job_id: 'j1' })).toBe(true);
-    // A row with no job has nothing to address — a worker restart leaves rows like this.
-    expect(canStop({ status: 'running' })).toBe(false);
-  });
-
-  it('labels the start button by what pressing it would do', () => {
-    expect(startLabel(null, false)).toBe('Run on region');
-    expect(startLabel(null, true)).toBe('Run on whole slide');
-    expect(startLabel({ status: 'cancelled' }, true)).toBe('Resume whole slide');
-    // Resuming is the same call — coverage is what makes it free — so only the word changes.
-    expect(startLabel({ status: 'cancelled' }, false)).toBe('Run on region');
-  });
-
-  it('finds the segmentation a whole-slide run needs, and only a ready one', () => {
-    const rows = [{ kind: 'segmentation', status: 'running', art_hash: 's0' },
-                  { kind: 'segmentation', status: 'ready', art_hash: 's1' }];
-    expect(findReadySegmentation(rows).art_hash).toBe('s1');
-    expect(findReadySegmentation([{ kind: 'segmentation', status: 'queued' }])).toBe(null);
-    expect(findReadySegmentation()).toBe(null);
-  });
-
+describe('coverageSummary', () => {
   it('reports coverage as what the numbers are an account of', () => {
     expect(coverageSummary({ coverage: { n_tiles: 7 }, summary: { area_mm2: 29.36 } }))
       .toEqual({ tiles: 7, mm2: 29.36 });
     expect(coverageSummary({ coverage: { n_tiles: 7 } })).toEqual({ tiles: 7, mm2: null });
     expect(coverageSummary(null)).toBe(null);
-  });
-
-  it('treats queued as running, because the panel should be polling either way', () => {
-    expect(isRunning({ status: 'queued' })).toBe(true);
-    expect(isRunning({ status: 'running' })).toBe(true);
-    expect(isRunning({ status: 'ready' })).toBe(false);
-  });
-
-  it('clamps a progress the worker reports out of range', () => {
-    expect(progressPercent({ progress: 1.4 })).toBe(100);
-    expect(progressPercent({ progress: -1 })).toBe(0);
-    expect(progressPercent({})).toBe(0);
   });
 });
 
@@ -98,7 +32,7 @@ describe('classRows', () => {
     const rows = classRows(summary());
     expect(rows.map((r) => r.name)).toEqual(['Neoplastic', 'Inflammatory', 'Connective']);
     expect(rows[0].count).toBe(800);
-    expect(formatPercent(rows[0].fraction)).toBe('66.7%');
+    expect(rows[0].fraction).toBeCloseTo(800 / 1200, 6);
   });
 
   it('omits a class the build found none of rather than claiming a zero', () => {
@@ -215,14 +149,10 @@ describe('withNucleiDefaults', () => {
   });
 });
 
-describe('summaryLine', () => {
-  it('reads as one line of what is stored', () => {
-    expect(summaryLine(summary())).toBe('1,200 nuclei · 12.58 mm² · 3 tiles');
-  });
-
-  it('says only what it has', () => {
-    expect(summaryLine({ n_nuclei: 1, n_tiles: 1 })).toBe('1 nucleus · 1 tile');
-    expect(summaryLine(null)).toBe('');
-    expect(summaryLine({})).toBe('');
+describe('formatCount', () => {
+  it('is a thousands separator or nothing — never a zero standing in for a missing number', () => {
+    expect(formatCount(15180)).toBe('15,180');
+    expect(formatCount(undefined)).toBe('');
+    expect(formatCount(null)).toBe('');
   });
 });

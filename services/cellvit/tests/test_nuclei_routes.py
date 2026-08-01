@@ -209,6 +209,25 @@ def test_tallies_describe_exactly_the_tiles_marked_done(cache_root):
 # ── the control plane ──────────────────────────────────────────────────────────────
 
 
+def test_the_hash_route_names_a_run_without_starting_one(cache_root):
+    """Since Inc 6 · 05 the gateway has to know the content address before it dispatches, because
+    a dispatched run goes onto a queue and never comes back through the gateway. It asks here
+    rather than computing it, so there is one implementation of the address and not two."""
+    app = _app_with_fakes()
+    client = app.test_client()
+
+    body = client.post("/nuclei/hash", json={}).get_json()
+    assert body["kind"] == "nuclei"
+    # The same string a real run would store under, from the same function.
+    assert body["art_hash"] == art_hash(backend=body["backend"])
+
+    # Nothing was enqueued and nothing reached the disk.
+    assert not artifact_dir(cache_root, "item1", body["art_hash"]).exists()
+
+    ah, _ = _run(client)
+    assert ah == body["art_hash"]
+
+
 def test_a_bbox_is_a_rectangle_or_null_and_nothing_else():
     """null is the whole slide (see test_nuclei_wholeslide); anything else is a typo, and a typo
     that ran over the whole slide would be hours of GPU nobody asked for."""

@@ -144,6 +144,26 @@ def register(app) -> None:
             "backend": backend, "scope": "region" if bbox is not None else "slide",
         })
 
+    @app.post("/nuclei/hash")
+    def nuclei_artifact_hash():
+        """The `art_hash` a nuclei run on this box would produce. Enqueues nothing.
+
+        Copied in shape from the preprocess service's `POST /hash` (`preprocess_service/app.py`),
+        and for its reason: since Inc 6 · 05 the gateway has to know the content address *before*
+        it dispatches, because a dispatched run goes onto a Celery queue and never comes back
+        through the gateway. Computing the hash there would put a second copy of
+        `artifacts.art_hash` in the tree, free to drift from this one — which is exactly how
+        `conch_v1` came to mean two different embeddings.
+
+        `backend` is the other half of why the answer has to come from the service: which model
+        this box actually has is a deployment fact, and it is in the hash.
+        """
+        s = get_settings()
+        backend = DEFAULT_BACKEND if s.model == "cellvit" else "stub"
+        return jsonify({
+            "kind": "nuclei", "art_hash": art_hash(backend=backend), "backend": backend,
+        })
+
     @app.get("/nuclei/status/<job_id>")
     def nuclei_job_status(job_id: str):
         st = app.config["JOBS"].status(job_id)

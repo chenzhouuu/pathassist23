@@ -74,8 +74,12 @@ export function describeParams(row) {
       if (p.scope) bits.push(p.scope);
       break;
     case 'nuclei':
+      // The backend only. `scope` is on the row and is deliberately not shown (Inc 6 · 05): a
+      // nuclei artifact is built by however many runs it took, each with its own scope, and the
+      // row records the one that created it. Showing that as the artifact's own would say
+      // "region" about a map that three later runs extended over the whole slide. What the
+      // artifact actually covers is `describeScale`, off its coverage record.
       if (p.backend) bits.push(p.backend);
-      if (p.scope) bits.push(p.scope);
       break;
     default:
       break;

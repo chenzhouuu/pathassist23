@@ -18,8 +18,8 @@ export const STATUS = {
 };
 
 // Text and colour from upstream's own table, with one substitution: CANCELING reads `Stopping…`
-// rather than `Canceling`, because that is the word the nuclei and tissue panels already use for
-// the same cooperative wait (`nucleiUtils.describeStage`).
+// rather than `Canceling`, because that is the word this app already used for the same cooperative
+// wait — the nuclei panel said it until 05 retired it, and the tissue panel still does.
 const LABEL = {
   [STATUS.INACTIVE]: ['Inactive', 'var(--muted-hex)'],
   [STATUS.QUEUED]: ['Waiting', '#f5a623'],

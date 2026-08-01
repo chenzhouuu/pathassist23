@@ -153,7 +153,10 @@ describe('describeArtifact', () => {
         counts_by_class: { Neoplastic: 9000, Connective: 3000, Dead: 403 },
       },
     });
-    expect(describeParams(r)).toBe('cellvit-sam-h · region');
+    // The backend and not the scope (Inc 6 · 05): `scope` is the row's record of the run that
+    // created it, and a nuclei artifact is extended by later runs of a different scope. What it
+    // covers is the next line, off its own coverage.
+    expect(describeParams(r)).toBe('cellvit-sam-h');
     expect(describeScale(r)).toBe('12,403 nuclei · 4.19 mm² · Neoplastic/Connective');
   });
 

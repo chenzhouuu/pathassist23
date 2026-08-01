@@ -1,71 +1,19 @@
-// src/components/panels/nucleiUtils.js — what the Nuclei panel reports, as pure functions.
+// src/components/workspace/nuclei.js — the nuclei artifact: its numbers, and how its mask is drawn.
 //
-// Every number here is read back from the stored artifact (summary + coverage), never carried over
-// from the call that produced it. That is the ticket's claim: reload the page and the same numbers
-// come back, because they were on disk, not in a variable.
+// Was `panels/nucleiUtils.js` until Inc 6 · 05, when the Nuclei tab went. Its panel half — is a
+// build running, what does its Stop button say, how far along is it — went with the tab, because
+// a run is now a Girder job and the Runs list is where a job is watched. What is here is the
+// artifact half, which has two readers and belongs to neither: `workspace/artifactDetail.js` turns
+// it into the expanded row, and `viewer/ArtifactLayers.jsx` turns it into the mask on the slide.
+// The Workspace is where it lives because the Workspace is what owns an artifact's presentation.
+//
+// Every number is read back from the stored artifact (summary + coverage), never carried over from
+// the call that produced it. That is Inc 5's claim and it still holds: reload the page and the same
+// numbers come back, because they were on disk, not in a variable.
 
 export const PANNUKE_ORDER = Object.freeze([
   'Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial',
 ]);
-
-export function findNucleiRow(rows = []) {
-  return rows.find((r) => r.kind === 'nuclei') || null;
-}
-
-export function isRunning(row) {
-  return !!row && (row.status === 'queued' || row.status === 'running');
-}
-
-/** A build was stopped part-way and can be picked up again — coverage makes resuming free. */
-export function isStopped(row) {
-  return row?.status === 'cancelled';
-}
-
-/** Asked to stop, still finishing its core. Not stoppable again, and not stopped yet. */
-export function isStopping(row) {
-  return isRunning(row) && row.stage === 'stopping';
-}
-
-export function canStop(row) {
-  return isRunning(row) && !!row.job_id && row.stage !== 'stopping';
-}
-
-/** The segmentation a whole-slide run needs to know where the tissue is. */
-export function findReadySegmentation(rows = []) {
-  return rows.find((r) => r.kind === 'segmentation' && r.status === 'ready') || null;
-}
-
-/** A resumable build labels its start button honestly. */
-export function startLabel(row, whole) {
-  if (!whole) return 'Run on region';
-  return isStopped(row) ? 'Resume whole slide' : 'Run on whole slide';
-}
-
-export function progressPercent(row) {
-  const p = Number(row?.progress);
-  if (!Number.isFinite(p)) return 0;
-  return Math.max(0, Math.min(100, Math.round(p * 100)));
-}
-
-const STAGE_WORDS = { nuclei: 'Segmenting', raster: 'Drawing', starting: 'Starting' };
-
-/** What the build is doing, in the words the panel shows. */
-export function describeStage(row) {
-  if (!row) return 'Not built';
-  if (row.status === 'ready') return 'Ready';
-  if (row.status === 'failed') return `Failed — ${row.error || 'unknown error'}`;
-  // A stopped build is not a failed one: it holds a complete artifact of a smaller area, so it
-  // says what it covered and what is left rather than reporting an error.
-  if (isStopped(row)) {
-    const left = row.result?.remaining;
-    const covered = formatCount(row.result?.n_nuclei ?? row.n_items);
-    const where = covered ? `${covered} nuclei` : 'part of the slide';
-    return left ? `Stopped — ${where}, ${left} tiles left` : `Stopped — ${where}`;
-  }
-  if (isStopping(row)) return 'Stopping — finishing the current tile';
-  if (isRunning(row)) return `${STAGE_WORDS[row.stage] || 'Working'} ${progressPercent(row)}%`;
-  return row.status || 'Unknown';
-}
 
 /** How much of the slide the artifact covers, from its own coverage record. */
 export function coverageSummary(meta) {
@@ -101,11 +49,6 @@ export function totalNuclei(summary) {
 export function formatArea(summary) {
   const a = Number(summary?.area_mm2);
   return Number.isFinite(a) && a > 0 ? `${a.toFixed(2)} mm²` : '';
-}
-
-export function formatPercent(f) {
-  const v = Number(f);
-  return Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : '—';
 }
 
 export function formatCount(n) {
@@ -188,16 +131,4 @@ export function layerLevels(meta, layer = 'classes') {
  *  their next run redraws them — so the switch is offered only when there is something to show. */
 export function hasInstances(meta) {
   return layerLevels(meta, 'instances') > 0;
-}
-
-/** The one-line summary, the same shape the Workspace row shows. '' before anything is stored. */
-export function summaryLine(summary) {
-  const bits = [];
-  const n = totalNuclei(summary);
-  if (n) bits.push(`${formatCount(n)} ${n === 1 ? 'nucleus' : 'nuclei'}`);
-  const area = formatArea(summary);
-  if (area) bits.push(area);
-  const tiles = Number(summary?.n_tiles);
-  if (Number.isFinite(tiles) && tiles > 0) bits.push(`${tiles} ${tiles === 1 ? 'tile' : 'tiles'}`);
-  return bits.join(' · ');
 }

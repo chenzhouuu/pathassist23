@@ -31,6 +31,17 @@ class ServiceRefused(RuntimeError):
     """The analysis service rejected the submission. Carries its words, not ours."""
 
 
+def service_payload(kind: str, item: str, token: str | None, params: dict | None) -> dict:
+    """The submit body for this kind, with the slide under the key that service names it by.
+
+    Here rather than in `driver.py` so it is testable without `girder_worker` installed, which is
+    the whole reason this module exists. The key is not uniform — the preprocess service says
+    `item`, the three JobQueue services say `slide_ref` — and sending the wrong one is not a subtle
+    failure: a nuclei dispatch came back `400: slide_ref is required` inside a second (Inc 6 · 05).
+    """
+    return {route_for(kind).item_key: item, "girder_token": token, **(params or {})}
+
+
 def submit(client: httpx.Client, kind: str, payload: dict) -> str:
     """Enqueue the work on its service and return that service's own job id.
 
@@ -132,11 +143,18 @@ def drive(
 
 
 def report_terminal(gateway_url: str | None, token: str | None, item: str, art_hash: str,
-                    status: Status, *, timeout: float = HTTP_TIMEOUT) -> bool:
+                    status: Status, *, kind: str | None = None, params: dict | None = None,
+                    girder_job_id: str | None = None, timeout: float = HTTP_TIMEOUT) -> bool:
     """Tell the gateway how the run ended, so the artifact row stops being a promise.
 
     Called for `ready` and for `cancelled` — both leave usable bytes on disk. A failed run reports
     nothing, because its whole story is the Girder job.
+
+    `kind` and `params` are what let this report **create** the row rather than only update one.
+    That is the D9 shape a kind takes when it moves onto this path (Inc 6 · 05): the gateway stops
+    writing a row at dispatch, so between submit and the last tile there is a job and no row, and a
+    row means bytes exist. Until a kind has moved, its row is still written at dispatch and these
+    two are simply redundant.
 
     Returns whether the gateway acknowledged. A failure here is logged and swallowed: the bytes are
     on disk either way, so losing the row's result is recoverable, and turning a finished run into
@@ -146,9 +164,10 @@ def report_terminal(gateway_url: str | None, token: str | None, item: str, art_h
         return False
     url = f"{gateway_url.rstrip('/')}/slides/{item}/artifacts/{art_hash}/result"
     headers = {"Girder-Token": token} if token else {}
+    body = {"status": status.state, "result": status.result, "kind": kind,
+            "params": params or {}, "girder_job_id": girder_job_id}
     try:
-        httpx.post(url, json={"status": status.state, "result": status.result},
-                   headers=headers, timeout=timeout).raise_for_status()
+        httpx.post(url, json=body, headers=headers, timeout=timeout).raise_for_status()
     except httpx.HTTPError:
         logger.exception("could not report %s %s to the gateway", art_hash, status.state)
         return False

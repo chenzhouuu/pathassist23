@@ -38,10 +38,14 @@ async function asJson(r, what) {
   return r.json();
 }
 
-// Enqueue (or extend) a slide's nuclei build. `bbox: null` means the whole slide — the same route,
+// Dispatch (or extend) a slide's nuclei build. `bbox: null` means the whole slide — the same route,
 // the same pipeline, the same artifact, and then `seg_hash` is what tells the worker which tiles
-// hold tissue. Returns the durable artifact row (status `queued`), which the panel then polls
-// through listArtifacts like every other kind.
+// hold tissue.
+//
+// Returns the dispatch ack — `{kind, art_hash, status, scope, backend, girder_job_id}` — and **not**
+// an artifact row, because since Inc 6 · 05 there is no row until the bytes exist. What is watched
+// instead is the Girder job: it is in the Runs list from the moment this resolves, and the
+// Workspace joins it onto the same `art_hash` as a ghost row until the run finishes.
 export async function startNuclei(itemId, { bbox = null, seg_hash = null } = {}) {
   const r = await fetch(
     `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei`,
@@ -54,17 +58,10 @@ export async function startNuclei(itemId, { bbox = null, seg_hash = null } = {})
   return asJson(r, 'Start nuclei');
 }
 
-// Ask a running build to stop at its next core-tile boundary. Returns the job's *current* status:
-// the worker finishes the core it is on first, so this resolves while the job is still `running`
-// with stage `stopping`, and the panel learns the rest from its next poll. Everything already
-// computed stays on disk — starting the same build again resumes from there.
-export async function cancelNuclei(itemId, artHash) {
-  const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei/${encodeURIComponent(artHash)}/cancel`,
-    { method: 'POST', headers: authHeaders() },
-  );
-  return asJson(r, 'Stop nuclei');
-}
+// Stopping a build is `cancelJob` in `api/index.js` — the run is a Girder job, so it is stopped the
+// way every job on this machine is, from the Runs list. The gateway route this used to call is gone
+// (Inc 6 · 05): the driver carries the cancel down to the cellvit worker's own core-tile boundary,
+// and everything already computed still stays on disk for the next run to resume from.
 
 // The artifact's own meta: slide dims, mpp, store resolution, class list, coverage and summary.
 // Everything the panel reports comes from here, so a number on screen is a number off disk.
