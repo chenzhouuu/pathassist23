@@ -149,6 +149,18 @@ RUN true && \
 
 RUN pip install --no-cache-dir pymemcache
 
+# PathAssist job dispatch (Inc 6 · ticket 01). Mounts POST /pathassist/run, which is the only
+# place an analysis run becomes a Girder job — girder_worker's create_task_job needs the Girder
+# process to mint the job, its jobInfoSpec and its scoped token, so the dispatch cannot live in
+# the gateway with the rest of the request.
+#
+# The source path is bare because this file is built with the *DSA* checkout as its context
+# (`context: ../..` from devops/ver5), not this repo's root — the same reason
+# `keycloak_oauth_provider.py` is copied to that checkout before a build. Copy the package
+# alongside it; RUNBOOK §6 has the step.
+COPY girder_pathassist /opt/girder_pathassist
+RUN pip install --no-cache-dir -e /opt/girder_pathassist
+
 # Add Keycloak OIDC provider to girder_oauth plugin (not included in v4-integration branch)
 COPY deploy/keycloak_oauth_provider.py /opt/girder/plugins/oauth/girder_oauth/providers/keycloak.py
 RUN python3 -c "\

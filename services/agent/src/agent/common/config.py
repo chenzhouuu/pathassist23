@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # and its routes report the service isn't configured.
     tissue_service_url: str = ""
 
+    # The Girder plugin that dispatches analysis runs onto Celery (Inc 6 · D5). It has to be
+    # Girder's own base URL because `create_task_job` only works inside the Girder process; this
+    # is a separate setting from `girder_base` so a deployment can point the dispatch at a
+    # different Girder host than the one it authorises against without the two silently coupling.
+    # Empty ⇒ the gateway falls back to calling the analysis service directly, which is the
+    # pre-Inc-6 path and is what keeps a deployment without the plugin working.
+    pathassist_plugin_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

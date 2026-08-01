@@ -25,7 +25,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-Emit = Callable[[str, float], None]
+Emit = Callable[[str, float, "int | None", "int | None"], None]
 
 # Terminal states: a cancel against one of these is a no-op, not an error (see JobQueue.cancel).
 TERMINAL = frozenset({"ready", "failed", "cancelled"})
@@ -35,15 +35,22 @@ class Progress:
     """What a running job is handed: report where it is, and notice when it should stop.
 
     Callable with the same ``(stage, progress)`` signature the reporter always had, so a job that
-    does not care about cancellation needs no changes at all.
+    does not care about cancellation or about counts needs no changes at all.
+
+    ``current`` and ``total`` are optional because not every stage has them: a job that walks core
+    tiles knows it is on tile 142 of 338, while Trident's segmentation is one call over the whole
+    slide and can only say "about a fifth of the way". Passing the counts where they exist is what
+    lets a progress bar read ``142 / 338`` instead of ``42 %`` — the numbers were always being
+    computed at the report site and thrown away one line later (Inc 6 · plan §3).
     """
 
     def __init__(self, emit: Emit, stop: threading.Event) -> None:
         self._emit = emit
         self._stop = stop
 
-    def __call__(self, stage: str, progress: float) -> None:
-        self._emit(stage, progress)
+    def __call__(self, stage: str, progress: float,
+                 current: int | None = None, total: int | None = None) -> None:
+        self._emit(stage, progress, current, total)
 
     def stopping(self) -> bool:
         """True once someone has asked this job to stop."""
@@ -70,6 +77,9 @@ class JobQueue:
             self._status[job_id] = {
                 "job_id": job_id, "status": "queued", "stage": None,
                 "progress": 0.0, "error": None, "result": None,
+                # Present from the start so /status has a stable shape; None until a stage that
+                # actually counts something reports.
+                "current": None, "total": None,
             }
             self._stops[job_id] = threading.Event()
         self._q.put((job_id, fn))
@@ -125,8 +135,12 @@ class JobQueue:
 
             self._set(job_id, status="running", stage="starting", progress=0.0)
 
-            def report(stage: str, progress: float, _jid: str = job_id) -> None:
-                self._set(_jid, stage=stage, progress=float(progress))
+            def report(stage: str, progress: float, current: int | None = None,
+                       total: int | None = None, _jid: str = job_id) -> None:
+                # `current`/`total` are cleared when a stage does not carry them, so a bar can
+                # never show one stage's denominator against the next stage's numerator.
+                self._set(_jid, stage=stage, progress=float(progress),
+                          current=current, total=total)
 
             try:
                 result = fn(Progress(report, stop))

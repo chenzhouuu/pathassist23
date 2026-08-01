@@ -272,6 +272,13 @@ cd /opt/digital_slide_archive/devops/ver5
 # Copy latest Dockerfile from git repo (if changed locally)
 # scp -i ~/.ssh/histamics20.pem deploy/dsa5.Dockerfile ubuntu@EC2_IP:/opt/digital_slide_archive/dsa5.Dockerfile
 
+# The build context is /opt/digital_slide_archive (the DSA checkout), NOT this repo, so anything
+# dsa5.Dockerfile COPYs has to be put there first. Two things are:
+#   deploy/keycloak_oauth_provider.py  → /opt/digital_slide_archive/deploy/keycloak_oauth_provider.py
+#   services/girder_pathassist/        → /opt/digital_slide_archive/girder_pathassist/
+# scp -i ~/.ssh/histamics20.pem -r services/girder_pathassist \
+#     ubuntu@EC2_IP:/opt/digital_slide_archive/girder_pathassist
+
 # Build (takes 20-30 min)
 docker compose build girder
 
@@ -282,6 +289,29 @@ docker compose up -d girder
 docker compose ps
 curl -s http://localhost/api/v1/system/version
 ```
+
+### Iterating on the PathAssist plugin without a 20-minute rebuild
+
+The plugin is a pure-Python package, so a rebuild only earns you persistence. To change it and see
+the result in ~30 seconds — the loop used to develop it against the local stack:
+
+```bash
+docker cp services/girder_pathassist dsa-girder-1:/opt/girder_pathassist
+docker exec -u root dsa-girder-1 /opt/venv/bin/pip install --no-cache-dir -e /opt/girder_pathassist
+docker restart dsa-girder-1        # entry points are only scanned at startup
+
+# After the first install, a code-only change needs just the file and the restart:
+docker cp services/girder_pathassist/src/girder_pathassist/rest.py \
+    dsa-girder-1:/opt/girder_pathassist/src/girder_pathassist/rest.py
+docker restart dsa-girder-1
+
+# Confirm the route is mounted (401 = there and authenticated; 404 = not loaded)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+    -d '{}' http://localhost:9080/api/v1/pathassist/run
+```
+
+This lives in the container's writable layer, so it survives `docker restart` and dies with
+`docker compose up -d --force-recreate girder`. Rebuild the image for anything meant to persist.
 
 ### Update docker-compose.yml
 ```bash

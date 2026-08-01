@@ -7,6 +7,7 @@ from agent.gateway.app import create_app
 from agent.gateway.auth import require_user
 from agent.gateway.routes import (
     get_biomarker_url,
+    get_plugin_url,
     get_preprocess_artifact_store,
     get_preprocess_url,
     get_tissue_url,
@@ -28,6 +29,10 @@ def client(art_store):
     app.dependency_overrides[require_user] = lambda: _USER
     app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
     app.dependency_overrides[get_preprocess_url] = lambda: "http://preprocess:8030"
+    # These tests are about the pre-Inc-6 direct path, so say so rather than inheriting it from
+    # whatever `AGENT_PATHASSIST_PLUGIN_URL` happens to be in the developer's .env. The dispatch
+    # path has its own file (test_dispatch_routes.py), which pins this the other way.
+    app.dependency_overrides[get_plugin_url] = lambda: None
     return TestClient(app)
 
 

@@ -157,7 +157,10 @@ def run_region(
         draw_one_core(root, tx, ty, s=s, n_levels=n_levels)
 
         if report is not None:
-            report("nuclei", (i + 1) / total if total else 1.0)
+            # The counts go out alongside the fraction. They were always here — until Inc 6 the
+            # signature had nowhere to put them, so a whole-slide run could only say "42 %" when
+            # it knew perfectly well it was on core tile 142 of 338.
+            report("nuclei", (i + 1) / total if total else 1.0, i + 1, total or None)
 
     # Even a stopped job finalises: this is where a core drawn before its neighbour existed gets
     # that neighbour's overhang, and it costs a fraction of one core's inference.

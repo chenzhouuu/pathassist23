@@ -47,6 +47,10 @@ services:
       AGENT_BIOMARKER_SERVICE_URL: ${AGENT_BIOMARKER_SERVICE_URL:-http://biomarker:8022}
       # The dense tissue segmentation service (Inc 4). Empty ⇒ the Tissue panel is unavailable.
       AGENT_TISSUE_SERVICE_URL: ${AGENT_TISSUE_SERVICE_URL:-http://tissue:8023}
+      # The Girder plugin that dispatches runs onto Celery (Inc 6 · D5). Empty ⇒ the gateway keeps
+      # the pre-Inc-6 path of calling the analysis service directly, so a deployment whose Girder
+      # image has not been rebuilt yet still works.
+      AGENT_PATHASSIST_PLUGIN_URL: ${AGENT_PATHASSIST_PLUGIN_URL:-}
     volumes:
       - ./src:/app/src        # live code — edit-and-reload during the increment loop
     command: >
@@ -216,6 +220,60 @@ services:
       - ${PREPROCESS_SLIDES_DIR:-/home/chen/data2/BRCA-TEST}:/data2:ro
       # BCSS checkpoint (CC-BY-NC-4.0), read-only.
       - ${TISSUE_WEIGHTS_DIR:-/home/chen/data2/tissue_seg}:/weights/tissue:ro
+
+  # ── The Celery driver for analysis runs (Inc 6 · ticket 01) ─────────────────────────────
+  # One per box, holding one job at a time. It computes nothing: it POSTs to the services above
+  # and mirrors their progress into a Girder job, so a run survives a browser closing, a gateway
+  # restart and a page reload (plan §4).
+  #
+  # On both networks by necessity. The broker lives in the DSA compose project and its port is
+  # deliberately unpublished, so this joins `dsa_default` to reach `rabbitmq` by name rather than
+  # exposing a message broker on a host that faces the internet.
+  celery:
+    build:
+      context: ../..
+      dockerfile: services/girder_pathassist/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - preprocess
+      - cellvit
+      - biomarker
+      - tissue
+    networks:
+      - default
+      - dsa
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Which box this is. The queue name is the placement decision (Inc 6 · D6).
+      PATHASSIST_QUEUE: ${PATHASSIST_QUEUE:-pathassist}
+      # Same broker and result backend as dsa-girder-1 and dsa-worker-1 — one Celery cluster, not
+      # two. This deployment's rabbitmq does NOT accept the stock guest account, so these carry no
+      # usable default: set both in services/agent/.env (gitignored), copying the values out of
+      # `docker inspect dsa-girder-1`. An unset broker fails fast at worker start, which is the
+      # right failure — a worker silently connected to the wrong broker consumes nothing forever.
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:?set CELERY_BROKER_URL in services/agent/.env}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?set CELERY_RESULT_BACKEND in services/agent/.env}
+      # Box-local analysis services. A driver never dials across boxes; this is what makes a
+      # second GPU machine a copy of this block rather than a scheduler.
+      PATHASSIST_PREPROCESS_URL: ${PATHASSIST_PREPROCESS_URL:-http://preprocess:8030}
+      PATHASSIST_CELLVIT_URL: ${PATHASSIST_CELLVIT_URL:-http://cellvit:8020}
+      PATHASSIST_BIOMARKER_URL: ${PATHASSIST_BIOMARKER_URL:-http://biomarker:8022}
+      PATHASSIST_TISSUE_URL: ${PATHASSIST_TISSUE_URL:-http://tissue:8023}
+      # Where a terminal outcome is reported, so the artifact row stops being a promise. Read
+      # here rather than passed down from the dispatcher: the gateway's address is a property of
+      # this box's network, and Girder — on `dsa_default` only — cannot resolve `copilot`.
+      PATHASSIST_GATEWAY_URL: ${PATHASSIST_GATEWAY_URL:-http://copilot:8010/api/copilot}
+      # How often the driver asks a service where it is. One of the two hops between a tile
+      # finishing and the browser hearing about it; the other is the Runs poller.
+      PATHASSIST_DRIVER_POLL_SECONDS: ${PATHASSIST_DRIVER_POLL_SECONDS:-1.0}
+
+networks:
+  default:
+  # The DSA compose project's network, created by `deploy/docker-compose.yml`.
+  dsa:
+    external: true
+    name: ${DSA_NETWORK:-dsa_default}
 
 volumes:
   copilot_pgdata:

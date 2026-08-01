@@ -121,6 +121,48 @@ def create_app() -> Flask:
             "model": "trident" if s.use_trident else "stub",
         })
 
+    # ── Content address, without doing the work (Inc 6, ticket 01) ──────────────────
+    @app.post("/hash")
+    def artifact_hash():
+        """The `art_hash` a run with these params would produce. Enqueues nothing.
+
+        The gateway needs the content address *before* it dispatches, because from Inc 6 the run
+        goes onto a Celery queue and the gateway never sees the service's own ack. It could not
+        compute the hash itself without a second copy of `artifacts.seg_hash` drifting from this
+        one — the failure mode that split `conch_v1` into two encoders — so it asks instead.
+
+        Pure: same params, same answer, no side effects, no slide read.
+        """
+        body = request.get_json(force=True, silent=True) or {}
+        kind = body.get("kind")
+        settings = get_settings()
+        try:
+            if kind == "segmentation":
+                sp = _seg_params(body, settings)
+                return jsonify({"kind": kind, "art_hash": _seg_h(sp, settings), "params": sp})
+            if kind == "patching":
+                parent = body.get("seg_hash")
+                if not parent:
+                    return jsonify({"detail": "patching needs seg_hash"}), 400
+                pp = _patch_params(body, settings)
+                return jsonify({
+                    "kind": kind, "params": pp, "parent_hash": parent,
+                    "art_hash": patch_hash(parent, pp["mag"], pp["patch_size"], pp["overlap"],
+                                           settings.index_version),
+                })
+            if kind == "features":
+                parent = body.get("patch_hash")
+                if not parent:
+                    return jsonify({"detail": "features needs patch_hash"}), 400
+                encoder = body.get("encoder") or settings.image_encoder
+                return jsonify({
+                    "kind": kind, "params": {"encoder": encoder}, "parent_hash": parent,
+                    "art_hash": feat_hash(parent, encoder, settings.index_version),
+                })
+        except (TypeError, ValueError) as exc:
+            return jsonify({"detail": f"bad params for {kind}: {exc}"}), 400
+        return jsonify({"detail": f"no content address is defined for kind {kind!r}"}), 400
+
     # ── Artifact removal (Inc 5, ticket 04) ─────────────────────────────────────────
     # The gateway's row vocabulary, mapped to this service's directory names. Taking the row's own
     # `kind` keeps the mapping in one place instead of asking the gateway to know this layout.

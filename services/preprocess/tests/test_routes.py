@@ -146,3 +146,62 @@ def test_find_regions_via_feat_hash(client, wait):
     assert r.status_code == 200
     body = r.get_json()
     assert body["n_candidates"] == 5 and body["encoder"] == "conch_v1_text"
+
+
+# ── POST /hash — the content address, without doing the work (Inc 6, ticket 01) ──────────
+
+
+def test_hash_matches_what_the_run_would_produce(client):
+    """The point of the endpoint: the gateway can name the artifact before dispatching it.
+
+    From Inc 6 the run goes onto a Celery queue and the gateway never sees the service's ack, so
+    this equality is what lets it write the row at submit time.
+    """
+    params = {"segmenter": "hest", "seg_conf_thresh": 0.4, "remove_holes": True}
+    pre = client.post("/hash", json={"kind": "segmentation", **params})
+    assert pre.status_code == 200
+    run = client.post("/segment", json={"item": "item1", **params})
+    assert run.status_code == 202
+    assert pre.get_json()["art_hash"] == run.get_json()["seg_hash"]
+
+
+def test_hash_enqueues_nothing(client):
+    """Pure. Asking twice must not leave two jobs behind."""
+    before = client.post("/hash", json={"kind": "segmentation"}).get_json()
+    after = client.post("/hash", json={"kind": "segmentation"}).get_json()
+    assert before["art_hash"] == after["art_hash"]
+    assert client.get("/status", query_string={"job_id": "any"}).status_code == 404
+
+
+def test_hash_resolves_defaults_the_same_way_a_run_does(client):
+    """An empty body is the default build, not an error — the same params /segment would fill in."""
+    body = client.post("/hash", json={"kind": "segmentation"}).get_json()
+    assert len(body["art_hash"]) == 16
+    assert body["params"]["segmenter"]
+    assert body["params"]["seg_conf_thresh"] == 0.5
+
+
+def test_child_kinds_hash_against_their_parent(client):
+    patch = client.post("/hash", json={"kind": "patching", "seg_hash": "abc", "mag": 20})
+    assert patch.status_code == 200
+    assert patch.get_json()["parent_hash"] == "abc"
+
+    other_parent = client.post("/hash", json={"kind": "patching", "seg_hash": "def", "mag": 20})
+    assert other_parent.get_json()["art_hash"] != patch.get_json()["art_hash"], (
+        "a patch grid's address must depend on the segmentation it was cut from"
+    )
+
+    feat = client.post("/hash", json={"kind": "features", "patch_hash": "abc",
+                                      "encoder": "conch_v1"})
+    assert feat.status_code == 200 and feat.get_json()["parent_hash"] == "abc"
+
+
+def test_a_child_kind_without_its_parent_is_refused(client):
+    assert client.post("/hash", json={"kind": "patching"}).status_code == 400
+    assert client.post("/hash", json={"kind": "features"}).status_code == 400
+
+
+def test_an_unknown_kind_is_refused_rather_than_guessed(client):
+    r = client.post("/hash", json={"kind": "nuclei"})
+    assert r.status_code == 400
+    assert "nuclei" in r.get_json()["detail"]

@@ -23,6 +23,7 @@ from ..loop.nuclei_client import (
     get_nuclei_tile,
     nuclei_job_status,
 )
+from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_run
 from ..loop.preprocess_client import (
     get_contours,
     get_job_status,
@@ -105,6 +106,16 @@ def get_biomarker_url() -> str | None:
 def get_tissue_url() -> str | None:
     """The configured tissue service URL (None ⇒ the Tissue panel is unavailable)."""
     return get_settings().tissue_service_url or None
+
+
+def get_plugin_url() -> str | None:
+    """The Girder plugin that dispatches runs onto Celery (Inc 6 · D5).
+
+    None ⇒ the pre-Inc-6 path: the gateway calls the analysis service directly and reconciles the
+    row by polling. Keeping that fallback is what lets a deployment without the plugin installed
+    keep working while the image is rebuilt.
+    """
+    return get_settings().pathassist_plugin_url or None
 
 
 def get_slide_index_store(request: Request) -> SlideIndexStore:
@@ -434,6 +445,17 @@ class SegmentRequest(BaseModel):
     remove_penmarks: bool = False
 
 
+class ArtifactResultRequest(BaseModel):
+    """How a dispatched run ended, as the Celery driver saw it (Inc 6 · ticket 01).
+
+    Only outcomes that leave bytes on disk are accepted; a failure has no artifact to describe and
+    is recorded entirely on the Girder job.
+    """
+
+    status: str
+    result: dict | None = None
+
+
 class PatchRequest(BaseModel):
     """Tiling params; runs on a ready segmentation (``seg_hash``)."""
 
@@ -589,6 +611,34 @@ async def _trigger_dag_stage(
         ) from exc
 
 
+_SEG_PARAM_KEYS = (
+    "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks",
+)
+
+
+async def _content_address(preprocess_url: str | None, kind: str, item: str, params: dict) -> dict:
+    """Ask the preprocess service what a run with these params would be called.
+
+    The gateway needs the address before it dispatches, because a dispatched run goes onto a Celery
+    queue and never comes back through here. It does not compute the hash itself: a second copy of
+    `artifacts.seg_hash` would be free to drift from the one the service uses, which is how
+    `conch_v1` ended up meaning two different embeddings.
+    """
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    try:
+        async with httpx.AsyncClient(base_url=preprocess_url, timeout=15.0) as client:
+            resp = await client.post("/hash", json={"kind": kind, **params})
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+
+
 @router.post("/slides/{item}/segment")
 async def start_segment(
     item: str,
@@ -597,19 +647,96 @@ async def start_segment(
     artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
     token: str | None = Depends(get_girder_token),
     preprocess_url: str | None = Depends(get_preprocess_url),
+    plugin_url: str | None = Depends(get_plugin_url),
 ) -> dict:
-    """Enqueue a tissue segmentation and record its durable artifact row."""
+    """Enqueue a tissue segmentation and record its durable artifact row.
+
+    Two paths, and which one runs is a deployment fact rather than a request one. With the Girder
+    plugin configured the run becomes a Girder job on this box's Celery queue (Inc 6 · D4/D5) and
+    the row's `job_id` is that job's; without it, the pre-Inc-6 path calls the service directly.
+    Either way the gateway owns the same three things — the content address, the reuse check and
+    the row.
+    """
     params = {k: v for k, v in body.model_dump().items() if v is not None}
-    run = await _trigger_dag_stage(
-        preprocess_url=preprocess_url, stage="segment", item=item, params=params, token=token
-    )
+
+    if not plugin_url:
+        run = await _trigger_dag_stage(
+            preprocess_url=preprocess_url, stage="segment", item=item, params=params, token=token
+        )
+        return await artifacts.upsert_artifact(
+            item=item, kind="segmentation", art_hash=run["seg_hash"], parent_hash=None,
+            params={k: run[k] for k in _SEG_PARAM_KEYS if k in run},
+            status="queued", job_id=run.get("job_id"),
+        )
+
+    addressed = await _content_address(preprocess_url, "segmentation", item, params)
+    art_hash = addressed["art_hash"]
+    resolved = addressed.get("params") or params
+
+    # Dispatch, then write — one write, and no row without a job behind it. Creating the Girder
+    # job is a single fast call that enqueues rather than runs, so the row still appears before
+    # anyone could look for it; ordering it this way is what makes "a queued row that nothing will
+    # ever pick up" unrepresentable instead of something to clean up afterwards.
+    try:
+        ack = await dispatch_run(
+            plugin_url=plugin_url, kind="segmentation", item=item, art_hash=art_hash,
+            params=params, token=token,
+        )
+    except DispatchUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
     return await artifacts.upsert_artifact(
-        item=item, kind="segmentation", art_hash=run["seg_hash"], parent_hash=None,
-        params={k: run[k] for k in (
-            "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks",
-        ) if k in run},
-        status="queued", job_id=run.get("job_id"),
+        item=item, kind="segmentation", art_hash=art_hash, parent_hash=None,
+        params={k: resolved[k] for k in _SEG_PARAM_KEYS if k in resolved},
+        status="queued", job_id=ack["jobId"],
     )
+
+
+@router.post("/slides/{item}/artifacts/{art_hash}/result")
+async def report_artifact_result(
+    item: str,
+    art_hash: str,
+    body: ArtifactResultRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+) -> dict:
+    """The driver reporting how a run ended (Inc 6 · ticket 01).
+
+    Called for `ready` and for `cancelled` — both leave usable bytes on disk, and a stopped run's
+    tallies describe the smaller artifact it did produce. A failed run reports nothing: its whole
+    story is the Girder job, and there is no artifact to describe.
+
+    Authorised as the user who submitted the run, because the driver carries that user's token.
+    """
+    if body.status not in ("ready", "cancelled"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{body.status!r} is not an outcome that leaves an artifact",
+        )
+    # Asked before writing, because `set_status` mutates in place in both store implementations
+    # and cannot itself report a row that was never there. A driver reporting against an artifact
+    # this slide does not have is a real case — the row can be deleted from the Workspace while
+    # its job is still running.
+    if await artifacts.get_artifact(item=item, art_hash=art_hash) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such artifact for this slide")
+
+    result = body.result or {}
+    await artifacts.set_status(
+        item=item, art_hash=art_hash, status=body.status,
+        stage="done" if body.status == "ready" else "stopped",
+        progress=1.0 if body.status == "ready" else None,
+        n_items=next(
+            (result[k] for k in ("n_nuclei", "n_core_tiles", "n_cells", "n_patches", "n_contours")
+             if isinstance(result.get(k), int)),
+            None,
+        ),
+        artifact_ref=(
+            result.get("features_ref") or result.get("coords_ref") or result.get("contours_ref")
+            or result.get("prediction_ref")
+        ),
+        result=result or None,
+    )
+    return await artifacts.get_artifact(item=item, art_hash=art_hash)
 
 
 @router.post("/slides/{item}/patch")
