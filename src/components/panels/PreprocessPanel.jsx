@@ -371,38 +371,38 @@ export default function PreprocessPanel() {
 
 // Scoped styles (prefix `pp-`) — self-contained, theme-var driven, matching the Copilot panel.
 const PP_CSS = `
-.pp-header{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.pp-header{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border-hex);flex-shrink:0}
 .pp-mark{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;
   background:linear-gradient(160deg,#a78bfa,#7c3aed);color:#fff;font-size:12px;font-weight:700;
   box-shadow:0 0 0 1px rgba(167,139,250,.25),0 2px 8px rgba(124,58,237,.35)}
 .pp-title{font-weight:600;font-size:13px;letter-spacing:.2px}
 .pp-spacer{margin-left:auto}
-.pp-btn{font-size:11px;color:var(--muted);background:transparent;border:1px solid var(--border);
+.pp-btn{font-size:11px;color:var(--muted-hex);background:transparent;border:1px solid var(--border-hex);
   border-radius:7px;padding:4px 9px;cursor:pointer;transition:background .15s,color .15s}
 .pp-btn:hover:not(:disabled){background:rgba(148,163,184,.10);color:var(--fg)}
 .pp-btn:disabled{opacity:.4;cursor:default}
 .pp-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px;
   display:flex;flex-direction:column;gap:11px;
   scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.4) transparent}
-.pp-empty{color:var(--muted);font-size:12.5px;margin-top:6px}
-.pp-lede{margin:0;font-size:12px;line-height:1.55;color:var(--muted)}
+.pp-empty{color:var(--muted-hex);font-size:12.5px;margin-top:6px}
+.pp-lede{margin:0;font-size:12px;line-height:1.55;color:var(--muted-hex)}
 .pp-lede b{color:#c4b5fd;font-weight:600}
 
-.pp-target{border:1px solid var(--border);border-radius:10px;padding:10px 11px;
+.pp-target{border:1px solid var(--border-hex);border-radius:10px;padding:10px 11px;
   background:var(--surface,#171a26);display:flex;flex-direction:column;gap:6px}
 .pp-field{display:flex;flex-direction:column;gap:4px}
-.pp-label{font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
-.pp-select{background:var(--bg2,#0d0e14);color:var(--fg);border:1px solid var(--border);
+.pp-label{font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted-hex)}
+.pp-select{background:var(--bg2,#0d0e14);color:var(--fg);border:1px solid var(--border-hex);
   border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;outline:none;cursor:pointer;
   transition:border-color .15s,box-shadow .15s}
 .pp-select:focus{border-color:rgba(139,92,246,.6);box-shadow:0 0 0 2px rgba(139,92,246,.15)}
 .pp-select:disabled{opacity:.55;cursor:default}
 .pp-hint{font-size:10.5px;line-height:1.45}
 .pp-hint.is-ok{color:#6ee7b7}
-.pp-hint.is-img{color:var(--muted)}
+.pp-hint.is-img{color:var(--muted-hex)}
 .pp-hint b{color:#c4b5fd}
 
-.pp-card{border:1px solid var(--border);border-radius:10px;padding:10px 11px;
+.pp-card{border:1px solid var(--border-hex);border-radius:10px;padding:10px 11px;
   background:var(--surface,#171a26);display:flex;flex-direction:column;gap:8px;position:relative}
 .pp-card--ready{border-color:rgba(52,211,153,.35)}
 .pp-card--failed{border-color:rgba(248,113,113,.35)}
@@ -413,7 +413,7 @@ const PP_CSS = `
   font-size:10.5px;font-weight:700;color:#c4b5fd;background:rgba(139,92,246,.16);
   border:1px solid rgba(139,92,246,.3)}
 .pp-card-title{font-size:12.5px;font-weight:600;color:var(--fg);flex:1;min-width:0}
-.pp-card-detail{font-size:11.5px;color:var(--muted);line-height:1.5;word-break:break-word}
+.pp-card-detail{font-size:11.5px;color:var(--muted-hex);line-height:1.5;word-break:break-word}
 .pp-pill{font-size:9px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;
   border-radius:6px;padding:2px 7px;color:#0b0c12;background:#64748b}
 .pp-pill[data-state="ready"]{background:#34d399}
@@ -426,7 +426,7 @@ const PP_CSS = `
 .pp-ready-note{font-size:11px;line-height:1.5;color:#a7f3d0}
 .pp-ready-note b{color:#6ee7b7}
 
-.pp-adv-toggle{align-self:flex-start;font-size:11px;color:var(--muted);background:none;border:none;
+.pp-adv-toggle{align-self:flex-start;font-size:11px;color:var(--muted-hex);background:none;border:none;
   padding:0;cursor:pointer;transition:color .15s}
 .pp-adv-toggle:hover{color:#c4b5fd}
 .pp-adv{display:flex;flex-direction:column;gap:9px;padding-left:10px;
@@ -434,7 +434,7 @@ const PP_CSS = `
 .pp-row{display:flex;gap:9px}
 .pp-row .pp-field{flex:1}
 .pp-range{accent-color:#8b5cf6;cursor:pointer}
-.pp-note{font-size:10px;color:var(--muted);line-height:1.4}
+.pp-note{font-size:10px;color:var(--muted-hex);line-height:1.4}
 .pp-check{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--fg);cursor:pointer}
 .pp-check input{accent-color:#8b5cf6;cursor:pointer}
 

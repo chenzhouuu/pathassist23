@@ -36,8 +36,8 @@ function StepIndicator({ step }) {
               className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all"
               style={{
                 background: step >= s.n ? '#4da6ff' : 'var(--bg)',
-                color: step >= s.n ? '#fff' : 'var(--muted)',
-                border: step >= s.n ? '2px solid #4da6ff' : '2px solid var(--border)',
+                color: step >= s.n ? '#fff' : 'var(--muted-hex)',
+                border: step >= s.n ? '2px solid #4da6ff' : '2px solid var(--border-hex)',
               }}
             >
               {step > s.n ? (
@@ -46,12 +46,12 @@ function StepIndicator({ step }) {
                 </svg>
               ) : s.n}
             </div>
-            <span className="text-xs whitespace-nowrap" style={{ color: step >= s.n ? 'var(--text)' : 'var(--muted)', fontSize: 10 }}>
+            <span className="text-xs whitespace-nowrap" style={{ color: step >= s.n ? 'var(--text)' : 'var(--muted-hex)', fontSize: 10 }}>
               {s.label}
             </span>
           </div>
           {i < steps.length - 1 && (
-            <div className="flex-1 h-px mx-2 mb-4 transition-all" style={{ background: step > s.n ? '#4da6ff' : 'var(--border)' }} />
+            <div className="flex-1 h-px mx-2 mb-4 transition-all" style={{ background: step > s.n ? '#4da6ff' : 'var(--border-hex)' }} />
           )}
         </React.Fragment>
       ))}
@@ -229,10 +229,10 @@ export default function CaseCreateModal({ initialCollectionId = '', onClose, onS
     }
   };
 
-  const labelStyle = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, display: 'block' };
+  const labelStyle = { fontSize: 11, color: 'var(--muted-hex)', marginBottom: 4, display: 'block' };
   const inputStyle = {
     width: '100%', padding: '7px 10px', borderRadius: 7, fontSize: 12,
-    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', outline: 'none',
+    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-hex)', outline: 'none',
   };
   const checkboxGroupStyle = {
     display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: 4,
@@ -246,19 +246,19 @@ export default function CaseCreateModal({ initialCollectionId = '', onClose, onS
     >
       <div
         className="rounded-xl p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4"
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}
+        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}
       >
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-sm font-bold" style={{ color: 'var(--text)' }}>Create Second Opinion Case</h2>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--muted-hex)' }}>
               {step === 1 && 'Enter patient and case information'}
               {step === 2 && 'Provide pathology and clinical details'}
               {step === 3 && 'Select slides and attach the original report'}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors" style={{ color: 'var(--muted)' }}>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors" style={{ color: 'var(--muted-hex)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -351,7 +351,7 @@ export default function CaseCreateModal({ initialCollectionId = '', onClose, onS
               <div style={checkboxGroupStyle}>
                 {STAIN_OPTIONS.map((s) => (
                   <label key={s} className="flex items-center gap-1.5 text-xs cursor-pointer px-2 py-1 rounded"
-                    style={{ border: '1px solid var(--border)', background: form.stainTypes.includes(s) ? 'rgba(77,166,255,0.12)' : 'var(--bg)', color: form.stainTypes.includes(s) ? '#4da6ff' : 'var(--muted)' }}>
+                    style={{ border: '1px solid var(--border-hex)', background: form.stainTypes.includes(s) ? 'rgba(77,166,255,0.12)' : 'var(--bg)', color: form.stainTypes.includes(s) ? '#4da6ff' : 'var(--muted-hex)' }}>
                     <input type="checkbox" checked={form.stainTypes.includes(s)} onChange={() => toggleArray('stainTypes', s)} className="hidden" />
                     {s}
                   </label>
@@ -363,7 +363,7 @@ export default function CaseCreateModal({ initialCollectionId = '', onClose, onS
               <div style={checkboxGroupStyle}>
                 {TREATMENT_OPTIONS.map((t) => (
                   <label key={t} className="flex items-center gap-1.5 text-xs cursor-pointer px-2 py-1 rounded"
-                    style={{ border: '1px solid var(--border)', background: form.priorTreatment.includes(t) ? 'rgba(194,122,255,0.12)' : 'var(--bg)', color: form.priorTreatment.includes(t) ? '#c27aff' : 'var(--muted)' }}>
+                    style={{ border: '1px solid var(--border-hex)', background: form.priorTreatment.includes(t) ? 'rgba(194,122,255,0.12)' : 'var(--bg)', color: form.priorTreatment.includes(t) ? '#c27aff' : 'var(--muted-hex)' }}>
                     <input type="checkbox" checked={form.priorTreatment.includes(t)} onChange={() => toggleArray('priorTreatment', t)} className="hidden" />
                     {t}
                   </label>
@@ -444,20 +444,20 @@ export default function CaseCreateModal({ initialCollectionId = '', onClose, onS
                     <div className="flex items-center gap-2">
                       <button onClick={() => setSelectedItemIds(imageItems.map((i) => i._id))}
                         className="text-xs px-2 py-1 rounded"
-                        style={{ border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                        style={{ border: '1px solid var(--border-hex)', color: 'var(--muted-hex)' }}>
                         Select All
                       </button>
                       <button onClick={() => setSelectedItemIds([])}
                         className="text-xs px-2 py-1 rounded"
-                        style={{ border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                        style={{ border: '1px solid var(--border-hex)', color: 'var(--muted-hex)' }}>
                         Clear
                       </button>
                     </div>
                   </div>
                   <div className="max-h-44 overflow-y-auto rounded-lg p-2"
-                    style={{ border: '1px solid var(--border)', background: 'var(--bg)' }}>
+                    style={{ border: '1px solid var(--border-hex)', background: 'var(--bg)' }}>
                     {imageItems.length === 0 ? (
-                      <div className="text-xs" style={{ color: 'var(--muted)' }}>No image items found in this folder.</div>
+                      <div className="text-xs" style={{ color: 'var(--muted-hex)' }}>No image items found in this folder.</div>
                     ) : imageItems.map((item) => (
                       <label key={item._id} className="flex items-center gap-2 py-1.5 text-xs cursor-pointer"
                         style={{ color: 'var(--text)' }}>
@@ -483,13 +483,13 @@ export default function CaseCreateModal({ initialCollectionId = '', onClose, onS
         <div className="flex items-center justify-between pt-1">
           <button onClick={handleBack} disabled={step === 1}
             className="px-4 py-1.5 rounded-lg text-xs font-medium"
-            style={{ background: 'var(--bg)', color: step === 1 ? 'var(--border)' : 'var(--muted)', border: '1px solid var(--border)', cursor: step === 1 ? 'default' : 'pointer' }}>
+            style={{ background: 'var(--bg)', color: step === 1 ? 'var(--border-hex)' : 'var(--muted-hex)', border: '1px solid var(--border-hex)', cursor: step === 1 ? 'default' : 'pointer' }}>
             Back
           </button>
           <div className="flex items-center gap-2">
             <button onClick={onClose} disabled={saving}
               className="px-4 py-1.5 rounded-lg text-xs font-medium"
-              style={{ background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+              style={{ background: 'var(--bg)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)' }}>
               Cancel
             </button>
             {step < 3 ? (

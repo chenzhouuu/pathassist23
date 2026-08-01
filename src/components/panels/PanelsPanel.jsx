@@ -69,7 +69,7 @@ export default function PanelsPanel() {
 
   if (!panels.length) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 p-4" style={{ color: 'var(--muted)', minHeight: 180 }}>
+      <div className="flex flex-col items-center justify-center gap-3 p-4" style={{ color: 'var(--muted-hex)', minHeight: 180 }}>
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
           <circle cx="12" cy="13" r="4"/>
@@ -89,13 +89,13 @@ export default function PanelsPanel() {
   return (
     <div className="flex flex-col h-full" style={{ overflow: 'hidden' }}>
       {/* ── Toolbar ── */}
-      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-hex)', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
         <button
           onClick={toggleAll}
-          style={{ fontSize: 10, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
+          style={{ fontSize: 10, color: 'var(--muted-hex)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
           {allSelected ? 'Deselect all' : 'Select all'}
         </button>
-        <span style={{ fontSize: 10, color: 'var(--muted)', flex: 1 }}>{panels.length} panel{panels.length !== 1 ? 's' : ''}</span>
+        <span style={{ fontSize: 10, color: 'var(--muted-hex)', flex: 1 }}>{panels.length} panel{panels.length !== 1 ? 's' : ''}</span>
         {nSelected > 0 && !analyzing && (
           <button
             onClick={handleAnalyze}
@@ -115,9 +115,9 @@ export default function PanelsPanel() {
         <button
           onClick={clearPanels}
           title="Clear all panels"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted)' }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted-hex)' }}
           onMouseEnter={e => e.currentTarget.style.color = '#e94560'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted-hex)'}>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
@@ -138,14 +138,14 @@ export default function PanelsPanel() {
               onClick={() => toggleSelect(panel.id)}
               style={{
                 display: 'flex', gap: 8, borderRadius: 8, padding: '6px 8px', cursor: 'pointer',
-                background: isSelected ? 'rgba(124,58,237,0.08)' : 'var(--highlight)',
-                border: isSelected ? '1px solid rgba(124,58,237,0.4)' : '1px solid var(--border)',
+                background: isSelected ? 'rgba(124,58,237,0.08)' : 'var(--highlight-hex)',
+                border: isSelected ? '1px solid rgba(124,58,237,0.4)' : '1px solid var(--border-hex)',
                 transition: 'all 0.15s',
               }}>
               {/* Checkbox */}
               <div style={{ paddingTop: 2, flexShrink: 0 }}>
                 <div style={{
-                  width: 14, height: 14, borderRadius: 3, border: `1.5px solid ${isSelected ? '#7c3aed' : 'var(--border)'}`,
+                  width: 14, height: 14, borderRadius: 3, border: `1.5px solid ${isSelected ? '#7c3aed' : 'var(--border-hex)'}`,
                   background: isSelected ? '#7c3aed' : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
@@ -157,11 +157,11 @@ export default function PanelsPanel() {
                 </div>
               </div>
               {/* Thumbnail */}
-              <div style={{ width: 60, height: 45, flexShrink: 0, borderRadius: 4, overflow: 'hidden', background: 'var(--bg-viewer)', border: '1px solid var(--border)' }}>
+              <div style={{ width: 60, height: 45, flexShrink: 0, borderRadius: 4, overflow: 'hidden', background: 'var(--bg-viewer)', border: '1px solid var(--border-hex)' }}>
                 {panel.thumbnail
                   ? <img src={panel.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted-hex)" strokeWidth="1.5">
                         <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
                       </svg>
                     </div>
@@ -172,10 +172,10 @@ export default function PanelsPanel() {
                 <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {panel.itemName}
                 </div>
-                <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>
+                <div style={{ fontSize: 9, color: 'var(--muted-hex)', marginTop: 1 }}>
                   {date} {time}
                 </div>
-                <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1, fontFamily: 'monospace' }}>
+                <div style={{ fontSize: 9, color: 'var(--muted-hex)', marginTop: 1, fontFamily: 'monospace' }}>
                   {Math.round(width / 1000)}k × {Math.round(height / 1000)}k px
                   <span style={{ marginLeft: 4 }}>@({Math.round(x / 1000)}k, {Math.round(y / 1000)}k)</span>
                 </div>
@@ -183,9 +183,9 @@ export default function PanelsPanel() {
               {/* Delete */}
               <button
                 onClick={(e) => { e.stopPropagation(); removePanel(panel.id); setSelected((s) => { const n = new Set(s); n.delete(panel.id); return n; }); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted)', alignSelf: 'flex-start', flexShrink: 0 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted-hex)', alignSelf: 'flex-start', flexShrink: 0 }}
                 onMouseEnter={e => e.currentTarget.style.color = '#e94560'}
-                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted-hex)'}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>

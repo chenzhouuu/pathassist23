@@ -135,7 +135,7 @@ export default function RightPanel() {
           )}
         </button>
       </div>
-      <div className="tab-bar shrink-0 viewer-right-tabs" style={{ display:'flex', borderBottom:'1px solid var(--border)' }}>
+      <div className="tab-bar shrink-0 viewer-right-tabs" style={{ display:'flex', borderBottom:'1px solid var(--border-hex)' }}>
         {tabs.map(t => (
           <button key={t.id}
             title={t.label}

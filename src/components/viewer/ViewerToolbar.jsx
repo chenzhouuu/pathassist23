@@ -146,7 +146,7 @@ export default function ViewerToolbar({ viewer }) {
       {toast && (
         <div style={{
           position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-          marginTop: 6, zIndex: 200, background: 'var(--bg-panel)', border: '1px solid var(--border)',
+          marginTop: 6, zIndex: 200, background: 'var(--bg-panel)', border: '1px solid var(--border-hex)',
           borderRadius: 6, padding: '4px 10px', fontSize: 11, color: 'var(--text)',
           whiteSpace: 'nowrap', boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
         }}>{toast}</div>

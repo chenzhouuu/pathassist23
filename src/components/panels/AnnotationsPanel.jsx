@@ -36,12 +36,12 @@ function ElementRow({ el, idx, annColor }) {
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs"
-      style={{ borderBottom:`1px solid var(--border)` }}>
+      style={{ borderBottom:`1px solid var(--border-hex)` }}>
       <span className="w-4 flex items-center justify-center shrink-0" style={{ color: lc }}>
         <ElementIcon type={el.type}/>
       </span>
-      <span className="capitalize w-16 shrink-0" style={{ color: 'var(--muted)' }}>{typeLabel}</span>
-      <span className="font-mono text-xs flex-1 truncate" style={{ color: 'var(--muted)' }}>{coords}</span>
+      <span className="capitalize w-16 shrink-0" style={{ color: 'var(--muted-hex)' }}>{typeLabel}</span>
+      <span className="font-mono text-xs flex-1 truncate" style={{ color: 'var(--muted-hex)' }}>{coords}</span>
       {el.label?.value && (
         <span className="text-xs px-1.5 py-0.5 rounded font-mono truncate max-w-[80px]"
           style={{ background: hexToRgba(lc, 0.15), color: lc, border:`1px solid ${hexToRgba(lc, 0.3)}`}}>
@@ -103,12 +103,12 @@ function EditModal({ ann, onSave, onClose }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center"
       style={{ background:'rgba(0,0,0,0.7)', backdropFilter:'blur(6px)' }}>
-      <div className="rounded-xl w-80 mx-4" style={{ background:'var(--bg-panel)', border:'1px solid var(--border)' }}>
+      <div className="rounded-xl w-80 mx-4" style={{ background:'var(--bg-panel)', border:'1px solid var(--border-hex)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3"
-          style={{ borderBottom:'1px solid var(--border)' }}>
+          style={{ borderBottom:'1px solid var(--border-hex)' }}>
           <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Edit Annotation</span>
-          <button onClick={onClose} style={{ color: 'var(--muted)' }}>
+          <button onClick={onClose} style={{ color: 'var(--muted-hex)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -124,7 +124,7 @@ function EditModal({ ann, onSave, onClose }) {
           <div className="p-4 space-y-3">
             {/* Name */}
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Name</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted-hex)' }}>Name</label>
               <input value={name} onChange={e => setName(e.target.value)}
                 className="login-input text-xs w-full" placeholder="Annotation name"
                 onKeyDown={e => e.key === 'Enter' && handleSave()}/>
@@ -132,14 +132,14 @@ function EditModal({ ann, onSave, onClose }) {
 
             {/* Description */}
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Description</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted-hex)' }}>Description</label>
               <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2}
                 className="login-input text-xs w-full resize-none" placeholder="Optional description"/>
             </div>
 
             {/* Color */}
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Color</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted-hex)' }}>Color</label>
               <div className="flex items-center gap-2 flex-wrap">
                 {DRAW_COLORS.map(c => (
                   <button key={c} onClick={() => setColor(c)}
@@ -161,7 +161,7 @@ function EditModal({ ann, onSave, onClose }) {
 
             {/* Line width */}
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted-hex)' }}>
                 Line thickness — <span style={{ color: 'var(--text)' }}>{lineWidth}px</span>
               </label>
               <input
@@ -178,7 +178,7 @@ function EditModal({ ann, onSave, onClose }) {
         )}
 
         <div className="px-4 py-3 flex gap-2 justify-end"
-          style={{ borderTop:'1px solid var(--border)' }}>
+          style={{ borderTop:'1px solid var(--border-hex)' }}>
           <button onClick={onClose} className="btn-ghost text-xs px-3">Cancel</button>
           <button onClick={handleSave} disabled={saving || loading}
             className="text-xs px-3 py-1.5 rounded transition-all disabled:opacity-50"
@@ -270,7 +270,7 @@ function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, on
 
           {/* Element count badge */}
           <span className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0"
-            style={{ background:'var(--highlight)', color:'var(--muted)' }}>
+            style={{ background:'var(--highlight-hex)', color:'var(--muted-hex)' }}>
             {elCount}
           </span>
 
@@ -309,7 +309,7 @@ function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, on
         {/* ── Expanded elements list ── */}
         {expanded && (
           <div className="mx-2 mb-2 rounded-lg overflow-hidden"
-            style={{ background:'var(--bg)', border:'1px solid var(--border)' }}>
+            style={{ background:'var(--bg)', border:'1px solid var(--border-hex)' }}>
             {loadingEl ? (
               <div className="flex items-center justify-center py-3 gap-2">
                 <div className="spinner" style={{ width:12, height:12 }}/>
@@ -323,7 +323,7 @@ function AnnotationRow({ ann, idx, onDelete, onSelect, isSelected, isVisible, on
                   <ElementRow key={ei} el={el} idx={ei} annColor={annColor}/>
                 ))}
                 <div className="px-3 py-1.5 text-xs font-mono"
-                  style={{ color: 'var(--muted)', borderTop:'1px solid var(--border)' }}>
+                  style={{ color: 'var(--muted-hex)', borderTop:'1px solid var(--border-hex)' }}>
                   {elements.length} element{elements.length !== 1 ? 's' : ''} · ID {ann._id.slice(-6)}
                 </div>
               </>
@@ -355,7 +355,7 @@ function DrawingControls() {
   ];
 
   return (
-    <div className="px-2 py-2 space-y-2" style={{ borderBottom:'1px solid var(--border)' }}>
+    <div className="px-2 py-2 space-y-2" style={{ borderBottom:'1px solid var(--border-hex)' }}>
       {/* Tool buttons */}
       <div className="flex items-center gap-1 flex-wrap">
         <button
@@ -390,7 +390,7 @@ function DrawingControls() {
         <div className="space-y-2 pb-1">
           {/* Color */}
           <div className="flex items-center gap-2">
-            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted)' }}>Color</span>
+            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted-hex)' }}>Color</span>
             <div className="flex items-center gap-1 flex-wrap">
               {DRAW_COLORS.map(c => (
                 <button key={c} onClick={() => setDrawColor(c)}
@@ -405,32 +405,32 @@ function DrawingControls() {
 
           {/* Line width */}
           <div className="flex items-center gap-2">
-            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted)' }}>Width</span>
+            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted-hex)' }}>Width</span>
             <input
               type="range" min={1} max={12} step={0.5}
               value={drawLineWidth || 2}
               onChange={e => setDrawLineWidth(Number(e.target.value))}
               className="flex-1 accent-blue-400"
             />
-            <span className="text-xs font-mono w-6 text-right" style={{ color: 'var(--muted)' }}>{drawLineWidth || 2}</span>
+            <span className="text-xs font-mono w-6 text-right" style={{ color: 'var(--muted-hex)' }}>{drawLineWidth || 2}</span>
           </div>
 
           {/* Label */}
           <div className="flex items-center gap-2">
-            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted)' }}>Label</span>
+            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted-hex)' }}>Label</span>
             <input value={drawLabel || ''} onChange={e => setDrawLabel(e.target.value)}
               placeholder="Optional label…" maxLength={64}
               className="flex-1 text-xs rounded px-2 py-1 outline-none"
-              style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)' }}/>
+              style={{ background:'var(--bg)', border:'1px solid var(--border-hex)', color:'var(--text)' }}/>
           </div>
 
           {/* Group */}
           <div className="flex items-center gap-2">
-            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted)' }}>Group</span>
+            <span className="text-xs w-10 shrink-0" style={{ color: 'var(--muted-hex)' }}>Group</span>
             <input value={drawGroup || ''} onChange={e => setDrawGroup(e.target.value)}
               placeholder="e.g. Tumor, Stroma…" maxLength={64}
               className="flex-1 text-xs rounded px-2 py-1 outline-none"
-              style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)' }}/>
+              style={{ background:'var(--bg)', border:'1px solid var(--border-hex)', color:'var(--text)' }}/>
           </div>
         </div>
       )}
@@ -444,7 +444,7 @@ function DrawingControls() {
           <span className="text-gray-600 flex-1">
             {(drawingMode === 'polygon' || drawingMode === 'polyline') ? '· dbl-click to finish' : '· drag to draw'}
           </span>
-          <button onClick={() => setDrawingMode(null)} style={{ color: 'var(--muted)' }} title="Cancel (Esc)">✕</button>
+          <button onClick={() => setDrawingMode(null)} style={{ color: 'var(--muted-hex)' }} title="Cancel (Esc)">✕</button>
         </div>
       )}
     </div>
@@ -528,12 +528,12 @@ export default function AnnotationsPanel() {
       <DrawingControls/>
 
       {/* List header */}
-      <div className="flex items-center px-3 py-1.5 shrink-0" style={{ borderBottom:'1px solid var(--border)' }}>
+      <div className="flex items-center px-3 py-1.5 shrink-0" style={{ borderBottom:'1px solid var(--border-hex)' }}>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2" className="mr-1.5">
           <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
         </svg>
         <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>Annotations</span>
-        <span className="ml-1.5 text-xs font-mono" style={{ color: 'var(--muted)' }}>({annotations.length})</span>
+        <span className="ml-1.5 text-xs font-mono" style={{ color: 'var(--muted-hex)' }}>({annotations.length})</span>
 
         <div className="ml-auto flex items-center gap-1">
           {annotations.length > 0 && (

@@ -3,8 +3,7 @@ import React, { useEffect } from 'react';
 import { useStore } from './store/index.js';
 import { getMe, getMyGroups } from './api/index.js';
 import LoginModal from './components/layout/LoginModal.jsx';
-import Dashboard from './components/dashboard/Dashboard.jsx';
-import WorklistPage from './components/worklist/WorklistPage.jsx';
+import BrowserPage from './components/browser/BrowserPage.jsx';
 import ViewerApp from './components/ViewerApp.jsx';
 import CompareViewer from './components/viewer/CompareViewer.jsx';
 import ProjectsPage from './components/projects/ProjectsPage.jsx';
@@ -15,7 +14,7 @@ import PatientPortalPage from './components/patient/PatientPortalPage.jsx';
 import ReferringPortalPage from './components/referring/ReferringPortalPage.jsx';
 
 export default function App() {
-  const { token, currentPage, theme, setAuth, setUserGroups, hasRole, user, setPage } = useStore();
+  const { token, currentPage, setAuth, setUserGroups, hasRole, user, setPage } = useStore();
 
   // Patient share links use URL hash — no auth required.
   // Must check before any auth gating.
@@ -52,13 +51,9 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!isPatientView) document.documentElement.dataset.theme = theme;
-  }, [theme, isPatientView]);
-
-  useEffect(() => {
     if (!token || !user || isPatientView || isSharedImageView || isCompareWindow) return;
     const shouldLandOnCases = !user.admin && hasRole('second-opinion-users') && !hasRole('import-users');
-    if (shouldLandOnCases && currentPage === 'dashboard') {
+    if (shouldLandOnCases && currentPage === 'browse') {
       setPage('second-opinion');
     }
   }, [token, user, currentPage, hasRole, setPage, isPatientView, isSharedImageView, isCompareWindow]);
@@ -79,10 +74,13 @@ export default function App() {
   const hasClinicalRole = hasRole('annotation-users') || hasRole('worklist-users') || hasRole('import-users');
   if (!user?.admin && !hasClinicalRole && hasRole('patient-portal-users'))   return <PatientPortalPage />;
   if (!user?.admin && !hasClinicalRole && hasRole('referring-portal-users')) return <ReferringPortalPage />;
-  // All internal roles use page-based routing.
-  if (currentPage === 'dashboard')       return <Dashboard />;
+  // All internal roles use page-based routing. 'browse' is the landing page; 'dashboard' and
+  // 'worklist' both resolve to it — the Dashboard is gone and the browser absorbed the worklist,
+  // but either name can still arrive from a returning user's persisted state or an old link.
+  if (currentPage === 'browse' || currentPage === 'dashboard' || currentPage === 'worklist') {
+    return <BrowserPage />;
+  }
   if (currentPage === 'projects')        return <ProjectsPage />;
-  if (currentPage === 'worklist')        return <WorklistPage />;
   if (currentPage === 'compare')         return <CompareViewer />;
   if (currentPage === 'second-opinion')  return <SecondOpinionPage />;
   return <ViewerApp />;

@@ -49,7 +49,7 @@ export const useStore = create((set, get) => ({
   },
 
   // ── Page routing ─────────────────────────────────────────────────────────
-  currentPage: 'dashboard',
+  currentPage: 'browse',
   setPage: (page) => set({ currentPage: page }),
 
   // ── Navigation ───────────────────────────────────────────────────────────
@@ -408,13 +408,9 @@ export const useStore = create((set, get) => ({
     set({ panels: [] });
   },
 
-  // ── Theme ────────────────────────────────────────────────────────────────
-  theme: localStorage.getItem('theme') || 'clinical',
-  setTheme: (theme) => {
-    localStorage.setItem('theme', theme);
-    document.documentElement.dataset.theme = theme;
-    set({ theme });
-  },
+  // Theme state was removed with the light/clinical/H&E variants: the app now has one palette,
+  // defined once in src/styles/index.css. There is nothing to switch between, so there is nothing
+  // to hold. (The old `theme` key may still sit in a returning user's localStorage; it is inert.)
 
   // ── Viewer UI ────────────────────────────────────────────────────────────
   leftPanelOpen: false,

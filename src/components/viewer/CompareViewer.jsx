@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { getTilesInfoSafe } from '../../api/index.js';
 import { GIRDER_BASE } from '../../config/girder.js';
-import ThemeSwitcher from '../ThemeSwitcher.jsx';
 
 function osdOpen(osd, source, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
@@ -183,7 +182,7 @@ export default function CompareViewer() {
       window.close();
       return;
     }
-    setPage('worklist');
+    setPage('browse');
   };
 
   const wireSync = useCallback(() => {
@@ -247,7 +246,6 @@ export default function CompareViewer() {
           <button onClick={toggleSync} className={`compare-toggle-btn ${syncOn ? 'active' : ''}`}>
             {syncOn ? 'Sync Zoom On' : 'Sync Zoom Off'}
           </button>
-          <ThemeSwitcher />
           <div className="compare-user-pill">
             {user?.firstName?.[0] || user?.login?.[0]?.toUpperCase() || '?'}
           </div>

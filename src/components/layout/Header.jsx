@@ -2,7 +2,6 @@
 import React from 'react';
 import { useStore } from '../../store/index.js';
 import { logout } from '../../api/index.js';
-import ThemeSwitcher from '../ThemeSwitcher.jsx';
 import AppLogo from './AppLogo.jsx';
 import { APP_NAME } from '../../config/branding.js';
 import { KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
@@ -20,7 +19,7 @@ export default function Header({ showBack = false }) {
   return (
     <header className="app-header">
 
-      <div className="app-brand" onClick={() => setPage('dashboard')}>
+      <div className="app-brand" onClick={() => setPage('browse')}>
         <div className="app-brand-mark">
           <AppLogo className="h-7 md:h-8 w-auto object-contain" />
         </div>
@@ -32,12 +31,12 @@ export default function Header({ showBack = false }) {
 
       {showBack && (
         <>
-          <button onClick={() => setPage('worklist')}
+          <button onClick={() => setPage('browse')}
             className="app-nav-chip">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
-            Worklist
+            Browse
           </button>
         </>
       )}
@@ -46,9 +45,9 @@ export default function Header({ showBack = false }) {
       <div className="flex items-center gap-1 flex-1 overflow-hidden text-xs">
         {breadcrumb.map((crumb, i) => (
           <React.Fragment key={crumb._id}>
-            {i > 0 && <span style={{ color: 'var(--muted)' }}>/</span>}
+            {i > 0 && <span style={{ color: 'var(--muted-hex)' }}>/</span>}
             <span className={`px-1.5 py-0.5 rounded truncate max-w-[140px] ${i === breadcrumb.length - 1 ? 'font-medium' : ''}`}
-              style={{ color: i === breadcrumb.length - 1 ? 'var(--text)' : 'var(--muted)' }}>
+              style={{ color: i === breadcrumb.length - 1 ? 'var(--text)' : 'var(--muted-hex)' }}>
               {crumb.name}
             </span>
           </React.Fragment>
@@ -56,13 +55,12 @@ export default function Header({ showBack = false }) {
       </div>
 
       <div className="app-header-actions">
-        <ThemeSwitcher />
         <div className="app-header-divider" />
         <div className="app-user-chip">
           <div className="app-user-avatar">
             {user?.firstName?.[0] || user?.login?.[0]?.toUpperCase() || '?'}
           </div>
-          <span className="text-xs hidden sm:block" style={{ color: 'var(--muted)' }}>{user?.login || user?.firstName}</span>
+          <span className="text-xs hidden sm:block" style={{ color: 'var(--muted-hex)' }}>{user?.login || user?.firstName}</span>
           <button className="btn-icon" onClick={handleLogout} title="Sign out">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>

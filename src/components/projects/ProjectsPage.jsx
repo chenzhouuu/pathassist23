@@ -69,9 +69,9 @@ function ProjectCard({ collection, stats, onOpen, onEdit }) {
   return (
     <div
       className="group relative flex flex-col gap-3 p-4 rounded-xl cursor-pointer transition-all duration-200"
-      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = color + '44'; e.currentTarget.style.background = 'var(--highlight)'; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-panel)'; }}
+      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)' }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = color + '44'; e.currentTarget.style.background = 'var(--highlight-hex)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-hex)'; e.currentTarget.style.background = 'var(--bg-panel)'; }}
       onClick={onOpen}
     >
       {/* Accent stripe */}
@@ -91,7 +91,7 @@ function ProjectCard({ collection, stats, onOpen, onEdit }) {
           <button
             onClick={e => { e.stopPropagation(); onEdit(); }}
             className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
-            style={{ color: 'var(--muted)' }}
+            style={{ color: 'var(--muted-hex)' }}
             title="Edit project"
           >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -108,7 +108,7 @@ function ProjectCard({ collection, stats, onOpen, onEdit }) {
           {collection.name}
         </div>
         {collection.description && (
-          <div className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--muted)' }}>
+          <div className="text-xs mt-0.5 line-clamp-2" style={{ color: 'var(--muted-hex)' }}>
             {collection.description}
           </div>
         )}
@@ -117,30 +117,30 @@ function ProjectCard({ collection, stats, onOpen, onEdit }) {
       {/* Tags row */}
       <div className="flex flex-wrap items-center gap-2">
         {meta.caseType && (
-          <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+          <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)' }}>
             {meta.caseType}
           </span>
         )}
         {meta.priority && <PriorityDot priority={meta.priority} />}
         {meta.assignee && (
-          <span className="text-xs" style={{ color: 'var(--muted)' }}>
+          <span className="text-xs" style={{ color: 'var(--muted-hex)' }}>
             👤 {meta.assignee}
           </span>
         )}
       </div>
 
       {/* Stats footer */}
-      <div className="flex items-center gap-3 mt-auto pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-3 mt-auto pt-2" style={{ borderTop: '1px solid var(--border-hex)' }}>
         <div className="text-center">
           <div className="text-xs font-mono font-bold" style={{ color }}>{stats?.folders ?? '…'}</div>
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>Cases</div>
+          <div className="text-xs" style={{ color: 'var(--muted-hex)' }}>Cases</div>
         </div>
-        <div className="w-px h-5" style={{ background: 'var(--border)' }} />
+        <div className="w-px h-5" style={{ background: 'var(--border-hex)' }} />
         <div className="text-center">
           <div className="text-xs font-mono font-bold" style={{ color }}>{stats?.items ?? '…'}</div>
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>Images</div>
+          <div className="text-xs" style={{ color: 'var(--muted-hex)' }}>Images</div>
         </div>
-        <div className="ml-auto text-xs font-mono" style={{ color: 'var(--muted)' }}>{updated}</div>
+        <div className="ml-auto text-xs font-mono" style={{ color: 'var(--muted-hex)' }}>{updated}</div>
       </div>
     </div>
   );
@@ -181,10 +181,10 @@ function ProjectModal({ initial, onClose, onSave }) {
 
   const inputStyle = {
     width: '100%', padding: '7px 10px', borderRadius: 7, fontSize: 12,
-    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', outline: 'none',
+    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-hex)', outline: 'none',
   };
   const selectStyle = { ...inputStyle, cursor: 'pointer' };
-  const labelStyle  = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, display: 'block' };
+  const labelStyle  = { fontSize: 11, color: 'var(--muted-hex)', marginBottom: 4, display: 'block' };
 
   return (
     <div
@@ -193,7 +193,7 @@ function ProjectModal({ initial, onClose, onSave }) {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="rounded-xl p-5 w-full max-w-md flex flex-col gap-4"
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
 
         {/* Title */}
         <div className="flex items-center justify-between">
@@ -201,11 +201,11 @@ function ProjectModal({ initial, onClose, onSave }) {
             <h2 className="text-sm font-bold" style={{ color: 'var(--text)' }}>
               {isEdit ? 'Edit Project' : 'New PathAssist Project'}
             </h2>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--muted-hex)' }}>
               {isEdit ? 'Update project details' : 'Create a new project to organise cases and slides'}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors" style={{ color: 'var(--muted)' }}>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors" style={{ color: 'var(--muted-hex)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -217,13 +217,13 @@ function ProjectModal({ initial, onClose, onSave }) {
           <div>
             <label style={labelStyle}>Project Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Lymphoma Study Q1 2025"
-              style={inputStyle} onFocus={e => e.target.style.borderColor = '#4da6ff'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+              style={inputStyle} onFocus={e => e.target.style.borderColor = '#4da6ff'} onBlur={e => e.target.style.borderColor = 'var(--border-hex)'} />
           </div>
           <div>
             <label style={labelStyle}>Description</label>
             <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Brief project description..."
               rows={2} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
-              onFocus={e => e.target.style.borderColor = '#4da6ff'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+              onFocus={e => e.target.style.borderColor = '#4da6ff'} onBlur={e => e.target.style.borderColor = 'var(--border-hex)'} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -256,7 +256,7 @@ function ProjectModal({ initial, onClose, onSave }) {
             <div>
               <label style={labelStyle}>Assignee</label>
               <input value={assignee} onChange={e => setAssignee(e.target.value)} placeholder="Dr. Smith"
-                style={inputStyle} onFocus={e => e.target.style.borderColor = '#4da6ff'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+                style={inputStyle} onFocus={e => e.target.style.borderColor = '#4da6ff'} onBlur={e => e.target.style.borderColor = 'var(--border-hex)'} />
             </div>
           </div>
         </div>
@@ -271,7 +271,7 @@ function ProjectModal({ initial, onClose, onSave }) {
         <div className="flex items-center gap-2 justify-end pt-1">
           <button onClick={onClose} disabled={saving}
             className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all"
-            style={{ background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+            style={{ background: 'var(--bg)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)' }}>
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !name.trim()}
@@ -353,7 +353,7 @@ export default function ProjectsPage() {
   const handleOpen = (col) => {
     setActiveProject(col);
     setActiveCollection(col);
-    setPage('worklist');
+    setPage('browse');
   };
 
   const handleCreate = async ({ name, description, meta }) => {
@@ -375,9 +375,8 @@ export default function ProjectsPage() {
     : user?.login || 'Pathologist';
 
   const navItems = [
-    { id: 'dashboard',      label: 'Dashboard',      show: true,                            icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> },
+    { id: 'browse',         label: 'Browse',         show: true,                            icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
     { id: 'projects',       label: 'Projects',       show: hasRole('projects-users'),       icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
-    { id: 'worklist',       label: 'All Images',     show: true,                            icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
     { id: 'second-opinion', label: 'Second Opinion', show: hasRole('second-opinion-users'), icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   ].filter(item => item.show);
 
@@ -385,7 +384,7 @@ export default function ProjectsPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
       {/* Nav */}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20"
-        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
+        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border-hex)', backdropFilter: 'blur(12px)' }}>
         <div className="flex items-center">
           <AppLogo />
         </div>
@@ -395,20 +394,20 @@ export default function ProjectsPage() {
             <button key={item.id} onClick={() => setPage(item.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{
-                background: item.id === 'projects' ? 'var(--highlight)' : 'transparent',
-                color: item.id === 'projects' ? 'var(--accent)' : 'var(--muted)',
-                border: item.id === 'projects' ? '1px solid var(--border)' : '1px solid transparent',
+                background: item.id === 'projects' ? 'var(--highlight-hex)' : 'transparent',
+                color: item.id === 'projects' ? 'var(--accent-hex)' : 'var(--muted-hex)',
+                border: item.id === 'projects' ? '1px solid var(--border-hex)' : '1px solid transparent',
               }}>
               {item.icon}{item.label}
             </button>
           ))}
         </nav>
-        <div className="flex items-center gap-2 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-2 pl-3" style={{ borderLeft: '1px solid var(--border-hex)' }}>
           <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
             style={{ background: 'linear-gradient(135deg, #4da6ff22, #7c3aed22)', border: '1px solid rgba(77,166,255,0.3)', color: '#4da6ff' }}>
             {displayName[0]?.toUpperCase()}
           </div>
-          <span className="text-xs hidden md:block" style={{ color: 'var(--muted)' }}>{displayName}</span>
+          <span className="text-xs hidden md:block" style={{ color: 'var(--muted-hex)' }}>{displayName}</span>
           <button onClick={handleLogout} className="btn-icon ml-1" title="Sign out">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -427,7 +426,7 @@ export default function ProjectsPage() {
               <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
                 PathAssist Projects
               </h1>
-              <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+              <p className="text-sm mt-1" style={{ color: 'var(--muted-hex)' }}>
                 {isLoading ? 'Loading projects…' : `${counts.total} project${counts.total !== 1 ? 's' : ''} — ${counts.active} active, ${counts.review} in review`}
               </p>
             </div>
@@ -455,10 +454,10 @@ export default function ProjectsPage() {
                 className="flex flex-col gap-1 p-3 rounded-xl cursor-pointer transition-all"
                 style={{
                   background: filterStatus === key ? color + '18' : 'var(--bg-panel)',
-                  border: `1px solid ${filterStatus === key ? color + '44' : 'var(--border)'}`,
+                  border: `1px solid ${filterStatus === key ? color + '44' : 'var(--border-hex)'}`,
                 }}>
                 <div className="text-xl font-bold font-mono" style={{ color }}>{counts[key]}</div>
-                <div className="text-xs" style={{ color: 'var(--muted)' }}>{label}</div>
+                <div className="text-xs" style={{ color: 'var(--muted-hex)' }}>{label}</div>
               </div>
             ))}
           </div>
@@ -466,15 +465,15 @@ export default function ProjectsPage() {
           {/* Filter + search row */}
           <div className="flex flex-wrap items-center gap-3 mb-5">
             {/* Filter tabs */}
-            <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)' }}>
               {FILTER_TABS.map(tab => (
                 <button key={tab}
                   onClick={() => setFilterStatus(tab)}
                   className="px-3 py-1 rounded-md text-xs font-medium transition-all capitalize"
                   style={{
-                    background: filterStatus === tab ? 'var(--highlight)' : 'transparent',
-                    color: filterStatus === tab ? 'var(--accent)' : 'var(--muted)',
-                    border: filterStatus === tab ? '1px solid var(--border)' : '1px solid transparent',
+                    background: filterStatus === tab ? 'var(--highlight-hex)' : 'transparent',
+                    color: filterStatus === tab ? 'var(--accent-hex)' : 'var(--muted-hex)',
+                    border: filterStatus === tab ? '1px solid var(--border-hex)' : '1px solid transparent',
                   }}>
                   {tab === 'all' ? 'All' : STATUS_CONFIG[tab]?.label || tab}
                 </button>
@@ -483,8 +482,8 @@ export default function ProjectsPage() {
 
             {/* Search */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg flex-1 min-w-[160px] max-w-xs"
-              style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--muted)', shrink: 0 }}>
+              style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--muted-hex)', shrink: 0 }}>
                 <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
               </svg>
               <input
@@ -495,7 +494,7 @@ export default function ProjectsPage() {
                 style={{ color: 'var(--text)', border: 'none' }}
               />
               {search && (
-                <button onClick={() => setSearch('')} style={{ color: 'var(--muted)' }}>
+                <button onClick={() => setSearch('')} style={{ color: 'var(--muted-hex)' }}>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
@@ -503,7 +502,7 @@ export default function ProjectsPage() {
               )}
             </div>
 
-            <div className="text-xs ml-auto" style={{ color: 'var(--muted)' }}>
+            <div className="text-xs ml-auto" style={{ color: 'var(--muted-hex)' }}>
               {filtered.length} of {collections.length}
             </div>
           </div>
@@ -513,15 +512,15 @@ export default function ProjectsPage() {
             <div className="flex items-center justify-center py-16">
               <div className="flex flex-col items-center gap-3">
                 <div className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
-                <span className="text-xs" style={{ color: 'var(--muted)' }}>Loading projects…</span>
+                <span className="text-xs" style={{ color: 'var(--muted-hex)' }}>Loading projects…</span>
               </div>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" className="mb-3" style={{ stroke: 'var(--border)' }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" className="mb-3" style={{ stroke: 'var(--border-hex)' }}>
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+              <p className="text-sm" style={{ color: 'var(--muted-hex)' }}>
                 {search || filterStatus !== 'all' ? 'No projects match the current filter' : 'No projects yet'}
               </p>
               {!search && filterStatus === 'all' && (
@@ -547,7 +546,7 @@ export default function ProjectsPage() {
           )}
 
           <div className="mt-12 pt-6 text-center text-xs font-mono"
-            style={{ borderTop: '1px solid var(--border)', color: 'var(--muted)' }}>
+            style={{ borderTop: '1px solid var(--border-hex)', color: 'var(--muted-hex)' }}>
             PathAssist Projects — IMPART — lymphoma.dev.pathassist.health
           </div>
         </div>

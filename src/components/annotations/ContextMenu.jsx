@@ -12,24 +12,24 @@ function MenuItem({ icon, label, onClick, danger, disabled, hint }) {
       onClick={disabled ? undefined : onClick}
       className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-left transition-colors rounded-md"
       style={{
-        color: disabled ? 'var(--muted)' : danger ? '#e94560' : 'var(--text)',
+        color: disabled ? 'var(--muted-hex)' : danger ? '#e94560' : 'var(--text)',
         cursor: disabled ? 'default' : 'pointer',
         background: 'transparent',
       }}
-      onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = danger ? 'rgba(233,69,96,0.12)' : 'var(--highlight)'; }}
+      onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = danger ? 'rgba(233,69,96,0.12)' : 'var(--highlight-hex)'; }}
       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
     >
-      <span className="shrink-0 w-4 flex items-center justify-center" style={{ color: disabled ? 'var(--muted)' : danger ? '#e94560' : 'var(--muted)' }}>
+      <span className="shrink-0 w-4 flex items-center justify-center" style={{ color: disabled ? 'var(--muted-hex)' : danger ? '#e94560' : 'var(--muted-hex)' }}>
         {icon}
       </span>
       <span className="flex-1">{label}</span>
-      {hint && <span className="text-xs ml-auto shrink-0" style={{ color:'var(--muted)' }}>{hint}</span>}
+      {hint && <span className="text-xs ml-auto shrink-0" style={{ color:'var(--muted-hex)' }}>{hint}</span>}
     </button>
   );
 }
 
 function Divider() {
-  return <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />;
+  return <div style={{ height: 1, background: 'var(--border-hex)', margin: '2px 0' }} />;
 }
 
 export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNuclei, onAnalyzeKi67, onAnalyzeRoiGrid, onAnalyzeWsi }) {
@@ -117,7 +117,7 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
         zIndex: 1000,
         minWidth: 200,
         background: 'var(--bg-panel)',
-        border: '1px solid var(--border)',
+        border: '1px solid var(--border-hex)',
         borderRadius: 10,
         padding: '4px',
         boxShadow: '0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)',
@@ -125,14 +125,14 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
       }}
     >
       {/* Header: annotation info or empty-space label */}
-      <div className="px-3 py-2 text-xs" style={{ borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+      <div className="px-3 py-2 text-xs" style={{ borderBottom: '1px solid var(--border-hex)', marginBottom: 4 }}>
         {ann ? (
           <>
             <div className="font-semibold truncate max-w-[170px]" style={{ color: 'var(--text)' }}>{annName || 'Annotation'}</div>
-            <div className="mt-0.5" style={{ color: 'var(--muted)' }}>{elCount} element{elCount !== 1 ? 's' : ''}</div>
+            <div className="mt-0.5" style={{ color: 'var(--muted-hex)' }}>{elCount} element{elCount !== 1 ? 's' : ''}</div>
           </>
         ) : (
-          <div className="italic" style={{ color: 'var(--muted)' }}>No annotation at cursor</div>
+          <div className="italic" style={{ color: 'var(--muted-hex)' }}>No annotation at cursor</div>
         )}
       </div>
 

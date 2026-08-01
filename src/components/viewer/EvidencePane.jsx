@@ -62,7 +62,7 @@ export default function EvidencePane({ mainViewer, sync, alpha, slideKey }) {
 
   return (
     <div className="relative h-full" style={{ flex: '1 1 0%', minWidth: 0,
-      borderLeft: '1px solid var(--border)', background: 'var(--bg-viewer)' }}>
+      borderLeft: '1px solid var(--border-hex)', background: 'var(--bg-viewer)' }}>
       <div ref={containerRef} className="w-full h-full" />
       {ready && <HeatmapOverlay viewer={osdRef} alpha={alpha} />}
       <span className="viewer-pane-tag">Class evidence</span>

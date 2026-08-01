@@ -10,12 +10,12 @@ import { GIRDER_BASE } from '../../config/girder.js';
 // ── Girder job status codes ───────────────────────────────────────────────────
 const JOB_STATUS = { 0:'inactive', 1:'queued', 2:'running', 3:'success', 4:'error', 5:'cancelled' };
 const STATUS_COLOR = {
-  inactive:  'var(--muted)',
+  inactive:  'var(--muted-hex)',
   queued:    '#f5a623',
   running:   '#4da6ff',
   success:   '#4caf82',
   error:     '#e94560',
-  cancelled: 'var(--muted)',
+  cancelled: 'var(--muted-hex)',
 };
 
 // ── Parse Slicer CLI XML into structured params ───────────────────────────────
@@ -71,7 +71,7 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
   const { tag, label, desc, defVal, enums, min, max } = param;
   const inputStyle = {
     width:'100%', fontSize:11, padding:'5px 8px', borderRadius:5,
-    background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)',
+    background:'var(--bg)', border:'1px solid var(--border-hex)', color:'var(--text)',
     outline:'none', fontFamily:'inherit',
   };
 
@@ -79,7 +79,7 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
     <label className="block mb-1.5" style={{ color:'var(--text)', fontSize:11, fontWeight:500 }}>
       {label}
       {desc && (
-        <span className="block mt-0.5 leading-relaxed" style={{ color:'var(--muted)', fontSize:9, fontWeight:400 }}>
+        <span className="block mt-0.5 leading-relaxed" style={{ color:'var(--muted-hex)', fontSize:9, fontWeight:400 }}>
           {desc}
         </span>
       )}
@@ -93,7 +93,7 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
         style={{ accentColor:'#4da6ff', marginTop:2, flexShrink:0 }}/>
       <label htmlFor={param.name} className="cursor-pointer" style={{ color:'var(--text)', fontSize:11 }}>
         {label}
-        {desc && <span className="block mt-0.5" style={{ color:'var(--muted)', fontSize:9 }}>{desc}</span>}
+        {desc && <span className="block mt-0.5" style={{ color:'var(--muted-hex)', fontSize:9 }}>{desc}</span>}
       </label>
     </div>
   );
@@ -118,10 +118,10 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
             placeholder={tag === 'region' ? '[-1, -1, -1, -1]' : '-1,-1,-1,-1'}
             style={{ ...inputStyle, fontFamily:'monospace', paddingRight: value && value !== '-1,-1,-1,-1' ? 24 : 8 }}
             onFocus={e => e.target.style.borderColor='rgba(77,166,255,0.5)'}
-            onBlur={e => e.target.style.borderColor='var(--border)'}/>
+            onBlur={e => e.target.style.borderColor='var(--border-hex)'}/>
           {value && value !== '-1,-1,-1,-1' && (
             <button onClick={() => onChange('-1,-1,-1,-1')}
-              style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', color:'var(--muted)', background:'none', border:'none', cursor:'pointer', fontSize:10, padding:0 }}
+              style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', color:'var(--muted-hex)', background:'none', border:'none', cursor:'pointer', fontSize:10, padding:0 }}
               title="Reset to full slide">✕</button>
           )}
         </div>
@@ -139,10 +139,10 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
         )}
       </div>
       <div className="flex items-center gap-1 mt-1.5">
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2">
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="var(--muted-hex)" strokeWidth="2">
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        <span style={{ color:'var(--muted)', fontSize:9 }}>
+        <span style={{ color:'var(--muted-hex)', fontSize:9 }}>
           left, top, width, height (pixels) &nbsp;·&nbsp; <span style={{ fontFamily:'monospace' }}>-1,-1,-1,-1</span> = entire slide
         </span>
       </div>
@@ -157,9 +157,9 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
         onChange={e => onChange(e.target.value)}
         style={inputStyle}
         onFocus={e => e.target.style.borderColor='rgba(77,166,255,0.5)'}
-        onBlur={e => e.target.style.borderColor='var(--border)'}/>
+        onBlur={e => e.target.style.borderColor='var(--border-hex)'}/>
       {(min !== undefined || max !== undefined) && (
-        <div style={{ color:'var(--muted)', fontSize:9, marginTop:3 }}>
+        <div style={{ color:'var(--muted-hex)', fontSize:9, marginTop:3 }}>
           {min !== undefined && `min: ${min}`}{min !== undefined && max !== undefined && ' · '}{max !== undefined && `max: ${max}`}
         </div>
       )}
@@ -174,7 +174,7 @@ function ParamField({ param, value, onChange, onDrawRoi }) {
         placeholder={defVal}
         style={inputStyle}
         onFocus={e => e.target.style.borderColor='rgba(77,166,255,0.5)'}
-        onBlur={e => e.target.style.borderColor='var(--border)'}/>
+        onBlur={e => e.target.style.borderColor='var(--border-hex)'}/>
     </div>
   );
 }
@@ -192,7 +192,7 @@ function JobRow({ job, onDone }) {
   }, [done]); // eslint-disable-line
 
   return (
-    <div className="rounded p-2 mb-1" style={{ background:'var(--highlight)', border:'1px solid var(--border)' }}>
+    <div className="rounded p-2 mb-1" style={{ background:'var(--highlight-hex)', border:'1px solid var(--border-hex)' }}>
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs font-medium truncate" style={{ color:'var(--text)', maxWidth:140 }}>
           {job.title || job.type}
@@ -200,12 +200,12 @@ function JobRow({ job, onDone }) {
         <span className="text-xs font-mono font-bold" style={{ color, flexShrink:0 }}>{status}</span>
       </div>
       {!done && (
-        <div className="h-1 rounded overflow-hidden" style={{ background:'var(--border)' }}>
+        <div className="h-1 rounded overflow-hidden" style={{ background:'var(--border-hex)' }}>
           <div className="h-full rounded transition-all"
             style={{ background:color, width:`${pct ?? 40}%`, animation: pct ? 'none' : 'pulse 1.5s infinite' }}/>
         </div>
       )}
-      <div style={{ color:'var(--muted)', fontSize:9, marginTop:3 }}>
+      <div style={{ color:'var(--muted-hex)', fontSize:9, marginTop:3 }}>
         {new Date(job.created).toLocaleString()}
       </div>
     </div>
@@ -462,7 +462,7 @@ export default function AnalysisPanel() {
 
         {/* Header */}
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color:'var(--muted)', fontSize:10 }}>
+          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color:'var(--muted-hex)', fontSize:10 }}>
             Available Algorithms
           </span>
           {!activeItem && (
@@ -476,17 +476,17 @@ export default function AnalysisPanel() {
             onChange={e => setCliSearch(e.target.value)}
             placeholder="Filter algorithms..."
             className="flex-1 rounded px-2 py-1 text-xs outline-none"
-            style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)' }}
+            style={{ background:'var(--bg)', border:'1px solid var(--border-hex)', color:'var(--text)' }}
             onFocus={e => e.target.style.borderColor = 'rgba(77,166,255,0.45)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'}
+            onBlur={e => e.target.style.borderColor = 'var(--border-hex)'}
           />
           <select
             value={imageFilter}
             onChange={e => setImageFilter(e.target.value)}
             className="rounded px-2 py-1 text-xs outline-none"
-            style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)', minWidth:100 }}
+            style={{ background:'var(--bg)', border:'1px solid var(--border-hex)', color:'var(--text)', minWidth:100 }}
             onFocus={e => e.target.style.borderColor = 'rgba(77,166,255,0.45)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border)'}>
+            onBlur={e => e.target.style.borderColor = 'var(--border-hex)'}>
             <option value="all">All Images</option>
             {imageKeys.map(key => (
               <option key={key} value={key}>{key}</option>
@@ -494,7 +494,7 @@ export default function AnalysisPanel() {
           </select>
         </div>
 
-        <div className="mb-2 text-xs" style={{ color:'var(--muted)', fontSize:10 }}>
+        <div className="mb-2 text-xs" style={{ color:'var(--muted-hex)', fontSize:10 }}>
           {filteredCliCount} / {cliList.length} algorithm{cliList.length !== 1 ? 's' : ''}
         </div>
 
@@ -503,7 +503,7 @@ export default function AnalysisPanel() {
         )}
 
         {!loadingImages && cliList.length === 0 && (
-          <div className="text-center py-4" style={{ color:'var(--muted)' }}>
+          <div className="text-center py-4" style={{ color:'var(--muted-hex)' }}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
               className="mx-auto mb-2" style={{ opacity:0.4 }}>
               <rect x="2" y="3" width="20" height="14" rx="2"/>
@@ -520,7 +520,7 @@ export default function AnalysisPanel() {
                   Show raw API response (copy to share)
                 </summary>
                 <pre className="text-xs mt-1 p-2 rounded overflow-auto max-h-48 text-left"
-                  style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--text)', fontSize:9, whiteSpace:'pre-wrap', wordBreak:'break-all' }}>
+                  style={{ background:'var(--bg)', border:'1px solid var(--border-hex)', color:'var(--text)', fontSize:9, whiteSpace:'pre-wrap', wordBreak:'break-all' }}>
                   {JSON.stringify(images, null, 2)}
                 </pre>
               </details>
@@ -529,14 +529,14 @@ export default function AnalysisPanel() {
         )}
 
         {!loadingImages && cliList.length > 0 && filteredCliCount === 0 && (
-          <div className="text-center py-4" style={{ color:'var(--muted)', fontSize:11 }}>
+          <div className="text-center py-4" style={{ color:'var(--muted-hex)', fontSize:11 }}>
             No algorithms match the current filter.
           </div>
         )}
 
         {filteredGroupedEntries.map(([imgKey, clis]) => (
           <div key={imgKey} className="mb-3">
-            <div className="font-mono truncate mb-1 px-1" style={{ color:'var(--muted)', fontSize:9 }}
+            <div className="font-mono truncate mb-1 px-1" style={{ color:'var(--muted-hex)', fontSize:9 }}
               title={imgKey}>{imgKey}</div>
             <div className="flex flex-col gap-0.5">
               {clis.map(cli => (
@@ -544,9 +544,9 @@ export default function AnalysisPanel() {
                   onClick={() => openCli(cli)}
                   disabled={!activeItem}
                   className="flex items-center gap-2 px-2 py-1.5 rounded text-left transition-all group"
-                  style={{ background:'var(--highlight)', border:'1px solid var(--border)' }}
+                  style={{ background:'var(--highlight-hex)', border:'1px solid var(--border-hex)' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor='rgba(77,166,255,0.4)'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor='var(--border)'}>
+                  onMouseLeave={e => e.currentTarget.style.borderColor='var(--border-hex)'}>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="#4da6ff" stroke="none">
                     <polygon points="5 3 19 12 5 21 5 3"/>
                   </svg>
@@ -561,9 +561,9 @@ export default function AnalysisPanel() {
 
         {/* Recent jobs */}
         {jobs && jobs.length > 0 && (
-          <div className="mt-3 pt-2" style={{ borderTop:'1px solid var(--border)' }}>
+          <div className="mt-3 pt-2" style={{ borderTop:'1px solid var(--border-hex)' }}>
             <div className="text-xs font-semibold uppercase tracking-wide mb-2"
-              style={{ color:'var(--muted)', fontSize:10 }}>Recent Jobs</div>
+              style={{ color:'var(--muted-hex)', fontSize:10 }}>Recent Jobs</div>
             {jobs.slice(0, 6).map(job => {
               const s = JOB_STATUS[job.status] || 'inactive';
               return (
@@ -574,7 +574,7 @@ export default function AnalysisPanel() {
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs truncate" style={{ color:'var(--text)' }}>{job.title || job.type}</div>
-                    <div style={{ color:'var(--muted)', fontSize:9 }}>{new Date(job.created).toLocaleString()}</div>
+                    <div style={{ color:'var(--muted-hex)', fontSize:9 }}>{new Date(job.created).toLocaleString()}</div>
                   </div>
                 </div>
               );
@@ -592,10 +592,10 @@ export default function AnalysisPanel() {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Form header */}
       <div className="flex items-center gap-2 px-2 py-1.5 shrink-0"
-        style={{ borderBottom:'1px solid var(--border)', background:'var(--bg-toolbar)' }}>
+        style={{ borderBottom:'1px solid var(--border-hex)', background:'var(--bg-toolbar)' }}>
         <button onClick={() => { setView('list'); setCliMeta(null); setError(''); }}
           className="p-0.5 rounded hover:bg-black/5 transition-colors"
-          style={{ color:'var(--muted)' }}>
+          style={{ color:'var(--muted-hex)' }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
@@ -605,7 +605,7 @@ export default function AnalysisPanel() {
             {cliMeta?.title || selectedCli?.title || selectedCli?.name}
           </div>
           {cliMeta?.category && (
-            <div style={{ color:'var(--muted)', fontSize:9 }}>{cliMeta.category}</div>
+            <div style={{ color:'var(--muted-hex)', fontSize:9 }}>{cliMeta.category}</div>
           )}
         </div>
       </div>
@@ -614,7 +614,7 @@ export default function AnalysisPanel() {
         {loadingXml && (
           <div className="flex flex-col items-center justify-center py-10 gap-2">
             <div className="spinner" style={{ width:20, height:20, borderWidth:2 }}/>
-            <div style={{ color:'var(--muted)', fontSize:11 }}>Loading parameters…</div>
+            <div style={{ color:'var(--muted-hex)', fontSize:11 }}>Loading parameters…</div>
           </div>
         )}
 
@@ -633,7 +633,7 @@ export default function AnalysisPanel() {
               Draw a rectangle on the slide…
             </span>
             <button onClick={() => setDrawingMode(null)} className="ml-auto text-xs shrink-0"
-              style={{ color:'var(--muted)' }}>Esc</button>
+              style={{ color:'var(--muted-hex)' }}>Esc</button>
           </div>
         )}
 
@@ -642,24 +642,24 @@ export default function AnalysisPanel() {
             {/* Description */}
             {cliMeta.description && (
               <div className="rounded-lg p-2.5 mb-3 text-xs leading-relaxed"
-                style={{ background:'var(--highlight)', border:'1px solid var(--border)', color:'var(--muted)' }}>
+                style={{ background:'var(--highlight-hex)', border:'1px solid var(--border-hex)', color:'var(--muted-hex)' }}>
                 {cliMeta.description}
               </div>
             )}
 
             {/* Input slide card — mirrors DSA's "Input Image" field */}
-            <div className="rounded-lg p-2.5 mb-3" style={{ background:'var(--highlight)', border:'1px solid var(--border)' }}>
+            <div className="rounded-lg p-2.5 mb-3" style={{ background:'var(--highlight-hex)', border:'1px solid var(--border-hex)' }}>
               <div className="flex items-center gap-2 mb-1.5">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2">
                   <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>
                   <line x1="12" y1="17" x2="12" y2="21"/>
                 </svg>
-                <span style={{ color:'var(--muted)', fontSize:9, textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600 }}>
+                <span style={{ color:'var(--muted-hex)', fontSize:9, textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600 }}>
                   Input Image
                 </span>
               </div>
               <div className="flex items-center gap-2 px-2 py-1.5 rounded"
-                style={{ background:'var(--bg)', border:'1px solid var(--border)' }}>
+                style={{ background:'var(--bg)', border:'1px solid var(--border-hex)' }}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                   <polyline points="14 2 14 8 20 8"/>
@@ -667,12 +667,12 @@ export default function AnalysisPanel() {
                 <span className="text-xs truncate font-medium" style={{ color:'#4da6ff', flex:1 }}>
                   {activeItem?.name || '—'}
                 </span>
-                <span className="text-xs shrink-0" style={{ color:'var(--muted)' }}>
+                <span className="text-xs shrink-0" style={{ color:'var(--muted-hex)' }}>
                   {activeItem?.size ? `${(activeItem.size / 1024 / 1024 / 1024).toFixed(2)} GB` : ''}
                 </span>
               </div>
               {/* Show output folder too */}
-              <div className="mt-1.5" style={{ color:'var(--muted)', fontSize:9 }}>
+              <div className="mt-1.5" style={{ color:'var(--muted-hex)', fontSize:9 }}>
                 Output → same folder as input slide
               </div>
             </div>
@@ -685,11 +685,11 @@ export default function AnalysisPanel() {
                 <div key={group.label} className="mb-3">
                   {group.label && (
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="flex-1 h-px" style={{ background:'var(--border)' }}/>
-                      <span style={{ color:'var(--muted)', fontSize:9, textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600, flexShrink:0 }}>
+                      <div className="flex-1 h-px" style={{ background:'var(--border-hex)' }}/>
+                      <span style={{ color:'var(--muted-hex)', fontSize:9, textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:600, flexShrink:0 }}>
                         {group.label}
                       </span>
-                      <div className="flex-1 h-px" style={{ background:'var(--border)' }}/>
+                      <div className="flex-1 h-px" style={{ background:'var(--border-hex)' }}/>
                     </div>
                   )}
                   <div className="flex flex-col gap-3">
@@ -711,10 +711,10 @@ export default function AnalysisPanel() {
 
       {/* Submit bar */}
       {cliMeta && !loadingXml && (
-        <div className="shrink-0 px-2 py-2 flex gap-2" style={{ borderTop:'1px solid var(--border)' }}>
+        <div className="shrink-0 px-2 py-2 flex gap-2" style={{ borderTop:'1px solid var(--border-hex)' }}>
           <button onClick={() => { setView('list'); setCliMeta(null); setError(''); }}
             className="flex items-center justify-center px-3 py-2 rounded text-xs transition-all"
-            style={{ background:'var(--highlight)', color:'var(--muted)', border:'1px solid var(--border)' }}>
+            style={{ background:'var(--highlight-hex)', color:'var(--muted-hex)', border:'1px solid var(--border-hex)' }}>
             Cancel
           </button>
           <button onClick={submitJob} disabled={submitting || !activeItem}
@@ -739,16 +739,16 @@ export default function AnalysisPanel() {
   // RENDER: RUNNING view
   // ──────────────────────────────────────────────────────────────────────────
   const done = ['success','error','cancelled'].includes(jobStatus);
-  const jobColor = STATUS_COLOR[jobStatus] || 'var(--muted)';
+  const jobColor = STATUS_COLOR[jobStatus] || 'var(--muted-hex)';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center gap-2 px-2 py-1.5 shrink-0"
-        style={{ borderBottom:'1px solid var(--border)', background:'var(--bg-toolbar)' }}>
+        style={{ borderBottom:'1px solid var(--border-hex)', background:'var(--bg-toolbar)' }}>
         {done && (
           <button onClick={() => setView('list')}
             className="p-0.5 rounded hover:bg-black/5 transition-colors"
-            style={{ color:'var(--muted)' }}>
+            style={{ color:'var(--muted-hex)' }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
@@ -781,7 +781,7 @@ export default function AnalysisPanel() {
 
         {/* Progress bar */}
         {!done && (
-          <div className="w-full rounded overflow-hidden" style={{ height:4, background:'var(--border)' }}>
+          <div className="w-full rounded overflow-hidden" style={{ height:4, background:'var(--border-hex)' }}>
             <div className="h-full rounded transition-all duration-500"
               style={{ background:jobColor, width:`${pct ?? 0}%`,
                 animation: pct ? 'none' : 'pulse 1.5s cubic-bezier(0.4,0,0.6,1) infinite' }}/>
@@ -795,7 +795,7 @@ export default function AnalysisPanel() {
           </div>
           {runningJob?.log?.length > 0 && (
             <div className="text-xs mt-1 opacity-60 truncate max-w-[180px]"
-              style={{ color:'var(--muted)' }}>
+              style={{ color:'var(--muted-hex)' }}>
               {runningJob.log.slice(-1)[0]}
             </div>
           )}
@@ -803,7 +803,7 @@ export default function AnalysisPanel() {
 
         {jobStatus === 'success' && (
           <div className="text-center">
-            <div className="text-xs mb-2" style={{ color:'var(--muted)' }}>
+            <div className="text-xs mb-2" style={{ color:'var(--muted-hex)' }}>
               Results saved — annotations panel will refresh automatically.
             </div>
             <button onClick={() => setView('list')}

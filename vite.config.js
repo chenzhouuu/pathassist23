@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
@@ -7,6 +8,13 @@ export default defineConfig(() => {
 
   return {
     plugins: [react()],
+    // `@/` mirrors the alias the vendored OHIF components are written against, so their imports
+    // survive the copy unedited. tsconfig carries the same mapping for the type-checker.
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
     test: {
       environment: 'jsdom',
       setupFiles: './src/test/setup.js',

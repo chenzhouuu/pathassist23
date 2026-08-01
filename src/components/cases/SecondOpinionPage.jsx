@@ -57,7 +57,7 @@ function SkeletonRow() {
     <tr>
       {[120, 90, 40, 110, 80, 90, 100, 80].map((w, i) => (
         <td key={i} className="px-4 py-3">
-          <div className="h-3 rounded animate-pulse" style={{ width: w, background: 'var(--border)' }} />
+          <div className="h-3 rounded animate-pulse" style={{ width: w, background: 'var(--border-hex)' }} />
         </td>
       ))}
     </tr>
@@ -68,9 +68,8 @@ export default function SecondOpinionPage() {
   const { setPage, openCaseItem, currentPage, user, clearAuth, hasRole } = useStore();
 
   const NAV_ITEMS = [
-    { id: 'dashboard',      label: 'Dashboard',      show: true,                            icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> },
+    { id: 'browse',         label: 'Browse',         show: true,                            icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
     { id: 'projects',       label: 'Projects',       show: hasRole('projects-users'),       icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> },
-    { id: 'worklist',       label: 'All Images',     show: true,                            icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> },
     { id: 'second-opinion', label: 'Second Opinion', show: hasRole('second-opinion-users'), icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> },
   ].filter(item => item.show);
   const qc = useQueryClient();
@@ -159,7 +158,7 @@ export default function SecondOpinionPage() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
       {/* Nav bar */}
       <nav className="flex items-center gap-4 px-6 h-14 shrink-0 z-20"
-        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border)', backdropFilter: 'blur(12px)' }}>
+        style={{ background: 'var(--bg-toolbar)', borderBottom: '1px solid var(--border-hex)', backdropFilter: 'blur(12px)' }}>
         <AppLogo />
         <div className="flex-1" />
         <nav className="flex items-center gap-1">
@@ -169,21 +168,21 @@ export default function SecondOpinionPage() {
               <button key={item.id} onClick={() => setPage(item.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                 style={{
-                  background: active ? 'var(--highlight)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--muted)',
-                  border: active ? '1px solid var(--border)' : '1px solid transparent',
+                  background: active ? 'var(--highlight-hex)' : 'transparent',
+                  color: active ? 'var(--accent-hex)' : 'var(--muted-hex)',
+                  border: active ? '1px solid var(--border-hex)' : '1px solid transparent',
                 }}>
                 {item.icon}{item.label}
               </button>
             );
           })}
         </nav>
-        <div className="flex items-center gap-2 pl-3" style={{ borderLeft: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-2 pl-3" style={{ borderLeft: '1px solid var(--border-hex)' }}>
           <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
             style={{ background: 'linear-gradient(135deg,#4da6ff22,#7c3aed22)', border: '1px solid rgba(77,166,255,0.3)', color: '#4da6ff' }}>
             {displayName[0]?.toUpperCase()}
           </div>
-          <span className="text-xs hidden md:block" style={{ color: 'var(--muted)' }}>{displayName}</span>
+          <span className="text-xs hidden md:block" style={{ color: 'var(--muted-hex)' }}>{displayName}</span>
           <button onClick={handleLogout} className="btn-icon ml-1" title="Sign out">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -201,7 +200,7 @@ export default function SecondOpinionPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>Second Opinion Cases</h1>
-              <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+              <p className="text-xs mt-1" style={{ color: 'var(--muted-hex)' }}>
                 {isLoading ? 'Loading cases...' : `${cases.length} case${cases.length !== 1 ? 's' : ''} total`}
               </p>
             </div>
@@ -228,13 +227,13 @@ export default function SecondOpinionPage() {
                 <button key={tab} onClick={() => setFilterTab(tab)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                   style={{
-                    background: active ? 'var(--highlight)' : 'transparent',
-                    color: active ? 'var(--accent)' : 'var(--muted)',
-                    border: active ? '1px solid var(--border)' : '1px solid transparent',
+                    background: active ? 'var(--highlight-hex)' : 'transparent',
+                    color: active ? 'var(--accent-hex)' : 'var(--muted-hex)',
+                    border: active ? '1px solid var(--border-hex)' : '1px solid transparent',
                   }}>
                   {tab}
                   <span className="px-1.5 py-0.5 rounded text-xs font-mono"
-                    style={{ background: 'var(--bg)', color: 'var(--muted)', fontSize: 10 }}>
+                    style={{ background: 'var(--bg)', color: 'var(--muted-hex)', fontSize: 10 }}>
                     {count}
                   </span>
                 </button>
@@ -243,13 +242,13 @@ export default function SecondOpinionPage() {
           </div>
 
           {/* Table */}
-          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-hex)', background: 'var(--bg-panel)' }}>
             <table className="w-full text-xs">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                <tr style={{ borderBottom: '1px solid var(--border-hex)', background: 'var(--bg)' }}>
                   {['Case ID', 'Patient', 'Age / Sex', 'Site', 'Urgency', 'Status', 'Created', 'Action'].map((h) => (
                     <th key={h} className="px-4 py-2.5 text-left font-semibold"
-                      style={{ color: 'var(--muted)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                      style={{ color: 'var(--muted-hex)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                       {h}
                     </th>
                   ))}
@@ -260,7 +259,7 @@ export default function SecondOpinionPage() {
 
                 {!isLoading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center" style={{ color: 'var(--muted)' }}>
+                    <td colSpan={8} className="px-6 py-12 text-center" style={{ color: 'var(--muted-hex)' }}>
                       <div className="flex flex-col items-center gap-3">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ opacity: 0.3 }}>
                           <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -270,7 +269,7 @@ export default function SecondOpinionPage() {
                         </svg>
                         <div>
                           <p className="font-medium mb-1" style={{ color: 'var(--text)' }}>No cases found</p>
-                          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                          <p className="text-xs" style={{ color: 'var(--muted-hex)' }}>
                             {filterTab !== 'All' ? `No cases with status "${filterTab}"` : 'Create your first second opinion case to get started.'}
                           </p>
                         </div>
@@ -286,28 +285,28 @@ export default function SecondOpinionPage() {
                   return (
                     <tr key={folder._id}
                       className="transition-colors"
-                      style={{ borderBottom: '1px solid var(--border)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--highlight)'}
+                      style={{ borderBottom: '1px solid var(--border-hex)' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--highlight-hex)'}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
                       <td className="px-4 py-3">
-                        <span className="font-mono font-semibold" style={{ color: 'var(--accent)', fontSize: 11 }}>
+                        <span className="font-mono font-semibold" style={{ color: 'var(--accent-hex)', fontSize: 11 }}>
                           {so.caseId || '—'}
                         </span>
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--text)' }}>
                         <div>{patient.patientId || '—'}</div>
                         {patient.referringInstitution && (
-                          <div style={{ color: 'var(--muted)', fontSize: 10 }}>{patient.referringInstitution}</div>
+                          <div style={{ color: 'var(--muted-hex)', fontSize: 10 }}>{patient.referringInstitution}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--muted)' }}>
+                      <td className="px-4 py-3" style={{ color: 'var(--muted-hex)' }}>
                         {patient.age ? `${patient.age}y` : '—'}{patient.age && patient.sex ? ' / ' : ''}{patient.sex || ''}
                       </td>
                       <td className="px-4 py-3" style={{ color: 'var(--text)' }}>
                         <div>{clinical.anatomicalSite || '—'}</div>
                         {clinical.cancerType && (
-                          <div style={{ color: 'var(--muted)', fontSize: 10 }}>{clinical.cancerType}</div>
+                          <div style={{ color: 'var(--muted-hex)', fontSize: 10 }}>{clinical.cancerType}</div>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -320,7 +319,7 @@ export default function SecondOpinionPage() {
                             onClick={() => setStatusMenuId(statusMenuId === folder._id ? null : folder._id)}
                             disabled={updatingId === folder._id}
                             className="p-0.5 rounded opacity-50 hover:opacity-100 transition-opacity"
-                            style={{ color: 'var(--muted)' }}
+                            style={{ color: 'var(--muted-hex)' }}
                             title="Change status"
                           >
                             {updatingId === folder._id
@@ -330,11 +329,11 @@ export default function SecondOpinionPage() {
                           </button>
                           {statusMenuId === folder._id && (
                             <div className="absolute top-full left-0 mt-1 z-30 rounded-lg overflow-hidden shadow-xl"
-                              style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', minWidth: 120 }}>
+                              style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)', minWidth: 120 }}>
                               {STATUS_CHOICES.map((s) => (
                                 <button key={s} onClick={() => handleStatusChange(folder, s)}
                                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors"
-                                  style={{ color: s === so.status ? 'var(--accent)' : 'var(--text)' }}>
+                                  style={{ color: s === so.status ? 'var(--accent-hex)' : 'var(--text)' }}>
                                   {s}
                                 </button>
                               ))}
@@ -342,7 +341,7 @@ export default function SecondOpinionPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--muted)' }}>
+                      <td className="px-4 py-3" style={{ color: 'var(--muted-hex)' }}>
                         {formatDate(so.createdAt)}
                       </td>
                       <td className="px-4 py-3">

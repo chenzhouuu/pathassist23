@@ -84,13 +84,13 @@ export default function ShareImageModal({ item, onClose }) {
       style={{ background: 'rgba(0,0,0,0.65)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="rounded-xl p-5 w-full max-w-md flex flex-col gap-4"
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}>
+        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}>
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-sm font-bold" style={{ color: 'var(--text)' }}>Share Single Image</h2>
-            <div className="text-xs mt-1 break-all" style={{ color: 'var(--muted)' }}>{item?.name}</div>
+            <div className="text-xs mt-1 break-all" style={{ color: 'var(--muted-hex)' }}>{item?.name}</div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors" style={{ color: 'var(--muted)' }}>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors" style={{ color: 'var(--muted-hex)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -98,20 +98,20 @@ export default function ShareImageModal({ item, onClose }) {
         </div>
 
         <div className="px-3 py-2 rounded-lg text-xs"
-          style={{ background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.2)', color: 'var(--muted)' }}>
+          style={{ background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.2)', color: 'var(--muted-hex)' }}>
           This creates a temporary public link for this image only. No login is required to open it.
         </div>
 
         <div>
-          <div className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Link expiry</div>
+          <div className="text-xs mb-2" style={{ color: 'var(--muted-hex)' }}>Link expiry</div>
           <div className="flex gap-2">
             {EXPIRY_OPTIONS.map((opt, i) => (
               <button key={opt.label} onClick={() => setExpiryIdx(i)}
                 className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-all"
                 style={{
                   background: expiryIdx === i ? 'rgba(77,166,255,0.15)' : 'var(--bg)',
-                  color: expiryIdx === i ? '#4da6ff' : 'var(--muted)',
-                  border: `1px solid ${expiryIdx === i ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`,
+                  color: expiryIdx === i ? '#4da6ff' : 'var(--muted-hex)',
+                  border: `1px solid ${expiryIdx === i ? 'rgba(77,166,255,0.35)' : 'var(--border-hex)'}`,
                 }}>
                 {opt.label}
               </button>

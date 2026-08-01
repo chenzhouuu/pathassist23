@@ -6,7 +6,7 @@ import { getItem, getThumbnailUrl, getFileDownloadUrl, updateItemMetadata } from
 
 function SectionLabel({ children }) {
   return (
-    <div style={{ color: 'var(--muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+    <div style={{ color: 'var(--muted-hex)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
       {children}
     </div>
   );
@@ -63,7 +63,7 @@ export default function MetadataPanel() {
 
   if (!activeItem) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-xs gap-2" style={{ color: 'var(--muted)' }}>
+      <div className="flex flex-col items-center justify-center h-48 text-xs gap-2" style={{ color: 'var(--muted-hex)' }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
         </svg>
@@ -107,7 +107,7 @@ export default function MetadataPanel() {
             {notesSaved && <span style={{ color: '#4caf82', fontSize: 9 }}>✓ Saved</span>}
             {!notesEditing && (
               <button onClick={() => setNotesEditing(true)}
-                style={{ fontSize: 9, color: 'var(--accent)', background: 'rgba(77,166,255,0.1)', border: '1px solid rgba(77,166,255,0.25)', borderRadius: 3, padding: '1px 6px', cursor: 'pointer' }}>
+                style={{ fontSize: 9, color: 'var(--accent-hex)', background: 'rgba(77,166,255,0.1)', border: '1px solid rgba(77,166,255,0.25)', borderRadius: 3, padding: '1px 6px', cursor: 'pointer' }}>
                 Edit
               </button>
             )}
@@ -131,7 +131,7 @@ export default function MetadataPanel() {
           </>
         ) : (
           <div onClick={() => setNotesEditing(true)} title="Click to edit"
-            style={{ fontSize: 10, color: notes ? 'var(--text)' : 'var(--muted)', lineHeight: 1.5, minHeight: 22, cursor: 'pointer', whiteSpace: 'pre-wrap' }}>
+            style={{ fontSize: 10, color: notes ? 'var(--text)' : 'var(--muted-hex)', lineHeight: 1.5, minHeight: 22, cursor: 'pointer', whiteSpace: 'pre-wrap' }}>
             {notes || 'No notes. Click to add…'}
           </div>
         )}
@@ -152,12 +152,12 @@ export default function MetadataPanel() {
               const url = getFileDownloadUrl(fileId);
               return (
                 <div key={key}>
-                  <div style={{ fontSize: 9, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+                  <div style={{ fontSize: 9, color: 'var(--muted-hex)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
                   <a href={url} target="_blank" rel="noreferrer" title={`Open ${label} full size`}>
                     <img
                       src={url}
                       alt={label}
-                      style={{ width: '100%', borderRadius: 4, border: '1px solid var(--border)', display: 'block', cursor: 'zoom-in', transform: key === 'label' ? 'rotate(180deg)' : 'none' }}
+                      style={{ width: '100%', borderRadius: 4, border: '1px solid var(--border-hex)', display: 'block', cursor: 'zoom-in', transform: key === 'label' ? 'rotate(180deg)' : 'none' }}
                       onError={(e) => { e.target.parentElement.style.display = 'none'; }}
                     />
                   </a>
@@ -172,11 +172,11 @@ export default function MetadataPanel() {
       {item && (
         <div className="viewer-meta-card">
           <SectionLabel>File Info</SectionLabel>
-          <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item._id}>
+          <div style={{ fontFamily: 'monospace', fontSize: 9, color: 'var(--muted-hex)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item._id}>
             {item._id}
           </div>
           {item.updated && (
-            <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 9, color: 'var(--muted-hex)', marginTop: 2 }}>
               Updated: {new Date(item.updated).toLocaleDateString()}
             </div>
           )}
@@ -214,8 +214,8 @@ export default function MetadataPanel() {
                     style={{
                       fontSize: 10, padding: '2px 8px',
                       background: active ? c.bg : 'var(--bg)',
-                      color:      active ? c.color : 'var(--muted)',
-                      border:     active ? `1px solid ${c.border}` : '1px solid var(--border)',
+                      color:      active ? c.color : 'var(--muted-hex)',
+                      border:     active ? `1px solid ${c.border}` : '1px solid var(--border-hex)',
                     }}>
                     {s}
                   </button>
@@ -240,15 +240,15 @@ export default function MetadataPanel() {
 
             {/* Other metadata as read-only rows */}
             {otherMeta.length > 0 && (
-              <div className="flex flex-col gap-1 mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+              <div className="flex flex-col gap-1 mt-2 pt-2" style={{ borderTop: '1px solid var(--border-hex)' }}>
                 {otherMeta.map(([k, v]) => {
                   const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
                   const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
                   return (
                     <div key={k} className="flex items-start justify-between gap-2">
-                      <span style={{ color: 'var(--muted)', fontSize: 10, paddingTop: 1, flexShrink: 0 }}>{label}</span>
+                      <span style={{ color: 'var(--muted-hex)', fontSize: 10, paddingTop: 1, flexShrink: 0 }}>{label}</span>
                       <span className="rounded px-1.5 py-0.5 font-medium text-right"
-                        style={{ fontSize: 10, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', maxWidth: 130, wordBreak: 'break-word' }}>
+                        style={{ fontSize: 10, background: 'var(--bg)', border: '1px solid var(--border-hex)', color: 'var(--text)', maxWidth: 130, wordBreak: 'break-word' }}>
                         {val}
                       </span>
                     </div>

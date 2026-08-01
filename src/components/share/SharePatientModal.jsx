@@ -174,9 +174,9 @@ export default function SharePatientModal({ folder, onClose }) {
 
   const inputStyle = {
     width: '100%', padding: '7px 10px', borderRadius: 7, fontSize: 12,
-    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', outline: 'none',
+    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border-hex)', outline: 'none',
   };
-  const labelStyle = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, display: 'block' };
+  const labelStyle = { fontSize: 11, color: 'var(--muted-hex)', marginBottom: 4, display: 'block' };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
@@ -184,7 +184,7 @@ export default function SharePatientModal({ folder, onClose }) {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
 
       <div className="rounded-xl p-5 w-full max-w-md flex flex-col gap-4"
-        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}>
+        style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}>
 
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -196,13 +196,13 @@ export default function SharePatientModal({ folder, onClose }) {
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               </svg>
-              <span className="text-xs" style={{ color: 'var(--muted)' }}>
+              <span className="text-xs" style={{ color: 'var(--muted-hex)' }}>
                 {folder.name}
                 {folder.nItems > 0 && <span className="ml-1 text-gray-700">({folder.nItems} slides)</span>}
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors ml-3" style={{ color: 'var(--muted)' }}>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-700/50 transition-colors ml-3" style={{ color: 'var(--muted-hex)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -212,7 +212,7 @@ export default function SharePatientModal({ folder, onClose }) {
         {step === 'form' ? (
           <>
             <div className="px-3 py-2 rounded-lg flex items-start gap-2 text-xs"
-              style={{ background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.2)', color: 'var(--muted)' }}>
+              style={{ background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.2)', color: 'var(--muted-hex)' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4da6ff" strokeWidth="2" className="shrink-0 mt-0.5">
                 <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
@@ -225,14 +225,14 @@ export default function SharePatientModal({ folder, onClose }) {
                 <input value={patientName} onChange={e => setPatientName(e.target.value)}
                   placeholder="e.g. John Doe" style={inputStyle}
                   onFocus={e => e.target.style.borderColor = '#4da6ff'}
-                  onBlur={e => e.target.style.borderColor = 'var(--border)'}/>
+                  onBlur={e => e.target.style.borderColor = 'var(--border-hex)'}/>
               </div>
               <div>
                 <label style={labelStyle}>Patient Mobile Number</label>
                 <input value={phone} onChange={e => setPhone(e.target.value)}
                   placeholder="+1 555 123 4567" type="tel" style={inputStyle}
                   onFocus={e => e.target.style.borderColor = '#4da6ff'}
-                  onBlur={e => e.target.style.borderColor = 'var(--border)'}/>
+                  onBlur={e => e.target.style.borderColor = 'var(--border-hex)'}/>
               </div>
               <div>
                 <label style={labelStyle}>Link Expiry</label>
@@ -242,8 +242,8 @@ export default function SharePatientModal({ folder, onClose }) {
                       className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-all"
                       style={{
                         background: expiryIdx === i ? 'rgba(77,166,255,0.15)' : 'var(--bg)',
-                        color: expiryIdx === i ? '#4da6ff' : 'var(--muted)',
-                        border: `1px solid ${expiryIdx === i ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`,
+                        color: expiryIdx === i ? '#4da6ff' : 'var(--muted-hex)',
+                        border: `1px solid ${expiryIdx === i ? 'rgba(77,166,255,0.35)' : 'var(--border-hex)'}`,
                       }}>
                       {opt.label}
                     </button>
@@ -262,7 +262,7 @@ export default function SharePatientModal({ folder, onClose }) {
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={onClose}
                 className="px-4 py-1.5 rounded-lg text-xs font-medium"
-                style={{ background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                style={{ background: 'var(--bg)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)' }}>
                 Cancel
               </button>
               <button onClick={handleGenerate} disabled={!patientName.trim() || generating}
@@ -286,12 +286,12 @@ export default function SharePatientModal({ folder, onClose }) {
             <div className="flex items-center justify-between px-4 py-3 rounded-xl"
               style={{ background: 'rgba(76,175,130,0.08)', border: '1px solid rgba(76,175,130,0.25)' }}>
               <div>
-                <div className="text-xs" style={{ color: 'var(--muted)' }}>Patient Access Code (OTP)</div>
+                <div className="text-xs" style={{ color: 'var(--muted-hex)' }}>Patient Access Code (OTP)</div>
                 <div className="text-3xl font-bold font-mono tracking-widest mt-0.5"
                   style={{ color: '#4caf82', letterSpacing: '0.25em' }}>
                   {otp}
                 </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+                <div className="text-xs mt-1" style={{ color: 'var(--muted-hex)' }}>
                   Expires in {EXPIRY_OPTIONS[expiryIdx].label}
                 </div>
               </div>
@@ -329,12 +329,12 @@ export default function SharePatientModal({ folder, onClose }) {
               <label style={labelStyle}>Patient Link</label>
               <div className="flex gap-2 items-center">
                 <div className="flex-1 px-3 py-2 rounded-lg text-xs font-mono truncate"
-                  style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                  style={{ background: 'var(--bg)', border: '1px solid var(--border-hex)', color: 'var(--muted-hex)' }}>
                   {shareUrl.length > 80 ? shareUrl.slice(0, 80) + '…' : shareUrl}
                 </div>
                 <button onClick={() => copyText(shareUrl, 'link')}
                   className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-lg text-xs"
-                  style={{ background: 'var(--highlight)', color: 'var(--text)', border: '1px solid var(--border)' }}>
+                  style={{ background: 'var(--highlight-hex)', color: 'var(--text)', border: '1px solid var(--border-hex)' }}>
                   {copied === 'link' ? '✓' : (
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -348,7 +348,7 @@ export default function SharePatientModal({ folder, onClose }) {
             <div>
               <label style={labelStyle}>SMS Message Preview</label>
               <div className="px-3 py-2 rounded-lg text-xs whitespace-pre-wrap"
-                style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', lineHeight: 1.6 }}>
+                style={{ background: 'var(--bg)', border: '1px solid var(--border-hex)', color: 'var(--text)', lineHeight: 1.6 }}>
                 {smsBody}
               </div>
             </div>
@@ -358,9 +358,9 @@ export default function SharePatientModal({ folder, onClose }) {
               <button onClick={() => copyText(smsBody, 'sms')}
                 className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all"
                 style={{
-                  background: copied === 'sms' ? 'rgba(76,175,130,0.15)' : 'var(--highlight)',
+                  background: copied === 'sms' ? 'rgba(76,175,130,0.15)' : 'var(--highlight-hex)',
                   color: copied === 'sms' ? '#4caf82' : 'var(--text)',
-                  border: `1px solid ${copied === 'sms' ? 'rgba(76,175,130,0.3)' : 'var(--border)'}`,
+                  border: `1px solid ${copied === 'sms' ? 'rgba(76,175,130,0.3)' : 'var(--border-hex)'}`,
                 }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -388,16 +388,16 @@ export default function SharePatientModal({ folder, onClose }) {
               )}
 
               {!smsEndpoint && phone.trim() && (
-                <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>
+                <p className="text-xs text-center" style={{ color: 'var(--muted-hex)' }}>
                   Copy the SMS above and send to {phone.trim()}
                 </p>
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid var(--border-hex)' }}>
               <button onClick={() => setStep('form')}
                 className="text-xs flex items-center gap-1"
-                style={{ color: 'var(--muted)' }}>
+                style={{ color: 'var(--muted-hex)' }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="15 18 9 12 15 6"/>
                 </svg>

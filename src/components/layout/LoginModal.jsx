@@ -2,7 +2,6 @@
 import React, { useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { login, getMyGroups } from '../../api/index.js';
-import ThemeSwitcher from '../ThemeSwitcher.jsx';
 import AppLogo from './AppLogo.jsx';
 import { APP_NAME } from '../../config/branding.js';
 import { KEYCLOAK_OAUTH_PROVIDERS_URL } from '../../config/girder.js';
@@ -200,10 +199,6 @@ export default function LoginModal() {
           </div>
         )}
 
-        <div className="login-footer">
-          <span className="login-footer-text">Theme</span>
-          <ThemeSwitcher />
-        </div>
       </div>
     </div>
   );

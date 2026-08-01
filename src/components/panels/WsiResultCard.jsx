@@ -29,7 +29,7 @@ function PatchGrid({ patchResults, gridN }) {
 
   return (
     <div>
-      <div style={{ fontSize: 9, color: 'var(--muted)', marginBottom: 4 }}>
+      <div style={{ fontSize: 9, color: 'var(--muted-hex)', marginBottom: 4 }}>
         Tumor % per patch
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridN}, 1fr)`, gap: 2 }}>
@@ -41,7 +41,7 @@ function PatchGrid({ patchResults, gridN }) {
         ))}
       </div>
       {/* color scale legend */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--muted)', marginTop: 3 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--muted-hex)', marginTop: 3 }}>
         <span style={{ color: '#4caf82' }}>▪ &lt;20%</span>
         <span style={{ color: '#f5a623' }}>▪ 20-50%</span>
         <span style={{ color: '#e94560' }}>▪ &gt;50%</span>
@@ -58,7 +58,7 @@ function HistogramBars({ histogram }) {
   const colors = ['#4caf82', '#8bc34a', '#f5a623', '#ff7043', '#e94560'];
   return (
     <div>
-      <div style={{ fontSize: 9, color: 'var(--muted)', marginBottom: 4 }}>
+      <div style={{ fontSize: 9, color: 'var(--muted-hex)', marginBottom: 4 }}>
         Patch distribution (tumor %)
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 32 }}>
@@ -68,7 +68,7 @@ function HistogramBars({ histogram }) {
               width: '100%', background: colors[i], borderRadius: '2px 2px 0 0',
               height: `${(count / max) * 100}%`, minHeight: count > 0 ? 3 : 0,
             }} />
-            <span style={{ fontSize: 8, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{labels[i]}</span>
+            <span style={{ fontSize: 8, color: 'var(--muted-hex)', whiteSpace: 'nowrap' }}>{labels[i]}</span>
           </div>
         ))}
       </div>
@@ -80,7 +80,7 @@ function HistogramBars({ histogram }) {
 function Metric({ label, value, unit = '%', color }) {
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-      <span style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</span>
+      <span style={{ fontSize: 10, color: 'var(--muted-hex)' }}>{label}</span>
       <span style={{ fontSize: 13, fontWeight: 700, color: color || 'var(--text)' }}>
         {value != null ? value : '—'}{value != null ? unit : ''}
       </span>
@@ -94,14 +94,14 @@ function UsageFooter({ usage, modelLabel }) {
   const { input_tokens: inp, output_tokens: out, cost_usd, patch_calls } = usage;
   const costStr = cost_usd < 0.001 ? '<$0.001' : `$${cost_usd.toFixed(4)}`;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 7px', borderTop: '1px solid var(--border)', marginTop: 2 }}>
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 7px', borderTop: '1px solid var(--border-hex)', marginTop: 2 }}>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--muted-hex)" strokeWidth="2">
         <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/>
       </svg>
-      <span style={{ fontSize: 9, color: 'var(--muted)', flex: 1 }}>
+      <span style={{ fontSize: 9, color: 'var(--muted-hex)', flex: 1 }}>
         {modelLabel} · {patch_calls} patches
       </span>
-      <span style={{ fontSize: 9, color: 'var(--muted)' }}>
+      <span style={{ fontSize: 9, color: 'var(--muted-hex)' }}>
         {(inp + out).toLocaleString()} tok
       </span>
       <span style={{ fontSize: 9, fontWeight: 600, color: '#4caf82', background: 'rgba(76,175,130,0.12)', border: '1px solid rgba(76,175,130,0.3)', borderRadius: 3, padding: '1px 5px' }}>
@@ -136,14 +136,14 @@ export default function WsiResultCard({ entry }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid rgba(233,69,96,0.2)' }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#e94560', flex: 1 }}>WSI analysis failed</span>
-          <span style={{ fontSize: 10, color: 'var(--muted)' }}>{time}</span>
-          <button onClick={() => removeAiResult(entry.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted)', display: 'flex' }}
+          <span style={{ fontSize: 10, color: 'var(--muted-hex)' }}>{time}</span>
+          <button onClick={() => removeAiResult(entry.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted-hex)', display: 'flex' }}
             onMouseEnter={e => e.currentTarget.style.color = '#e94560'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--muted-hex)'}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-        <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+        <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--muted-hex)', lineHeight: 1.5 }}>
           {entry.result.error}
         </div>
       </div>
@@ -157,9 +157,9 @@ export default function WsiResultCard({ entry }) {
   const hi   = a?.heterogeneity_index != null ? heterogeneityLabel(a.heterogeneity_index) : null;
 
   return (
-    <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+    <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-hex)', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
       {/* header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: '1px solid var(--border-hex)' }}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#34a853" strokeWidth="2">
           <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
           <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
@@ -174,11 +174,11 @@ export default function WsiResultCard({ entry }) {
           flexShrink: 0 }}>
           {entry.type === 'roi-grid' ? 'ROI Grid' : 'WSI'}
         </span>
-        <span style={{ fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>{date} {time}</span>
+        <span style={{ fontSize: 10, color: 'var(--muted-hex)', flexShrink: 0 }}>{date} {time}</span>
         <button onClick={() => removeAiResult(entry.id)}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: 'var(--muted-hex)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
           onMouseEnter={e => e.currentTarget.style.color = '#e94560'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted-hex)'}>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
@@ -190,7 +190,7 @@ export default function WsiResultCard({ entry }) {
         {/* left: patch heatmap */}
         <div style={{ width: 90, flexShrink: 0 }}>
           <PatchGrid patchResults={patchResults} gridN={gridN ?? GRID_N} />
-          <div style={{ marginTop: 8, fontSize: 9, color: 'var(--muted)', textAlign: 'center' }}>
+          <div style={{ marginTop: 8, fontSize: 9, color: 'var(--muted-hex)', textAlign: 'center' }}>
             {a?.analyzed_count ?? 0}/{a?.total_patches ?? (GRID_N * GRID_N)} patches
             {a?.skipped_count > 0 && ` · ${a.skipped_count} bg`}
           </div>
@@ -204,9 +204,9 @@ export default function WsiResultCard({ entry }) {
           <Metric label="Stroma %" value={a?.stroma_pct_mean?.toFixed(1)} unit="%" color="#4da6ff" />
           {hi && (
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '3px 0' }}>
-              <span style={{ fontSize: 10, color: 'var(--muted)' }}>Heterogeneity</span>
+              <span style={{ fontSize: 10, color: 'var(--muted-hex)' }}>Heterogeneity</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: hi.color }}>
-                {hi.text} <span style={{ fontSize: 9, fontWeight: 400, color: 'var(--muted)' }}>CV={a.heterogeneity_index.toFixed(2)}</span>
+                {hi.text} <span style={{ fontSize: 9, fontWeight: 400, color: 'var(--muted-hex)' }}>CV={a.heterogeneity_index.toFixed(2)}</span>
               </span>
             </div>
           )}
@@ -230,7 +230,7 @@ export default function WsiResultCard({ entry }) {
           ].map(({ label, val }) => (
             <div key={label} style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{val?.toFixed(1) ?? '—'}%</div>
-              <div style={{ fontSize: 9, color: 'var(--muted)' }}>{label}</div>
+              <div style={{ fontSize: 9, color: 'var(--muted-hex)' }}>{label}</div>
             </div>
           ))}
         </div>
@@ -244,7 +244,7 @@ export default function WsiResultCard({ entry }) {
 
       {entry.roi && (
         <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 10px 8px' }}>
-          <div style={{ fontSize:10, color:'var(--muted)', flex:1 }}>
+          <div style={{ fontSize:10, color:'var(--muted-hex)', flex:1 }}>
             ROI {entry.roi.width}×{entry.roi.height} px · ({entry.roi.x}, {entry.roi.y})
           </div>
           <button

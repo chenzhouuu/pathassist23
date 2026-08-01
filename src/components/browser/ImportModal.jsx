@@ -1,4 +1,4 @@
-// src/components/dashboard/ImportModal.jsx
+// src/components/browser/ImportModal.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { getFolders, createFolder, importFromAssetstore, getCollection, getCollectionAccess, setFolderAccess, prewarmThumbnails } from '../../api/index.js';
 import { useStore } from '../../store/index.js';
@@ -120,7 +120,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'var(--bg-panel)', border: '1px solid var(--border)',
+          background: 'var(--bg-panel)', border: '1px solid var(--border-hex)',
           borderRadius: 4, padding: 24, width: 500, maxWidth: '92vw',
           maxHeight: '88vh', overflowY: 'auto',
           boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
@@ -131,7 +131,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Import from Assetstore</h2>
-            <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+            <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>
               Import existing files from a Girder assetstore into a collection
             </p>
           </div>
@@ -175,18 +175,18 @@ export default function ImportModal({ collections, onClose, onImported }) {
                   </svg>
                   <div>
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{storeInfo.name}</span>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>[{storeInfo.type}]</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted-hex)', marginLeft: 6 }}>[{storeInfo.type}]</span>
                     {storeInfo.bucket && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 1 }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted-hex)', fontFamily: 'monospace', marginTop: 1 }}>
                         {isS3 ? `s3://${storeInfo.bucket}` : storeInfo.bucket}
                       </div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div style={{ height: 38, background: 'var(--highlight)', borderRadius: 4, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
+                <div style={{ height: 38, background: 'var(--highlight-hex)', borderRadius: 4, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
                   <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                  <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>Loading…</span>
+                  <span style={{ fontSize: 12, color: 'var(--muted-hex)', marginLeft: 8 }}>Loading…</span>
                 </div>
               )}
             </Field>
@@ -200,7 +200,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
               />
-              <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
+              <p style={{ fontSize: 11, color: 'var(--muted-hex)', margin: '4px 0 0' }}>
                 {isS3 ? 'All objects under this prefix will be imported.' : 'Absolute path on the filesystem to import from.'}
               </p>
             </Field>
@@ -257,15 +257,15 @@ export default function ImportModal({ collections, onClose, onImported }) {
                 <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, borderTopColor: '#4caf82' }} />
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>Pre-generating thumbnails…</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>
                     {prewarm.total > 0 ? `${prewarm.done} / ${prewarm.total} slides` : 'Starting…'}
                   </p>
                   {prewarm.total > 0 && (
-                    <div style={{ width: 220, height: 4, background: 'var(--border)', borderRadius: 2, marginTop: 10 }}>
+                    <div style={{ width: 220, height: 4, background: 'var(--border-hex)', borderRadius: 2, marginTop: 10 }}>
                       <div style={{ height: '100%', borderRadius: 2, background: '#4caf82', width: `${Math.round((prewarm.done / prewarm.total) * 100)}%`, transition: 'width 0.3s' }} />
                     </div>
                   )}
-                  <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>This makes worklist browsing instant. You can close and it will continue in the background.</p>
+                  <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted-hex)' }}>This makes worklist browsing instant. You can close and it will continue in the background.</p>
                 </div>
                 <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setStatus('done'); if (onImported) onImported(); }}>Skip & Close</button>
               </>
@@ -275,7 +275,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                 <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3 }} />
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>Import running…</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>
                     Status: {JOB_STATUS_LABEL[jobData?.status] ?? '—'}
                   </p>
                 </div>
@@ -288,7 +288,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                 </div>
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Import complete</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>Files are now available in the collection.</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>Files are now available in the collection.</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn-secondary" style={{ fontSize: 12 }} onClick={onClose}>Done</button>
@@ -300,7 +300,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                         const col = collections.find(c => c._id === collectionId);
                         setActiveCollection(col);
                         setActiveFolder({ _id: destFolderId, name: newFolderName || 'Imported folder', parentId: collectionId });
-                        setPage('worklist');
+                        setPage('browse');
                         onClose();
                       }}
                     >
@@ -322,7 +322,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                 </div>
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#e94560' }}>Import failed</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>
                     {jobData?.log?.slice(-1)[0] || error || 'Check Girder job logs for details.'}
                   </p>
                 </div>
@@ -338,7 +338,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
               <div style={{
                 width: '100%', fontFamily: 'monospace', fontSize: 11, padding: '10px 12px',
                 borderRadius: 4, overflowY: 'auto', maxHeight: 110,
-                background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)',
+                background: 'var(--bg)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)',
               }}>
                 {jobData.log.slice(-8).map((line, i) => <div key={i}>{line}</div>)}
               </div>

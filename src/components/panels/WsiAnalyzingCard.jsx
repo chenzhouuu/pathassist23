@@ -23,7 +23,7 @@ export default function WsiAnalyzingCard() {
 
   return (
     <div style={{
-      background: 'var(--bg-panel)', border: '1px solid var(--border)',
+      background: 'var(--bg-panel)', border: '1px solid var(--border-hex)',
       borderRadius: 10, padding: '14px 12px', marginBottom: 10,
     }}>
       {/* header row */}
@@ -37,7 +37,7 @@ export default function WsiAnalyzingCard() {
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
             Analyzing whole slide…
           </div>
-          <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
+          <div style={{ fontSize: 10, color: 'var(--muted-hex)', marginTop: 1 }}>
             Patch {current} / {total} · {done} analyzed · {skipped} background
           </div>
         </div>
@@ -77,7 +77,7 @@ export default function WsiAnalyzingCard() {
         ].map(({ state, label }) => (
           <div key={state} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <div style={{ width: 8, height: 8, borderRadius: 2, background: STATE_COLOR[state] }} />
-            <span style={{ fontSize: 9, color: 'var(--muted)' }}>{label}</span>
+            <span style={{ fontSize: 9, color: 'var(--muted-hex)' }}>{label}</span>
           </div>
         ))}
       </div>

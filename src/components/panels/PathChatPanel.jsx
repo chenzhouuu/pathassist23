@@ -29,10 +29,10 @@ function ModelSelector() {
                 : 'transparent',
               color: isActive
                 ? (isLocal ? '#34d399' : '#a78bfa')
-                : 'var(--muted)',
+                : 'var(--muted-hex)',
               border: isActive
                 ? (isLocal ? '1px solid rgba(16,185,129,0.45)' : '1px solid rgba(124,58,237,0.45)')
-                : '1px solid var(--border)',
+                : '1px solid var(--border-hex)',
               transition: 'all 0.15s',
             }}
           >
@@ -51,7 +51,7 @@ function UsageFooter({ usage, modelId }) {
   const cost = usage.cost_usd ?? calcChatCost(modelId, usage.input_tokens, usage.output_tokens);
   return (
     <div style={{
-      fontSize: 8.5, color: 'var(--muted)', opacity: 0.65, marginTop: 4,
+      fontSize: 8.5, color: 'var(--muted-hex)', opacity: 0.65, marginTop: 4,
       display: 'flex', gap: 6, flexWrap: 'wrap',
     }}>
       <span style={{ color: '#a78bfa', opacity: 1 }}>[{modelLabel}]</span>
@@ -79,7 +79,7 @@ function UserBubble({ msg }) {
               alt="Viewport"
               style={{
                 width: 80, height: 56, objectFit: 'cover', borderRadius: 4,
-                border: '1px solid var(--border)', display: 'block',
+                border: '1px solid var(--border-hex)', display: 'block',
               }}
             />
           </div>
@@ -129,7 +129,7 @@ function AssistantBubble({ msg, modelId }) {
       <div style={{ maxWidth: '90%' }}>
         <div style={{
           background: isError ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.04)',
-          border: `1px solid ${isError ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`,
+          border: `1px solid ${isError ? 'rgba(239,68,68,0.3)' : 'var(--border-hex)'}`,
           borderRadius: '10px 10px 10px 2px',
           padding: '7px 10px',
           fontSize: 12, lineHeight: 1.6, color: isError ? '#f87171' : 'var(--fg)',
@@ -147,13 +147,13 @@ function TypingIndicator() {
   return (
     <div style={{ display: 'flex', marginBottom: 10 }}>
       <div style={{
-        background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+        background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-hex)',
         borderRadius: '10px 10px 10px 2px', padding: '8px 12px',
         display: 'flex', gap: 4, alignItems: 'center',
       }}>
         {[0, 1, 2].map((i) => (
           <div key={i} style={{
-            width: 5, height: 5, borderRadius: '50%', background: 'var(--muted)',
+            width: 5, height: 5, borderRadius: '50%', background: 'var(--muted-hex)',
             animation: 'askpa-bounce 1.2s ease-in-out infinite',
             animationDelay: `${i * 0.2}s`,
           }} />
@@ -179,7 +179,7 @@ function EmptyState({ onSuggestion }) {
       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)', marginBottom: 4 }}>
         AskPA
       </div>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted-hex)', marginBottom: 16, lineHeight: 1.5 }}>
         Your AI copilot for pathology case consultation.<br/>
         Ask about the current slide or attach a viewport snapshot.
       </div>
@@ -209,18 +209,18 @@ function AttachmentPreview() {
   return (
     <div style={{
       padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8,
-      borderTop: '1px solid var(--border)', background: 'rgba(77,166,255,0.05)',
+      borderTop: '1px solid var(--border-hex)', background: 'rgba(77,166,255,0.05)',
     }}>
       <img
         src={`data:image/jpeg;base64,${chatPendingAttachment}`}
         alt="Pending attachment"
-        style={{ width: 44, height: 32, objectFit: 'cover', borderRadius: 3, border: '1px solid var(--border)' }}
+        style={{ width: 44, height: 32, objectFit: 'cover', borderRadius: 3, border: '1px solid var(--border-hex)' }}
       />
       <span style={{ fontSize: 10, color: '#4da6ff', flex: 1 }}>Viewport attached</span>
       <button
         onClick={clearChatPendingAttachment}
         style={{
-          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-hex)',
           fontSize: 14, lineHeight: 1, padding: '0 2px',
         }}
         title="Remove attachment"
@@ -252,12 +252,12 @@ function ReportModal({ report, onClose }) {
       padding: 12,
     }}>
       <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        background: 'var(--surface)', border: '1px solid var(--border-hex)', borderRadius: 8,
         width: '100%', maxHeight: '90%', display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
       }}>
         <div style={{
-          padding: '10px 12px', borderBottom: '1px solid var(--border)',
+          padding: '10px 12px', borderBottom: '1px solid var(--border-hex)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg)' }}>Pathology Report</span>
@@ -268,10 +268,10 @@ function ReportModal({ report, onClose }) {
             }}>Copy</button>
             <button onClick={handleDownload} style={{
               fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
-              background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
+              background: 'transparent', border: '1px solid var(--border-hex)', color: 'var(--muted-hex)',
             }}>Download</button>
             <button onClick={onClose} style={{
-              fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+              fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-hex)',
             }}>×</button>
           </div>
         </div>
@@ -440,7 +440,7 @@ export default function PathChatPanel() {
 
   if (!activeItem) {
     return (
-      <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>
+      <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted-hex)', fontSize: 12 }}>
         Open a slide to start an AskPA consultation.
       </div>
     );
@@ -457,7 +457,7 @@ export default function PathChatPanel() {
 
       {/* Header */}
       <div style={{
-        padding: '8px 10px 6px', borderBottom: '1px solid var(--border)',
+        padding: '8px 10px 6px', borderBottom: '1px solid var(--border-hex)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap',
       }}>
         <ModelSelector />
@@ -494,7 +494,7 @@ export default function PathChatPanel() {
               title="Clear conversation"
               style={{
                 fontSize: 9, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
-                background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
+                background: 'transparent', border: '1px solid var(--border-hex)', color: 'var(--muted-hex)',
               }}
             >
               Clear
@@ -530,7 +530,7 @@ export default function PathChatPanel() {
       {/* Input row */}
       <div style={{
         padding: '8px 8px 10px',
-        borderTop: chatPendingAttachment ? 'none' : '1px solid var(--border)',
+        borderTop: chatPendingAttachment ? 'none' : '1px solid var(--border-hex)',
         display: 'flex', gap: 6, alignItems: 'flex-end',
       }}>
         <button
@@ -539,9 +539,9 @@ export default function PathChatPanel() {
           style={{
             flexShrink: 0, width: 30, height: 30, borderRadius: 6, cursor: 'pointer',
             background: chatPendingAttachment ? 'rgba(77,166,255,0.2)' : 'rgba(255,255,255,0.05)',
-            border: chatPendingAttachment ? '1px solid rgba(77,166,255,0.4)' : '1px solid var(--border)',
+            border: chatPendingAttachment ? '1px solid rgba(77,166,255,0.4)' : '1px solid var(--border-hex)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: chatPendingAttachment ? '#4da6ff' : 'var(--muted)',
+            color: chatPendingAttachment ? '#4da6ff' : 'var(--muted-hex)',
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -561,7 +561,7 @@ export default function PathChatPanel() {
           style={{
             flex: 1, resize: 'none', fontSize: 11, lineHeight: 1.5,
             padding: '6px 8px', borderRadius: 6,
-            background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+            background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-hex)',
             color: 'var(--fg)', outline: 'none', fontFamily: 'inherit',
           }}
         />

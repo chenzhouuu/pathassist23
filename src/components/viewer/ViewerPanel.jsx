@@ -350,13 +350,13 @@ export default function ViewerPanel() {
         {/* Idle */}
         {status.state === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center z-10 select-none" style={{ background:'var(--bg-viewer)' }}>
-            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" strokeWidth="1" className="mb-5" style={{ stroke: 'var(--border)' }}>
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" strokeWidth="1" className="mb-5" style={{ stroke: 'var(--border-hex)' }}>
               <rect x="2" y="3" width="20" height="14" rx="2"/>
               <circle cx="8" cy="10" r="2"/><polyline points="21 15 16 10 5 21"/>
               <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
-            <p className="text-sm font-medium" style={{ color:'var(--muted)' }}>Select a slide to view</p>
-            <p className="text-xs mt-1" style={{ color:'var(--muted)' }}>Collections → Folders → Items</p>
+            <p className="text-sm font-medium" style={{ color:'var(--muted-hex)' }}>Select a slide to view</p>
+            <p className="text-xs mt-1" style={{ color:'var(--muted-hex)' }}>Collections → Folders → Items</p>
           </div>
         )}
 
@@ -381,7 +381,7 @@ export default function ViewerPanel() {
             </svg>
             <div className="text-center space-y-1">
               <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Slide not yet processed</p>
-              <p className="text-xs max-w-xs" style={{ color: 'var(--muted)' }}>
+              <p className="text-xs max-w-xs" style={{ color: 'var(--muted-hex)' }}>
                 <span className="font-mono text-gray-400">{status.msg}</span> is a whole-slide image but
                 has not been registered as a large image source in Girder.
               </p>
@@ -395,7 +395,7 @@ export default function ViewerPanel() {
               </svg>
               Initialize large image tiles
             </button>
-            <button onClick={retry} className="text-xs underline" style={{ color: 'var(--muted)' }}>
+            <button onClick={retry} className="text-xs underline" style={{ color: 'var(--muted-hex)' }}>
               Try loading again (if already processed)
             </button>
           </div>
@@ -431,8 +431,8 @@ export default function ViewerPanel() {
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
               <polyline points="13 2 13 9 20 9"/>
             </svg>
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>No image preview available</p>
-            <p className="text-xs max-w-xs text-center" style={{ color: 'var(--muted)' }}>{status.msg}</p>
+            <p className="text-sm" style={{ color: 'var(--muted-hex)' }}>No image preview available</p>
+            <p className="text-xs max-w-xs text-center" style={{ color: 'var(--muted-hex)' }}>{status.msg}</p>
             {status.files?.map(f => (
               <a key={f._id} href={getFileDownloadUrl(f._id)} download
                 className="text-xs px-3 py-1.5 rounded transition-colors"
@@ -451,7 +451,7 @@ export default function ViewerPanel() {
               <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <p className="text-sm text-red-400">Failed to load item</p>
-            <p className="text-xs max-w-sm text-center px-4" style={{ color: 'var(--muted)' }}>{status.msg}</p>
+            <p className="text-xs max-w-sm text-center px-4" style={{ color: 'var(--muted-hex)' }}>{status.msg}</p>
             <div className="flex gap-2 mt-1">
               <button onClick={retry}
                 className="text-xs px-3 py-1.5 rounded transition-colors"

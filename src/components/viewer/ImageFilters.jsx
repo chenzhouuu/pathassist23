@@ -41,14 +41,14 @@ function getCanvas(viewer) {
 function SliderRow({ label, value, min, max, step, onChange }) {
   return (
     <div className="flex items-center gap-2" style={{ minHeight: 26 }}>
-      <span className="text-xs shrink-0" style={{ width: 76, color: 'var(--muted)' }}>{label}</span>
+      <span className="text-xs shrink-0" style={{ width: 76, color: 'var(--muted-hex)' }}>{label}</span>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
         className="flex-1 h-1 rounded-full appearance-none cursor-pointer"
         style={{ accentColor: '#4da6ff' }}
       />
-      <span className="text-xs font-mono text-right shrink-0" style={{ width: 32, color: 'var(--muted)' }}>
+      <span className="text-xs font-mono text-right shrink-0" style={{ width: 32, color: 'var(--muted-hex)' }}>
         {value}
       </span>
     </div>
@@ -114,7 +114,7 @@ export default function ImageFilters({ viewer }) {
           style={{
             width: 290,
             background: 'var(--bg-panel)',
-            border: '1px solid var(--border)',
+            border: '1px solid var(--border-hex)',
             boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
           }}>
 

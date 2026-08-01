@@ -195,7 +195,7 @@ function CaseItemsPanel({ caseContext }) {
 
   return (
     <div className="flex flex-col shrink-0 overflow-hidden h-full"
-      style={{ width: 'var(--left-w)', background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border)' }}>
+      style={{ width: 'var(--left-w)', background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border-hex)' }}>
       {/* Header */}
       <div className="panel-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
         <div className="flex items-center gap-1.5 w-full">
@@ -210,13 +210,13 @@ function CaseItemsPanel({ caseContext }) {
           <button
             onClick={() => { clearCaseContext(); setPage('second-opinion'); }}
             className="text-xs px-1.5 py-0.5 rounded transition-colors"
-            style={{ color: 'var(--muted)', border: '1px solid var(--border)' }}
+            style={{ color: 'var(--muted-hex)', border: '1px solid var(--border-hex)' }}
             title="Back to cases list"
           >
             ✕
           </button>
         </div>
-        <span className="text-xs" style={{ color: 'var(--muted)', fontSize: 10 }}>
+        <span className="text-xs" style={{ color: 'var(--muted-hex)', fontSize: 10 }}>
           {caseContext.items.length} image{caseContext.items.length !== 1 ? 's' : ''} selected for this case
         </span>
       </div>
@@ -270,10 +270,10 @@ function CaseItemsPanel({ caseContext }) {
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="truncate text-xs leading-tight" style={{ color: isActive ? 'var(--accent)' : 'var(--text)' }}>
+                <div className="truncate text-xs leading-tight" style={{ color: isActive ? 'var(--accent-hex)' : 'var(--text)' }}>
                   {item.name}
                 </div>
-                <div className="text-xs" style={{ color: 'var(--muted)', fontSize: 10 }}>
+                <div className="text-xs" style={{ color: 'var(--muted-hex)', fontSize: 10 }}>
                   Slide {idx + 1}
                 </div>
               </div>
