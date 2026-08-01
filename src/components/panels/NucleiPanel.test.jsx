@@ -1,18 +1,24 @@
-// The Nuclei panel (Inc 5 · 05). The claim is that the numbers on screen came off disk: the panel
-// reports the stored artifact's meta, not whatever the call that started the build returned.
+// Starting a nuclei build (Inc 5 · 05-08; Inc 6 · 04).
+//
+// Seven tests left this file when the stored counts and the mask's controls moved into the
+// artifact's own row in the Workspace. They were not dropped: what they asserted is now asserted
+// where it lives — `workspace/artifactDetail.test.js` for the numbers, the class rows, the palette
+// and the render modes, and `WorkspacePanel.test.jsx` for the eye that hides a class without
+// hiding its count and for the opacity reaching the store.
+//
+// What is left is the claim this panel still makes: a build starts, stops and resumes, and it says
+// what the artifact table says about it.
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../api/preprocessApi.js', () => ({ listArtifacts: vi.fn() }));
-vi.mock('../../api/nucleiApi.js', () => ({
-  startNuclei: vi.fn(), getNucleiMeta: vi.fn(), cancelNuclei: vi.fn(),
-}));
+vi.mock('../../api/nucleiApi.js', () => ({ startNuclei: vi.fn(), cancelNuclei: vi.fn() }));
 
 import NucleiPanel from './NucleiPanel.jsx';
 import { listArtifacts } from '../../api/preprocessApi.js';
-import { cancelNuclei, getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
+import { cancelNuclei, startNuclei } from '../../api/nucleiApi.js';
 import { useStore } from '../../store/index.js';
 
 const SLIDE = { _id: 'item-1', name: 'slide.svs' };
@@ -20,16 +26,6 @@ const ROI = { x: 100, y: 200, width: 512, height: 512 };
 
 const READY_ROW = { kind: 'nuclei', art_hash: 'n1', status: 'ready', params: {}, result: {} };
 const SEG_ROW = { kind: 'segmentation', art_hash: 's1', status: 'ready', params: {} };
-const META = {
-  art_hash: 'n1',
-  slide: { width: 4096, height: 4096, mpp: 0.25 },
-  colors: { Neoplastic: '#D55E00', Connective: '#0072B2', Inflammatory: '#009E73' },
-  layers: { classes: { level_offset: 0, levels: 5 }, instances: { level_offset: 0, levels: 5 } },
-  summary: {
-    n_nuclei: 1200, n_tiles: 3, area_mm2: 12.582,
-    counts_by_class: { Neoplastic: 800, Connective: 300, Inflammatory: 100 },
-  },
-};
 
 describe('NucleiPanel', () => {
   beforeEach(() => {
@@ -37,7 +33,6 @@ describe('NucleiPanel', () => {
       activeItem: SLIDE, copilotRoi: null, nucleiLayerParams: {}, visibleArtifacts: {},
     });
     listArtifacts.mockResolvedValue([]);
-    getNucleiMeta.mockResolvedValue(META);
     startNuclei.mockResolvedValue({ kind: 'nuclei', art_hash: 'n1', status: 'queued' });
     cancelNuclei.mockResolvedValue({ status: 'running', stage: 'stopping' });
   });
@@ -64,17 +59,6 @@ describe('NucleiPanel', () => {
       .toHaveBeenCalledWith('item-1', { bbox: ROI, seg_hash: null }));
   });
 
-  it('reports the stored counts, read back from the artifact', async () => {
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    render(<NucleiPanel />);
-
-    expect(await screen.findByText('1,200 nuclei · 12.58 mm² · 3 tiles')).toBeInTheDocument();
-    expect(getNucleiMeta).toHaveBeenCalledWith('item-1', 'n1');
-    expect(screen.getByText('Neoplastic')).toBeInTheDocument();
-    expect(screen.getByText('800 · 66.7%')).toBeInTheDocument();
-    expect(screen.getByText('12.58 mm²')).toBeInTheDocument();
-  });
-
   it('shows progress while a build is running', async () => {
     listArtifacts.mockResolvedValue([
       { ...READY_ROW, status: 'running', progress: 0.42 },
@@ -86,7 +70,6 @@ describe('NucleiPanel', () => {
   it('says a build is not built before there is one', async () => {
     render(<NucleiPanel />);
     expect(await screen.findByText('Not built')).toBeInTheDocument();
-    expect(getNucleiMeta).not.toHaveBeenCalled();
   });
 
   it('will not run the whole slide without a segmentation, and says why', async () => {
@@ -107,50 +90,10 @@ describe('NucleiPanel', () => {
 
   it('keeps working when the artifact has a row but nothing stored yet', async () => {
     listArtifacts.mockResolvedValue([{ ...READY_ROW, status: 'queued' }]);
-    getNucleiMeta.mockRejectedValue(new Error('404'));
     render(<NucleiPanel />);
 
     expect(await screen.findByText('Working 0%')).toBeInTheDocument();
     expect(screen.queryByText(/nuclei ·/)).not.toBeInTheDocument();
-  });
-
-  // ── the mask (Inc 5 · 06) ────────────────────────────────────────────────────────
-
-  it('tunes the mask through the store, so the layer survives leaving this tab', async () => {
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    render(<NucleiPanel />);
-
-    const slider = await screen.findByRole('slider', { name: '' });
-    fireEvent.change(slider, { target: { value: '0.3' } });
-    expect(useStore.getState().nucleiLayerParams.opacity).toBe(0.3);
-  });
-
-  it('hides a class from the picture without hiding it from the counts', async () => {
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    render(<NucleiPanel />);
-
-    const box = await screen.findByRole('checkbox', { name: /Neoplastic/ });
-    await userEvent.click(box);
-    expect(useStore.getState().nucleiLayerParams.hidden).toEqual({ Neoplastic: true });
-    expect(screen.getByText('800 · 66.7%')).toBeInTheDocument();
-  });
-
-  it('says where the eye is when the mask is built but not switched on', async () => {
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    render(<NucleiPanel />);
-    expect(await screen.findByText(/switch it on from the Workspace/)).toBeInTheDocument();
-
-    useStore.setState({ visibleArtifacts: { n1: { kind: 'nuclei' } } });
-    expect(await screen.findByText('on the slide')).toBeInTheDocument();
-  });
-
-  it('offers no mask controls before the picture exists', async () => {
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    getNucleiMeta.mockResolvedValue({ ...META, layers: {} });
-    render(<NucleiPanel />);
-
-    expect(await screen.findByText('1,200 nuclei · 12.58 mm² · 3 tiles')).toBeInTheDocument();
-    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   });
 
   // ── whole slide, stop, resume (Inc 5 · 07) ───────────────────────────────────────
@@ -214,31 +157,6 @@ describe('NucleiPanel', () => {
     render(<NucleiPanel />);
 
     await waitFor(() => expect(useStore.getState().artifactRuns).toEqual({ n1: true }));
-  });
-
-  // ── the per-cell view (Inc 5 · 08) ──────────────────────────────────────────────
-
-  it('switches the mask between what a nucleus is and which one it is', async () => {
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    render(<NucleiPanel />);
-
-    await userEvent.click(await screen.findByRole('button', { name: 'Each cell' }));
-    expect(useStore.getState().nucleiLayerParams.render).toBe('instances');
-    // The colours are identities, not categories, and the panel says so.
-    expect(await screen.findByText(/carry no meaning of their own/)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: 'Class' }));
-    expect(useStore.getState().nucleiLayerParams.render).toBe('classes');
-  });
-
-  it('does not offer the per-cell view for an artifact that has no ids yet', async () => {
-    // Built before ticket 08: class tiles, no instance raster, until its next run redraws it.
-    listArtifacts.mockResolvedValue([READY_ROW]);
-    getNucleiMeta.mockResolvedValue({ ...META, layers: { classes: { level_offset: 0, levels: 5 } } });
-    render(<NucleiPanel />);
-
-    expect(await screen.findByRole('slider')).toBeInTheDocument();   // the mask is there
-    expect(screen.queryByRole('button', { name: 'Each cell' })).not.toBeInTheDocument();
   });
 
   it("shows a full cache as the worker's own refusal", async () => {

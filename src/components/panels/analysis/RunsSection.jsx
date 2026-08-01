@@ -7,21 +7,15 @@
 //
 // One poller for the whole app. Every row it fetches goes through `applyJobEvent`, so the
 // WebSocket ticket (plan D8) replaces the feed and nothing below this line changes.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { cancelJob, listRuns } from '../../../api/index.js';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { cancelJob } from '../../../api/index.js';
 import { useRunsStore } from '../../../store/runs.js';
+import { RUNS_QUERY_KEY, useRunsFeed } from './useRunsFeed.js';
 import {
   STATUS, activeCount, groupRuns, isCancelable, isDropped, isStopping, progressFraction,
   progressText, queueNote, statusColor, statusLabel,
 } from './runsUtils.js';
-
-//: Against a 2.5 s poll today; the same rows arrive over the WebSocket later (plan §4).
-export const POLL_MS = 2500;
-
-//: How much history the section asks for. Every *unfinished* run comes back regardless — that is
-//: the server's rule, and it is what makes "3 ahead" exact — so this only bounds the tail.
-export const HISTORY = 15;
 
 const Dot = ({ color, spin }) => (
   <span className="shrink-0 rounded-full" aria-hidden="true"
@@ -108,19 +102,9 @@ export default function RunsSection({ activeItem }) {
   const byId = useRunsStore(s => s.byId);
   const loaded = useRunsStore(s => s.loaded);
   const stopping = useRunsStore(s => s.stopping);
-  const syncRuns = useRunsStore(s => s.syncRuns);
   const markStopping = useRunsStore(s => s.markStopping);
 
-  const { data, error: fetchError } = useQuery({
-    queryKey: ['pathassist-runs'],
-    queryFn: () => listRuns(HISTORY),
-    refetchInterval: POLL_MS,
-    retry: 1,
-  });
-
-  // The poller's only job is to hand the page to the store. Every row goes in through the same
-  // door an event would.
-  useEffect(() => { if (data) syncRuns(data); }, [data, syncRuns]);
+  const { error: fetchError } = useRunsFeed();
 
   const runs = useMemo(
     () => Object.values(byId).sort((a, b) => (b.created || '').localeCompare(a.created || '')),
@@ -137,7 +121,7 @@ export default function RunsSection({ activeItem }) {
     } catch (e) {
       setError(`Could not stop ${run.title}: ${e?.response?.data?.message || e.message}`);
     }
-    qc.invalidateQueries({ queryKey: ['pathassist-runs'] });
+    qc.invalidateQueries({ queryKey: RUNS_QUERY_KEY });
   }, [markStopping, qc]);
 
   return (

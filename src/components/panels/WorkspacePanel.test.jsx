@@ -2,8 +2,9 @@
 // §5.2 asks for, read off the artifact table and nothing else, and that a build in flight arrives
 // at ready on its own.
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../api/preprocessApi.js', () => ({
@@ -11,10 +12,23 @@ vi.mock('../../api/preprocessApi.js', () => ({
   getArtifactUsage: vi.fn(),
   deleteArtifact: vi.fn(),
 }));
+vi.mock('../../api/nucleiApi.js', () => ({ getNucleiMeta: vi.fn() }));
+// The panel shares the Analysis poller's query key (Inc 6 · 04), so the runs feed has to answer
+// here too — the list is artifacts *union* the runs in flight for this slide.
+vi.mock('../../api/index.js', () => ({ listRuns: vi.fn(), cancelJob: vi.fn() }));
 
 import WorkspacePanel from './WorkspacePanel.jsx';
 import { deleteArtifact, getArtifactUsage, listArtifacts } from '../../api/preprocessApi.js';
+import { getNucleiMeta } from '../../api/nucleiApi.js';
+import { listRuns } from '../../api/index.js';
 import { useStore } from '../../store/index.js';
+import { useRunsStore } from '../../store/runs.js';
+
+const render = (ui = <WorkspacePanel />) => rtlRender(
+  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    {ui}
+  </QueryClientProvider>,
+);
 
 const SLIDE = { _id: 'item-1', name: 'slide.svs' };
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -41,8 +55,11 @@ const ROWS = [
 
 describe('WorkspacePanel', () => {
   beforeEach(() => {
-    useStore.setState({ activeItem: SLIDE, visibleArtifacts: {} });
+    useStore.setState({ activeItem: SLIDE, visibleArtifacts: {}, nucleiLayerParams: {} });
+    useRunsStore.setState({ byId: {}, loaded: false, stopping: {} });
     listArtifacts.mockResolvedValue([]);
+    listRuns.mockResolvedValue([]);
+    getNucleiMeta.mockResolvedValue(null);
     getArtifactUsage.mockResolvedValue({ bytes: 0, dependants: [] });
     deleteArtifact.mockResolvedValue({ deleted: true, dependants: [] });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -251,5 +268,141 @@ describe('deleting an artifact', () => {
 
     await userEvent.click(await openMenu('Tissue map'));
     expect(await screen.findByText('gateway unreachable')).toBeInTheDocument();
+  });
+});
+
+// ── Inc 6 · 04 — a row has an inside ────────────────────────────────────────────────────
+//
+// The controls that used to be the body of NucleiPanel now open under the artifact they belong to.
+// What is worth asserting is the part that is not obvious from the code: that hiding a class from
+// the picture leaves its count on screen, that the parameters go to the store rather than to local
+// state (the mask keeps drawing while this panel is closed), and that a job with no artifact row
+// yet still puts something on the list.
+
+const NUCLEI_ROW = {
+  kind: 'nuclei', art_hash: 'nuc1', status: 'ready',
+  params: {}, result: { n_nuclei: 15180 }, created_at: iso(60_000),
+};
+
+const NUCLEI_META = {
+  summary: {
+    n_nuclei: 15180,
+    area_mm2: 19.28,
+    counts_by_class: { Connective: 10955, Neoplastic: 3836, Inflammatory: 168, Epithelial: 221 },
+  },
+  coverage: { n_tiles: 72 },
+  classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
+  colors: { Neoplastic: '#e94560', Connective: '#4caf82' },
+  layers: { classes: { levels: 5 }, instances: { levels: 5 } },
+};
+
+describe('an opened artifact row', () => {
+  beforeEach(() => {
+    listArtifacts.mockResolvedValue([NUCLEI_ROW, ...ROWS]);
+    getNucleiMeta.mockResolvedValue(NUCLEI_META);
+  });
+
+  const openNuclei = async () => {
+    render(<WorkspacePanel />);
+    await screen.findByText('Nuclei');
+    await userEvent.click(screen.getByText('Nuclei'));
+    return screen.findByTestId ? null : null;
+  };
+
+  it('shows the numbers the artifact stores, read back off disk', async () => {
+    await openNuclei();
+    expect(await screen.findByText('72 tiles · 19.28 mm²')).toBeInTheDocument();
+    expect(screen.getByText('15,180')).toBeInTheDocument();
+    expect(getNucleiMeta).toHaveBeenCalledWith('item-1', 'nuc1');
+  });
+
+  it('shows one row per class, with its count and its share', async () => {
+    await openNuclei();
+    await screen.findByText('Connective');
+    expect(screen.getByText('10,955 · 72.2%')).toBeInTheDocument();
+    // A class the run found none of is not a zero row.
+    expect(screen.queryByText('Dead')).not.toBeInTheDocument();
+  });
+
+  it('hides a class from the picture without hiding its count', async () => {
+    await openNuclei();
+    await screen.findByText('Connective');
+    const classRow = screen.getByText('Connective').closest('[data-cy="data-row"]');
+
+    await userEvent.click(within(classRow).getByRole('button', { name: 'Hide' }));
+
+    expect(useStore.getState().nucleiLayerParams.hidden).toEqual({ Connective: true });
+    // The whole point: the count is still on screen.
+    expect(screen.getByText('10,955 · 72.2%')).toBeInTheDocument();
+  });
+
+  it('puts the opacity in the store, where the layer can outlive this panel', async () => {
+    await openNuclei();
+    await screen.findByTestId('artifact-config');
+    expect(screen.getByTestId('opacity-value')).toHaveTextContent('0.65');
+
+    // The store is the authority; the panel renders what it holds.
+    useStore.getState().setNucleiLayerParams({ opacity: 0.3 });
+    await waitFor(() => expect(screen.getByTestId('opacity-value')).toHaveTextContent('0.30'));
+  });
+
+  it('offers the two views over the one raster', async () => {
+    await openNuclei();
+    await screen.findByTestId('artifact-config');
+    await userEvent.click(screen.getByRole('tab', { name: 'Each cell' }));
+    expect(useStore.getState().nucleiLayerParams.render).toBe('instances');
+  });
+
+  it('closes on a second click, so two sliders are never on screen at once', async () => {
+    await openNuclei();
+    await screen.findByTestId('artifact-config');
+    await userEvent.click(screen.getByText('Nuclei'));
+    await waitFor(() => expect(screen.queryByTestId('artifact-config')).not.toBeInTheDocument());
+  });
+
+  it('does not open a kind whose controls have not moved across yet', async () => {
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+    await userEvent.click(screen.getByText('Tissue map'));
+    expect(screen.queryByTestId('artifact-detail')).not.toBeInTheDocument();
+  });
+
+  it('says so when the artifact has stored nothing yet', async () => {
+    getNucleiMeta.mockRejectedValue(new Error('404'));
+    await openNuclei();
+    expect(await screen.findByText('Nothing stored for this artifact yet.')).toBeInTheDocument();
+  });
+});
+
+describe('a run with no artifact row yet', () => {
+  const SLIDE_WITH_FILE = { ...SLIDE, largeImage: { fileId: 'file-1' } };
+
+  it('still puts something on the list', async () => {
+    useStore.setState({ activeItem: SLIDE_WITH_FILE });
+    listRuns.mockResolvedValue([{
+      id: 'j1', status: 2, created: '2026-08-01T19:48:34Z', lane: 'pathassist',
+      slideKey: 'file-1', kind: 'nuclei', artHash: 'ghost1', title: 'Nuclei segmentation',
+      started: true, progress: { current: 3, total: 12, message: '3 / 12 · nuclei' },
+    }]);
+    render(<WorkspacePanel />);
+
+    expect(await screen.findByText('3 / 12 · nuclei')).toBeInTheDocument();
+    expect(screen.getByText('Starting…')).toBeInTheDocument();
+  });
+
+  it('becomes the real row under the same key once the artifact exists', async () => {
+    useStore.setState({ activeItem: SLIDE_WITH_FILE });
+    listRuns.mockResolvedValue([{
+      id: 'j1', status: 3, created: '2026-08-01T19:48:34Z', lane: 'pathassist',
+      slideKey: 'file-1', kind: 'nuclei', artHash: 'nuc1', title: 'Nuclei segmentation',
+      started: true, progress: null,
+    }]);
+    listArtifacts.mockResolvedValue([NUCLEI_ROW]);
+    render(<WorkspacePanel />);
+
+    await screen.findByText('Nuclei');
+    // One row, not a ghost beside a real one — they share `art_hash`, so they are one row.
+    expect(screen.getAllByText('Nuclei')).toHaveLength(1);
+    expect(screen.queryByText('Starting…')).not.toBeInTheDocument();
   });
 });

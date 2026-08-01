@@ -1,21 +1,21 @@
-// src/components/panels/NucleiPanel.jsx — the nuclei artifact's controls (Inc 5, 05-07).
+// src/components/panels/NucleiPanel.jsx — starting a nuclei build (Inc 5, 05-07; Inc 6 · 04).
 //
 // Shaped like the Tissue panel, because it drives the same kind of thing: a service's own
-// job/artifact control plane, over a region or over the whole slide. It does not mount the mask —
-// ArtifactLayers does, for as long as the slide is open — but it tunes it, because these controls
-// have to outlive a tab switch and the layer does.
+// job/artifact control plane, over a region or over the whole slide.
 //
-// Every number here is read back from the artifact's meta, not kept from the call that made it.
-// That is the point: reload the page and the same counts come back, because they came off disk.
+// **What this panel no longer holds** (Inc 6 · 04): the stored counts and the mask's controls.
+// They belong to the artifact, so they now open inside the artifact's own row in the Workspace,
+// next to the eye that switches it on. Nothing about them changed on the way — the numbers still
+// come off the artifact's meta and the layer parameters still live in the store — only where they
+// are edited. The panel that is left starts builds and stops them, and it goes too when the
+// Analysis catalog takes that over (05).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { listArtifacts } from '../../api/preprocessApi.js';
-import { cancelNuclei, getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
+import { cancelNuclei, startNuclei } from '../../api/nucleiApi.js';
 import {
-  RENDERS, RENDER_LABEL, canStop, classRows, colorsOf, coverageSummary, describeStage,
-  findNucleiRow, findReadySegmentation, formatArea, formatCount, formatPercent, hasInstances,
-  isRunning, isStopping, layerLevels, progressPercent, startLabel, summaryLine, totalNuclei,
-  withNucleiDefaults,
+  canStop, describeStage, findNucleiRow, findReadySegmentation, isRunning, isStopping,
+  progressPercent, startLabel,
 } from './nucleiUtils.js';
 import { formatRoi, useRegionSelect } from './useRegionSelect.js';
 
@@ -28,40 +28,22 @@ export default function NucleiPanel() {
   const itemId = activeItem?._id || null;
 
   const [rows, setRows] = useState([]);
-  const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const pollRef = useRef(null);
 
-  // The layer's own settings live in the store, not here: the mask keeps rendering while this
-  // panel is closed, and the right panel unmounts a panel on every tab switch.
-  const storedLayer = useStore((s) => s.nucleiLayerParams);
-  const setNucleiLayerParams = useStore((s) => s.setNucleiLayerParams);
-  const visibleArtifacts = useStore((s) => s.visibleArtifacts);
   const noteArtifactRuns = useStore((s) => s.noteArtifactRuns);
 
   const row = findNucleiRow(rows);
   const segRow = findReadySegmentation(rows);
   const artHash = row?.art_hash || null;
-  const layer = withNucleiDefaults(storedLayer);
-  const drawn = layerLevels(meta) > 0;
-  const shownOnSlide = !!artHash && visibleArtifacts[artHash]?.kind === 'nuclei';
-
-  const toggleHidden = (name) =>
-    setNucleiLayerParams({ hidden: { ...layer.hidden, [name]: !layer.hidden[name] } });
 
   const refresh = useCallback(async () => {
-    if (!itemId) { setRows([]); setMeta(null); return; }
+    if (!itemId) { setRows([]); return; }
     const next = await listArtifacts(itemId);
     setRows(next);
     // The mask redraws itself while a build runs, and only a poller knows one is running.
     noteArtifactRuns(next);
-    const r = findNucleiRow(next);
-    if (r?.art_hash) {
-      try { setMeta(await getNucleiMeta(itemId, r.art_hash)); } catch { /* nothing stored yet */ }
-    } else {
-      setMeta(null);
-    }
   }, [itemId]);
 
   useEffect(() => { refresh().catch((e) => setError(e.message)); }, [refresh]);
@@ -98,14 +80,6 @@ export default function NucleiPanel() {
   };
 
   if (!itemId) return <div className="mk-empty">Open a slide to segment its nuclei.</div>;
-
-  const summary = meta?.summary || null;
-  const classes = classRows(summary);
-  const n = totalNuclei(summary);
-  // The palette comes off the artifact, so a swatch here and the mask on the slide can never
-  // disagree about what colour a class is.
-  const palette = colorsOf(meta);
-  const cov = coverageSummary(meta);
 
   return (
     <div className="mk-panel">
@@ -191,91 +165,14 @@ export default function NucleiPanel() {
         )}
       </div>
 
-      {/* ── what is stored ───────────────────────────────────────────────── */}
+      {/* The stored counts, the class list and the mask's controls used to sit here. They belong
+          to the artifact, so they open inside its row in the Workspace now (Inc 6 · 04) — with a
+          swatch and an eye per class instead of a checkbox, and the same numbers off the same
+          meta. This pointer stays until the tab does. */}
       {artHash && (
-        <div className="mk-section">
-          <div className="mk-row">
-            <span className="mk-label">Stored</span>
-            <span className="mk-dim">{summaryLine(summary) || 'nothing yet'}</span>
-          </div>
-          {/* Coverage is what a stopped or region-limited artifact is a complete account *of* —
-              a count over 3 % of a slide and a count over all of it are not the same claim. */}
-          {cov && (
-            <div className="mk-row">
-              <span className="mk-label">Covered</span>
-              <span className="mk-dim">
-                {cov.tiles} {cov.tiles === 1 ? 'tile' : 'tiles'}
-                {cov.mm2 ? ` · ${cov.mm2.toFixed(2)} mm²` : ''}
-              </span>
-            </div>
-          )}
-          {n > 0 && (
-            <>
-              <div className="mk-row">
-                <span className="mk-label">Nuclei</span>
-                <span className="mk-count">{formatCount(n)}</span>
-              </div>
-              {formatArea(summary) && (
-                <div className="mk-row">
-                  <span className="mk-label">Area</span>
-                  <span className="mk-count">{formatArea(summary)}</span>
-                </div>
-              )}
-              {/* A checkbox hides a class from the *picture*. Its count stays on screen either
-                  way — hiding a class from the map must not hide it from the maths. */}
-              {classes.map((c) => (
-                <label key={c.name} className="mk-check">
-                  <input
-                    type="checkbox" checked={!layer.hidden[c.name]} disabled={!drawn}
-                    onChange={() => toggleHidden(c.name)}
-                  />
-                  <span className="mk-swatch" style={{ background: palette[c.name] || '#888' }} />
-                  {c.name}
-                  <span className="mk-count">
-                    {formatCount(c.count)} · {formatPercent(c.fraction)}
-                  </span>
-                </label>
-              ))}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── the mask ─────────────────────────────────────────────────────── */}
-      {drawn && (
-        <div className="mk-section">
-          <div className="mk-row">
-            <span className="mk-label">Mask</span>
-            <span className="mk-dim">
-              {shownOnSlide ? 'on the slide' : 'switch it on from the Workspace'}
-            </span>
-          </div>
-          {/* Two views over one raster: what a nucleus is, or which one it is. Same pixels on
-              disk, so switching costs a URL. Offered only once the per-cell plane exists — an
-              artifact built before it has one on its next run. */}
-          {hasInstances(meta) && (
-            <div className="mk-modes">
-              {RENDERS.map((r) => (
-                <button
-                  key={r} type="button"
-                  className={`mk-mode ${layer.render === r ? 'active' : ''}`}
-                  onClick={() => setNucleiLayerParams({ render: r })}
-                >
-                  {RENDER_LABEL[r]}
-                </button>
-              ))}
-            </div>
-          )}
-          <Slider
-            label="Opacity" min={0.05} max={1} value={layer.opacity}
-            onChange={(v) => setNucleiLayerParams({ opacity: v })}
-          />
-          {layer.render === 'instances' && hasInstances(meta) && (
-            <div className="mk-note mk-dim">
-              A colour per cell, not per class — so touching nuclei read as separate. The colours
-              carry no meaning of their own.
-            </div>
-          )}
+        <div className="mk-note mk-dim">
+          What this build stored — counts by class, coverage, the mask’s opacity and colouring —
+          opens on its row in the Workspace.
         </div>
       )}
 
@@ -286,19 +183,6 @@ export default function NucleiPanel() {
       </div>
 
       {error && <div className="mk-error">{error}</div>}
-    </div>
-  );
-}
-
-function Slider({ label, value, min, max, onChange }) {
-  return (
-    <div className="mk-slider">
-      <span>{label}</span>
-      <input
-        type="range" min={min} max={max} step={0.01} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <em>{Number(value).toFixed(2)}</em>
     </div>
   );
 }
