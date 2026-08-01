@@ -19,10 +19,14 @@ _TILE_TIMEOUT = 30.0
 
 async def enqueue_nuclei(
     *, base_url: str, item: str, bbox: dict | None, token: str | None,
-    client: httpx.AsyncClient | None = None,
+    seg_hash: str | None = None, client: httpx.AsyncClient | None = None,
 ) -> dict:
-    """POST /nuclei → {art_hash, job_id, status, backend, scope}."""
-    payload = {"slide_ref": item, "bbox": bbox, "girder_token": token}
+    """POST /nuclei → {art_hash, job_id, status, backend, scope}.
+
+    ``bbox=None`` means the whole slide, which is when ``seg_hash`` matters: it is how the worker
+    knows which cores hold tissue.
+    """
+    payload = {"slide_ref": item, "bbox": bbox, "seg_hash": seg_hash, "girder_token": token}
     owns = client is None
     client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
     try:

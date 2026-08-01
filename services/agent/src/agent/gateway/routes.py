@@ -17,6 +17,7 @@ from ..loop.biomarker_map_client import (
 )
 from ..loop.events import RunFinished
 from ..loop.nuclei_client import (
+    cancel_nuclei,
     enqueue_nuclei,
     get_nuclei_meta,
     get_nuclei_tile,
@@ -476,6 +477,13 @@ _TISSUE_RESULT_KEYS = (
     "stopped", "remaining",
 )
 
+# Which of a worker's result keys survive onto the row, and which one the Workspace counts, per
+# kind. A stopped build has to be folded in with the same table as a finished one — reading a
+# stopped nuclei run through the tissue map's keys would drop its class histogram and leave the
+# row with no count at all.
+_RESULT_KEYS_BY_KIND = {"nuclei": _NUCLEI_RESULT_KEYS, "tissue": _TISSUE_RESULT_KEYS}
+_N_ITEMS_KEY_BY_KIND = {"nuclei": "n_nuclei", "tissue": "n_core_tiles", "biomarker": "n_cells"}
+
 
 async def _reconcile_artifact(
     store: PreprocessArtifactStore, item: str, art_hash: str, js: dict, kind: str | None = None,
@@ -483,15 +491,16 @@ async def _reconcile_artifact(
     """Fold a worker /status reply into the durable artifact row (only the gateway writes)."""
     st = js.get("status")
     if st == "cancelled":
-        # A stopped build is not a failed one: it left a smaller but complete map on disk, with
-        # coverage and tallies to match, so its numbers are carried exactly as a finished build's
-        # are. Progress stays where the worker left it — that fraction is the honest one.
+        # A stopped build is not a failed one: it left a smaller but complete artifact on disk,
+        # with coverage and tallies to match, so its numbers are carried exactly as a finished
+        # build's are. Progress stays where the worker left it — that fraction is the honest one.
         res = js.get("result") or {}
+        keys = _RESULT_KEYS_BY_KIND.get(kind or "", _TISSUE_RESULT_KEYS)
         await store.set_status(
             item=item, art_hash=art_hash, status="cancelled", stage="stopped",
             progress=js.get("progress"),
-            n_items=res.get("n_core_tiles"),
-            result={k: res[k] for k in _TISSUE_RESULT_KEYS if k in res} or None,
+            n_items=res.get(_N_ITEMS_KEY_BY_KIND.get(kind or "", "n_core_tiles")),
+            result={k: res[k] for k in keys if k in res} or None,
         )
     elif st == "ready":
         n_patches = js.get("n_patches")
@@ -1082,12 +1091,16 @@ def _tissue_error(exc: httpx.HTTPError) -> HTTPException:
 
 class NucleiRequest(BaseModel):
     bbox: dict | None = None
+    # Only a whole-slide run needs it, and only to pick the tiles worth the GPU. It is not the
+    # artifact's parent: see start_nuclei.
+    seg_hash: str | None = None
 
 
 _NUCLEI_REFUSALS = {
     status.HTTP_400_BAD_REQUEST: "the nuclei worker rejected those parameters",
     status.HTTP_404_NOT_FOUND: "the nuclei worker does not know that artifact",
     status.HTTP_503_SERVICE_UNAVAILABLE: "the nuclei worker has no segmentation weights",
+    status.HTTP_507_INSUFFICIENT_STORAGE: "the nuclei cache has no room for a whole-slide run",
 }
 
 
@@ -1121,24 +1134,69 @@ async def start_nuclei(
     artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
     cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> dict:
-    """Enqueue a nuclei build and record its durable row.
+    """Enqueue (or extend) this slide's nuclei build and record its durable row.
 
-    No `parent_hash`: unlike the tissue and biomarker maps, a nucleus outline does not depend on a
-    segmentation — a tissue mask only decides which tiles are worth running, which is coverage.
-    The row is the same shape as every other kind's, so the Workspace lists it without knowing
-    anything about nuclei.
+    No `parent_hash`, even for a whole-slide run that names a `seg_hash`. Unlike the tissue and
+    biomarker maps, a nucleus outline does not depend on a segmentation: the mask decides which
+    tiles are worth the GPU, which is coverage, and deleting it later invalidates nothing here. It
+    is recorded in `params` as provenance, not as a DAG edge — a delete of the segmentation is
+    therefore not refused on this artifact's account, which is correct.
     """
     try:
         run = await enqueue_nuclei(
-            base_url=_need_cellvit(cellvit_url), item=item, bbox=body.bbox, token=token,
+            base_url=_need_cellvit(cellvit_url), item=item, bbox=body.bbox,
+            seg_hash=body.seg_hash, token=token,
         )
     except httpx.HTTPError as exc:
         raise _nuclei_error(exc) from exc
     return await artifacts.upsert_artifact(
         item=item, kind="nuclei", art_hash=run["art_hash"], parent_hash=None,
-        params={"scope": run.get("scope"), "bbox": body.bbox, "backend": run.get("backend")},
+        params={"scope": run.get("scope"), "bbox": body.bbox, "backend": run.get("backend"),
+                "seg_hash": body.seg_hash},
         status="queued", job_id=run.get("job_id"),
     )
+
+
+@router.post("/slides/{item}/nuclei/{art_hash}/cancel")
+async def cancel_nuclei_build(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    cellvit_url: str | None = Depends(get_cellvit_url),
+) -> dict:
+    """Stop this slide's running nuclei build at its next core-tile boundary.
+
+    A whole-slide run is hours of work holding the cellvit service's only worker, so it has to be
+    interruptible. What is already computed stays: the artifact keeps its coverage and tallies, and
+    starting the same build again resumes from there rather than from the beginning.
+
+    The durable row is **not** written here — the worker owns the transition, and marking the row
+    stopped while the worker is still finishing a core would be undone by the next reconciliation.
+    """
+    row = await artifacts.get_artifact(item=item, art_hash=art_hash)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no nuclei build for that hash")
+    if not row.get("job_id"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "that nuclei build has no running job to stop"
+        )
+    try:
+        return await cancel_nuclei(base_url=_need_cellvit(cellvit_url), job_id=row["job_id"])
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != status.HTTP_404_NOT_FOUND:
+            raise _nuclei_error(exc) from exc
+        # The worker has never heard of this job — it was restarted out from under the row, which
+        # leaves the panel polling a build that will never move again. Stop is the right moment to
+        # settle that: the job is gone, so say so. Whatever it computed is still on disk and
+        # starting the build again resumes from there.
+        await artifacts.set_status(
+            item=item, art_hash=art_hash, status="cancelled", stage="stopped", error=None,
+        )
+        return {"job_id": row["job_id"], "status": "cancelled", "stage": "stopped",
+                "detail": "the cellvit worker restarted; this build is no longer running"}
+    except httpx.HTTPError as exc:
+        raise _nuclei_error(exc) from exc
 
 
 @router.get("/slides/{item}/nuclei/{art_hash}/meta")

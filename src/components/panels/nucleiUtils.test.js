@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_OPACITY, classRows, classesOf, colorsOf, describeStage, findNucleiRow, formatArea,
-  formatPercent, isRunning, isStopped, layerLevels, layerSignature, levelOffsetFor,
-  progressPercent, summaryLine, tileParams, totalNuclei, withNucleiDefaults,
+  DEFAULT_OPACITY, canStop, classRows, classesOf, colorsOf, coverageSummary, describeStage,
+  findNucleiRow, findReadySegmentation, formatArea, formatPercent, isRunning, isStopped,
+  isStopping, layerLevels, layerSignature, levelOffsetFor, progressPercent, startLabel,
+  summaryLine, tileParams, totalNuclei, withNucleiDefaults,
 } from './nucleiUtils.js';
 
 const summary = (over = {}) => ({
@@ -24,13 +25,59 @@ describe('describeStage', () => {
   it('says where the build got to', () => {
     expect(describeStage(null)).toBe('Not built');
     expect(describeStage({ status: 'ready' })).toBe('Ready');
-    expect(describeStage({ status: 'failed' })).toBe('Failed');
     expect(describeStage({ status: 'running', progress: 0.5 })).toBe('Working 50%');
+    expect(describeStage({ status: 'running', stage: 'nuclei', progress: 0.5 }))
+      .toBe('Segmenting 50%');
+    expect(describeStage({ status: 'running', stage: 'raster', progress: 0.98 }))
+      .toBe('Drawing 98%');
   });
 
-  it('calls a stopped build stopped, not failed', () => {
-    expect(describeStage({ status: 'cancelled' })).toBe('Stopped');
+  it('carries the reason a build failed rather than sending the user to a log', () => {
+    expect(describeStage({ status: 'failed', error: 'no weights' })).toBe('Failed — no weights');
+    expect(describeStage({ status: 'failed' })).toBe('Failed — unknown error');
+  });
+
+  it('calls a stopped build stopped, and says what it holds and what is left', () => {
+    // Not an error: a stopped build is a complete artifact of a smaller area.
+    expect(describeStage({ status: 'cancelled' })).toBe('Stopped — part of the slide');
+    expect(describeStage({
+      status: 'cancelled', result: { n_nuclei: 4120, remaining: 37 },
+    })).toBe('Stopped — 4,120 nuclei, 37 tiles left');
     expect(isStopped({ status: 'cancelled' })).toBe(true);
+  });
+
+  it('distinguishes asked-to-stop from stopped', () => {
+    const stopping = { status: 'running', stage: 'stopping', job_id: 'j1' };
+    expect(isStopping(stopping)).toBe(true);
+    expect(describeStage(stopping)).toBe('Stopping — finishing the current tile');
+    // Already asked; asking again would do nothing but flicker the button.
+    expect(canStop(stopping)).toBe(false);
+    expect(canStop({ status: 'running', job_id: 'j1' })).toBe(true);
+    // A row with no job has nothing to address — a worker restart leaves rows like this.
+    expect(canStop({ status: 'running' })).toBe(false);
+  });
+
+  it('labels the start button by what pressing it would do', () => {
+    expect(startLabel(null, false)).toBe('Run on region');
+    expect(startLabel(null, true)).toBe('Run on whole slide');
+    expect(startLabel({ status: 'cancelled' }, true)).toBe('Resume whole slide');
+    // Resuming is the same call — coverage is what makes it free — so only the word changes.
+    expect(startLabel({ status: 'cancelled' }, false)).toBe('Run on region');
+  });
+
+  it('finds the segmentation a whole-slide run needs, and only a ready one', () => {
+    const rows = [{ kind: 'segmentation', status: 'running', art_hash: 's0' },
+                  { kind: 'segmentation', status: 'ready', art_hash: 's1' }];
+    expect(findReadySegmentation(rows).art_hash).toBe('s1');
+    expect(findReadySegmentation([{ kind: 'segmentation', status: 'queued' }])).toBe(null);
+    expect(findReadySegmentation()).toBe(null);
+  });
+
+  it('reports coverage as what the numbers are an account of', () => {
+    expect(coverageSummary({ coverage: { n_tiles: 7 }, summary: { area_mm2: 29.36 } }))
+      .toEqual({ tiles: 7, mm2: 29.36 });
+    expect(coverageSummary({ coverage: { n_tiles: 7 } })).toEqual({ tiles: 7, mm2: null });
+    expect(coverageSummary(null)).toBe(null);
   });
 
   it('treats queued as running, because the panel should be polling either way', () => {

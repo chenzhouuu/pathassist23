@@ -23,6 +23,9 @@ function describeError(status, detail, what) {
       + `not configured (AGENT_CELLVIT_SERVICE_URL). ${detail}`;
   }
   if (status === 502) return `Could not reach the nuclei worker (502). ${detail}`;
+  // The worker refuses a whole-slide run rather than filling the volume mid-job, because a
+  // half-written pyramid renders as holes instead of as an error. Its message names the numbers.
+  if (status === 507) return detail || 'The nuclei cache has no room for a whole-slide run.';
   return `${what} failed (${status})${detail ? ` — ${detail}` : ''}`;
 }
 
@@ -35,18 +38,32 @@ async function asJson(r, what) {
   return r.json();
 }
 
-// Enqueue a nuclei build over a region. Returns the durable artifact row (status `queued`), which
-// the panel then polls through listArtifacts like every other kind.
-export async function startNuclei(itemId, { bbox } = {}) {
+// Enqueue (or extend) a slide's nuclei build. `bbox: null` means the whole slide — the same route,
+// the same pipeline, the same artifact, and then `seg_hash` is what tells the worker which tiles
+// hold tissue. Returns the durable artifact row (status `queued`), which the panel then polls
+// through listArtifacts like every other kind.
+export async function startNuclei(itemId, { bbox = null, seg_hash = null } = {}) {
   const r = await fetch(
     `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei`,
     {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ bbox: bbox || null }),
+      body: JSON.stringify({ bbox, seg_hash }),
     },
   );
   return asJson(r, 'Start nuclei');
+}
+
+// Ask a running build to stop at its next core-tile boundary. Returns the job's *current* status:
+// the worker finishes the core it is on first, so this resolves while the job is still `running`
+// with stage `stopping`, and the panel learns the rest from its next poll. Everything already
+// computed stays on disk — starting the same build again resumes from there.
+export async function cancelNuclei(itemId, artHash) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei/${encodeURIComponent(artHash)}/cancel`,
+    { method: 'POST', headers: authHeaders() },
+  );
+  return asJson(r, 'Stop nuclei');
 }
 
 // The artifact's own meta: slide dims, mpp, store resolution, class list, coverage and summary.

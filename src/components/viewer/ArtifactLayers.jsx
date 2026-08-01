@@ -47,24 +47,38 @@ export const SWITCHABLE_KINDS = ['tissue', 'nuclei', 'biomarker', 'segmentation'
 
 const LAYER_FOR_MODE = { markers: 'markers', pheno: 'pheno' };
 
+// How often a still-building artifact's coverage is re-read. Slower than the panels' 2.5 s poll:
+// a core tile of nuclei is tens of seconds of GPU, so there is nothing new to see any sooner, and
+// each change re-requests the visible tiles.
+const BUILD_REFRESH_MS = 5000;
+
 /** The hash of the visible artifact of `kind`, or null. One layer slot per kind (see the store). */
 export function visibleHashOf(visibleArtifacts, kind) {
   const hit = Object.entries(visibleArtifacts || {}).find(([, v]) => v?.kind === kind);
   return hit ? hit[0] : null;
 }
 
-/** Fetch an artifact's meta while it is the visible one, and forget it when it is not. */
-function useArtifactMeta(fetcher, itemId, hash) {
+/**
+ * Fetch an artifact's meta while it is the visible one, and forget it when it is not.
+ *
+ * `refreshMs` re-reads it on a timer, for a build that is still being written: the artifact's
+ * coverage grows core by core, and the meta route reads coverage fresh off disk, so this is how a
+ * running build's picture catches up without anyone pressing anything.
+ */
+function useArtifactMeta(fetcher, itemId, hash, refreshMs = 0) {
   const [meta, setMeta] = useState(null);
   useEffect(() => {
     if (!itemId || !hash) { setMeta(null); return undefined; }
     let live = true;
-    fetcher(itemId, hash)
+    const read = () => fetcher(itemId, hash)
       .then((m) => { if (live) setMeta(m); })
       .catch(() => { if (live) setMeta(null); });   // a build with nothing to draw yet
-    return () => { live = false; };
+    read();
+    if (!refreshMs) return () => { live = false; };
+    const t = setInterval(read, refreshMs);
+    return () => { live = false; clearInterval(t); };
     // `fetcher` is a module function, stable by construction.
-  }, [itemId, hash]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [itemId, hash, refreshMs]);   // eslint-disable-line react-hooks/exhaustive-deps
   return meta;
 }
 
@@ -123,16 +137,22 @@ function TissueTileLayer({ viewer, itemId, hash }) {
 
 function NucleiTileLayer({ viewer, itemId, hash }) {
   const stored = useStore((s) => s.nucleiLayerParams);
-  const meta = useArtifactMeta(getNucleiMeta, itemId, hash);
+  // A whole-slide run fills in core by core over minutes or hours. While it does, re-read the
+  // artifact's coverage so the mask catches up on its own; once it stops, stop asking.
+  const building = useStore((s) => !!s.artifactRuns[hash]);
+  const meta = useArtifactMeta(getNucleiMeta, itemId, hash, building ? BUILD_REFRESH_MS : 0);
   const mountedSig = useRef(null);
 
   const p = useMemo(() => withNucleiDefaults(stored), [stored]);
   const classes = useMemo(() => nucleiClassesOf(meta), [meta]);
   const shown = useMemo(() => classes.filter((c) => !p.hidden[c]), [classes, p.hidden]);
 
+  // Coverage is in the tile URL, so growing coverage is a different picture and OSD fetches it.
+  // Unchanged coverage means an unchanged URL, so a poll that found nothing new costs nothing.
+  const rev = meta?.coverage?.n_tiles;
   const params = useMemo(
-    () => nucleiTileParams({ show: shown, opacity: 1, classes }),
-    [shown, classes],
+    () => nucleiTileParams({ show: shown, opacity: 1, classes, rev }),
+    [shown, classes, rev],
   );
 
   // A build that has run but not yet drawn reports no levels. Mounting then would ask for tiles

@@ -16,6 +16,14 @@ from .jobs import JobQueue
 from .pannuke import TYPE_NAMES, name_for
 from .region import fetch_region, fetch_slide_info
 from .routes import register as register_nuclei
+from .slides import read_contours, tissue_core_tiles
+
+
+def _tissue_tiles(*, item: str, seg_hash: str, width: int, height: int, core: int):
+    """Which core tiles a whole-slide run should bother with, from the preprocess segmentation."""
+    s = get_settings()
+    return tissue_core_tiles(read_contours(s.preprocess_cache, item, seg_hash),
+                             width, height, core)
 
 
 def create_app() -> Flask:
@@ -23,6 +31,7 @@ def create_app() -> Flask:
     app.config["READ_REGION"] = fetch_region   # injectable seams (tests override these)
     app.config["SEGMENT"] = segment_array
     app.config["SLIDE_INFO"] = fetch_slide_info
+    app.config["TISSUE_TILES"] = _tissue_tiles
     # Nuclei builds are minutes of GPU work, so they queue on one worker thread rather than
     # occupying a request (Inc 5, ticket 05). /segment stays synchronous: it is one small box.
     app.config["JOBS"] = JobQueue()

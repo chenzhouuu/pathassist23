@@ -20,6 +20,7 @@ from pathlib import Path
 from flask import Response, jsonify, request
 
 from .artifacts import (
+    CORE,
     Coverage,
     art_hash,
     artifact_dir,
@@ -67,22 +68,40 @@ DEFAULT_BACKEND = "cellvit-sam-h"
 def register(app) -> None:
     @app.post("/nuclei")
     def enqueue_nuclei():
+        """Start (or extend) a slide's nuclei artifact.
+
+        ``bbox`` is a rectangle for a region run and ``null`` for the whole slide — the same route,
+        the same pipeline, the same artifact, differing only in which cores are enumerated (the
+        shape Inc 3b settled on and Inc 4 inherited). A whole-slide run additionally needs a
+        ``seg_hash``, because running every core of a slide that is mostly glass is hours of the
+        only GPU worker spent finding nothing.
+        """
         body = request.get_json(force=True, silent=True) or {}
         slide_ref = body.get("slide_ref")
         bbox = body.get("bbox")
+        seg_hash = body.get("seg_hash")
         if not slide_ref:
             return jsonify({"detail": "slide_ref is required"}), 400
-        if not isinstance(bbox, dict):
-            # Whole-slide is ticket 07: it needs the tissue mask to know where to bother looking,
-            # and a cooperative stop to be interruptible. Refusing is better than quietly running
-            # for hours over background.
+        if bbox is not None and not isinstance(bbox, dict):
             return jsonify({
-                "detail": "a bbox object is required (whole-slide is not yet built)",
+                "detail": "bbox must be an object or null (null = whole slide)",
             }), 400
 
         s = get_settings()
         if app.config.get("SEGMENT") is None:
             return jsonify({"detail": "nuclei segmentation needs the GPU worker"}), 503
+        if bbox is None:
+            if not seg_hash:
+                return jsonify({
+                    "detail": "a whole-slide run needs seg_hash — segment the slide first so the "
+                              "job knows which tiles hold tissue",
+                }), 400
+            free = _free_gb(s.artifact_cache)
+            if free is not None and free < s.min_free_gb:
+                return jsonify({
+                    "detail": f"only {free:.1f} GB free on the nuclei cache; a whole-slide run "
+                              f"needs at least {s.min_free_gb:.0f} GB (a region run is fine)",
+                }), 507
 
         backend = DEFAULT_BACKEND if s.model == "cellvit" else "stub"
         ah = art_hash(backend=backend)
@@ -92,6 +111,15 @@ def register(app) -> None:
             width, height, mpp = app.config["SLIDE_INFO"](
                 girder_base=s.girder_base, slide_ref=slide_ref, token=token,
             )
+            tiles = None
+            if bbox is None:
+                tiles = app.config["TISSUE_TILES"](
+                    item=slide_ref, seg_hash=seg_hash, width=width, height=height, core=CORE,
+                )
+                if not tiles:
+                    raise RuntimeError(
+                        "a whole-slide run needs a ready tissue segmentation for this slide"
+                    )
 
             def read(window):
                 return app.config["READ_REGION"](
@@ -101,7 +129,7 @@ def register(app) -> None:
             return run_region(
                 root=artifact_dir(s.artifact_cache, slide_ref, ah), art=ah,
                 slide=SlideInfo(width, height, mpp),
-                bbox=bbox, tiles=None,
+                bbox=bbox, tiles=tiles,
                 read_region=read, segment=app.config["SEGMENT"], backend=backend,
                 report=report, should_stop=getattr(report, "stopping", None),
             )
@@ -109,7 +137,7 @@ def register(app) -> None:
         job_id = app.config["JOBS"].submit(work)
         return jsonify({
             "art_hash": ah, "job_id": job_id, "status": "queued",
-            "backend": backend, "scope": "region",
+            "backend": backend, "scope": "region" if bbox is not None else "slide",
         })
 
     @app.get("/nuclei/status/<job_id>")
@@ -189,6 +217,15 @@ def register(app) -> None:
 
 def _root(item: str, ahash: str) -> Path:
     return artifact_dir(get_settings().artifact_cache, item, ahash)
+
+
+def _free_gb(path: Path | str) -> float | None:
+    """Free space on the cache volume, or None when it cannot be determined (never a refusal)."""
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+        return shutil.disk_usage(path).free / (1024 ** 3)
+    except OSError:
+        return None
 
 
 def _dir_bytes(root: Path) -> int:

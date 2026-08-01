@@ -238,7 +238,7 @@ describe('the nuclei mask', () => {
     useStore.setState({
       viewer: VIEWER, activeItem: { _id: 'item-1' },
       visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {},
-      nucleiLayerParams: {}, tissueContours: {},
+      nucleiLayerParams: {}, tissueContours: {}, artifactRuns: {},
     });
   });
 
@@ -298,6 +298,42 @@ describe('the nuclei mask', () => {
     useStore.getState().setNucleiLayerParams({ hidden: { Dead: true } });
     await waitFor(() => expect(nucleiCalls().at(-1)[1].signature).not.toBe(before));
     expect(nucleiCalls().at(-1)[1].signature).toContain('show=');
+  });
+
+  it('puts the artifact\'s coverage in the tile URL', async () => {
+    // A tile is only immutable for a *given* coverage: without this, the transparent tiles
+    // fetched before a region was computed would stay in the browser cache forever.
+    getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 4 } });
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+
+    await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
+    expect(nucleiCalls().at(-1)[1].signature).toContain('rev=4');
+  });
+
+  it('re-reads a growing artifact and stops when the build does (Inc 5 · 07)', async () => {
+    vi.useFakeTimers();
+    try {
+      getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 1 } });
+      useStore.setState({ artifactRuns: { nuc1: true } });
+      render(<ArtifactLayers />);
+      useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+      await vi.waitFor(() => expect(getNucleiMeta).toHaveBeenCalled());
+
+      // A whole-slide run fills in core by core; the mask has to catch up without a click.
+      getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 2 } });
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.waitFor(() => expect(nucleiCalls().at(-1)[1].signature).toContain('rev=2'));
+
+      // Once the build is over there is nothing new to see, so it stops asking.
+      useStore.setState({ artifactRuns: {} });
+      await vi.advanceTimersByTimeAsync(100);
+      const settled = getNucleiMeta.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(getNucleiMeta.mock.calls.length).toBe(settled);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stacks with the tissue map underneath it', async () => {

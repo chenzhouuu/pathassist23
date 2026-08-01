@@ -1,19 +1,20 @@
-// src/components/panels/NucleiPanel.jsx — nuclei as a stored artifact (Inc 5, ticket 05).
+// src/components/panels/NucleiPanel.jsx — the nuclei artifact's controls (Inc 5, 05-07).
 //
 // Shaped like the Tissue panel, because it drives the same kind of thing: a service's own
-// job/artifact control plane, over a region you draw. It does not mount the mask — ArtifactLayers
-// does, for as long as the slide is open — but it tunes it, because these controls have to outlive
-// a tab switch and the layer does. Ticket 07 makes the build whole-slide, stoppable and resumable.
+// job/artifact control plane, over a region or over the whole slide. It does not mount the mask —
+// ArtifactLayers does, for as long as the slide is open — but it tunes it, because these controls
+// have to outlive a tab switch and the layer does.
 //
 // Every number here is read back from the artifact's meta, not kept from the call that made it.
 // That is the point: reload the page and the same counts come back, because they came off disk.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { listArtifacts } from '../../api/preprocessApi.js';
-import { getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
+import { cancelNuclei, getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
 import {
-  classRows, colorsOf, describeStage, findNucleiRow, formatArea, formatCount, formatPercent,
-  isRunning, layerLevels, progressPercent, summaryLine, totalNuclei, withNucleiDefaults,
+  canStop, classRows, colorsOf, coverageSummary, describeStage, findNucleiRow,
+  findReadySegmentation, formatArea, formatCount, formatPercent, isRunning, isStopping,
+  layerLevels, progressPercent, startLabel, summaryLine, totalNuclei, withNucleiDefaults,
 } from './nucleiUtils.js';
 import { formatRoi, useRegionSelect } from './useRegionSelect.js';
 
@@ -36,8 +37,10 @@ export default function NucleiPanel() {
   const storedLayer = useStore((s) => s.nucleiLayerParams);
   const setNucleiLayerParams = useStore((s) => s.setNucleiLayerParams);
   const visibleArtifacts = useStore((s) => s.visibleArtifacts);
+  const noteArtifactRuns = useStore((s) => s.noteArtifactRuns);
 
   const row = findNucleiRow(rows);
+  const segRow = findReadySegmentation(rows);
   const artHash = row?.art_hash || null;
   const layer = withNucleiDefaults(storedLayer);
   const drawn = layerLevels(meta) > 0;
@@ -50,6 +53,8 @@ export default function NucleiPanel() {
     if (!itemId) { setRows([]); setMeta(null); return; }
     const next = await listArtifacts(itemId);
     setRows(next);
+    // The mask redraws itself while a build runs, and only a poller knows one is running.
+    noteArtifactRuns(next);
     const r = findNucleiRow(next);
     if (r?.art_hash) {
       try { setMeta(await getNucleiMeta(itemId, r.art_hash)); } catch { /* nothing stored yet */ }
@@ -70,13 +75,25 @@ export default function NucleiPanel() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
   }, [row?.status, refresh]);
 
-  const run = async () => {
-    if (!itemId || !copilotRoi) return;
+  const run = async (whole) => {
+    if (!itemId || (!whole && !copilotRoi)) return;
     setBusy(true); setError(null);
     try {
-      await startNuclei(itemId, { bbox: copilotRoi });
+      await startNuclei(itemId, {
+        bbox: whole ? null : copilotRoi,
+        seg_hash: whole ? segRow?.art_hash : null,
+      });
       await refresh();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  // Stopping is cooperative: the worker finishes the core it is on, so this returns while the job
+  // is still running. Refreshing straight away is what turns the button into "Stopping…".
+  const stop = async () => {
+    if (!itemId || !artHash) return;
+    setBusy(true); setError(null);
+    try { await cancelNuclei(itemId, artHash); await refresh(); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
   };
 
   if (!itemId) return <div className="mk-empty">Open a slide to segment its nuclei.</div>;
@@ -87,6 +104,7 @@ export default function NucleiPanel() {
   // The palette comes off the artifact, so a swatch here and the mask on the slide can never
   // disagree about what colour a class is.
   const palette = colorsOf(meta);
+  const cov = coverageSummary(meta);
 
   return (
     <div className="mk-panel">
@@ -131,14 +149,45 @@ export default function NucleiPanel() {
             type="button" className="mk-btn"
             disabled={busy || isRunning(row) || !copilotRoi}
             title={copilotRoi ? '' : 'Draw a region first — the button above frames one'}
-            onClick={run}
+            onClick={() => run(false)}
           >
-            {busy ? 'Starting…' : 'Run on region'}
+            {busy ? 'Starting…' : startLabel(row, false)}
           </button>
+          <button
+            type="button" className="mk-btn"
+            disabled={busy || isRunning(row) || !segRow}
+            title={segRow ? '' : 'Segment the slide first — the run needs to know where the '
+                              + 'tissue is, and every core of a slide that is mostly glass is '
+                              + 'hours of GPU spent finding nothing'}
+            onClick={() => run(true)}
+          >
+            {startLabel(row, true)}
+          </button>
+          {isRunning(row) && (
+            <button
+              type="button" className="mk-btn mk-btn-stop"
+              disabled={busy || !canStop(row)}
+              title={
+                'Stops after the tile it is on. What is already computed is kept, and starting '
+                + 'again resumes from there.'
+              }
+              onClick={stop}
+            >
+              {isStopping(row) ? 'Stopping…' : 'Stop'}
+            </button>
+          )}
         </div>
-        <div className="mk-note">
-          Whole-slide runs are not built yet — they need the tissue mask to know where to look.
-        </div>
+        {isRunning(row) && (
+          <div className="mk-note mk-dim">
+            This build holds the nuclei worker until it finishes — other nuclei jobs queue behind
+            it. Stopping keeps everything already computed.
+          </div>
+        )}
+        {!segRow && (
+          <div className="mk-note mk-dim">
+            A whole-slide run needs a tissue segmentation; a drawn region does not.
+          </div>
+        )}
       </div>
 
       {/* ── what is stored ───────────────────────────────────────────────── */}
@@ -148,6 +197,17 @@ export default function NucleiPanel() {
             <span className="mk-label">Stored</span>
             <span className="mk-dim">{summaryLine(summary) || 'nothing yet'}</span>
           </div>
+          {/* Coverage is what a stopped or region-limited artifact is a complete account *of* —
+              a count over 3 % of a slide and a count over all of it are not the same claim. */}
+          {cov && (
+            <div className="mk-row">
+              <span className="mk-label">Covered</span>
+              <span className="mk-dim">
+                {cov.tiles} {cov.tiles === 1 ? 'tile' : 'tiles'}
+                {cov.mm2 ? ` · ${cov.mm2.toFixed(2)} mm²` : ''}
+              </span>
+            </div>
+          )}
           {n > 0 && (
             <>
               <div className="mk-row">

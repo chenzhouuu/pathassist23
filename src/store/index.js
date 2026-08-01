@@ -84,7 +84,7 @@ export const useStore = create((set, get) => ({
           copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,
           copilotPhenotypes: null,
           copilotRegions: [], tissueContours: {}, taskHeatmap: null,
-          visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {} }),
+          visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {}, artifactRuns: {} }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -99,7 +99,7 @@ export const useStore = create((set, get) => ({
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
-      tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {},
+      tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {}, artifactRuns: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -128,7 +128,7 @@ export const useStore = create((set, get) => ({
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
-      tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {},
+      tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {}, artifactRuns: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -304,6 +304,25 @@ export const useStore = create((set, get) => ({
   toggleArtifactVisible: (hash, kind) => {
     const on = !!get().visibleArtifacts[hash];
     get().setArtifactVisible(hash, kind, !on);
+  },
+
+  // Which artifacts are being built right now (Inc 5 · 07). Written by whichever panel is polling
+  // the slide's rows, read by the layers — because a picture that is still being written has to be
+  // asked for again as it grows, and only a poller knows it is still growing. The layers do not
+  // poll for themselves: that would be a third timer for a fact two of them already have.
+  //
+  // Every writer polls the same full list for the same slide, so this is replaced wholesale
+  // rather than merged.
+  artifactRuns: {},                                  // { [art_hash]: true }
+  noteArtifactRuns: (rows) => {
+    const next = {};
+    for (const r of rows || []) {
+      if (r?.art_hash && (r.status === 'queued' || r.status === 'running')) next[r.art_hash] = true;
+    }
+    const prev = get().artifactRuns;
+    const same = Object.keys(next).length === Object.keys(prev).length
+      && Object.keys(next).every((k) => prev[k]);
+    if (!same) set({ artifactRuns: next });          // a poll that changed nothing re-renders nothing
   },
 
   // The tissue layer's render parameters, held here rather than in TissuePanel because the layer

@@ -6,17 +6,20 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../api/preprocessApi.js', () => ({ listArtifacts: vi.fn() }));
-vi.mock('../../api/nucleiApi.js', () => ({ startNuclei: vi.fn(), getNucleiMeta: vi.fn() }));
+vi.mock('../../api/nucleiApi.js', () => ({
+  startNuclei: vi.fn(), getNucleiMeta: vi.fn(), cancelNuclei: vi.fn(),
+}));
 
 import NucleiPanel from './NucleiPanel.jsx';
 import { listArtifacts } from '../../api/preprocessApi.js';
-import { getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
+import { cancelNuclei, getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
 import { useStore } from '../../store/index.js';
 
 const SLIDE = { _id: 'item-1', name: 'slide.svs' };
 const ROI = { x: 100, y: 200, width: 512, height: 512 };
 
 const READY_ROW = { kind: 'nuclei', art_hash: 'n1', status: 'ready', params: {}, result: {} };
+const SEG_ROW = { kind: 'segmentation', art_hash: 's1', status: 'ready', params: {} };
 const META = {
   art_hash: 'n1',
   slide: { width: 4096, height: 4096, mpp: 0.25 },
@@ -36,6 +39,7 @@ describe('NucleiPanel', () => {
     listArtifacts.mockResolvedValue([]);
     getNucleiMeta.mockResolvedValue(META);
     startNuclei.mockResolvedValue({ kind: 'nuclei', art_hash: 'n1', status: 'queued' });
+    cancelNuclei.mockResolvedValue({ status: 'running', stage: 'stopping' });
   });
 
   it('asks for a slide first', () => {
@@ -56,7 +60,8 @@ describe('NucleiPanel', () => {
     render(<NucleiPanel />);
 
     await userEvent.click(await screen.findByRole('button', { name: /Run on region/ }));
-    await waitFor(() => expect(startNuclei).toHaveBeenCalledWith('item-1', { bbox: ROI }));
+    await waitFor(() => expect(startNuclei)
+      .toHaveBeenCalledWith('item-1', { bbox: ROI, seg_hash: null }));
   });
 
   it('reports the stored counts, read back from the artifact', async () => {
@@ -84,10 +89,11 @@ describe('NucleiPanel', () => {
     expect(getNucleiMeta).not.toHaveBeenCalled();
   });
 
-  it('says whole-slide is not available yet rather than offering a button that refuses', async () => {
+  it('will not run the whole slide without a segmentation, and says why', async () => {
     render(<NucleiPanel />);
-    expect(await screen.findByText(/Whole-slide runs are not built yet/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /whole slide/i })).not.toBeInTheDocument();
+    const whole = await screen.findByRole('button', { name: /Run on whole slide/ });
+    expect(whole).toBeDisabled();
+    expect(whole).toHaveAttribute('title', expect.stringContaining('Segment the slide first'));
   });
 
   it('shows the reason when a run is refused', async () => {
@@ -145,5 +151,77 @@ describe('NucleiPanel', () => {
 
     expect(await screen.findByText('1,200 nuclei · 12.58 mm² · 3 tiles')).toBeInTheDocument();
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+  });
+
+  // ── whole slide, stop, resume (Inc 5 · 07) ───────────────────────────────────────
+
+  it('runs the whole slide once the tissue is segmented', async () => {
+    listArtifacts.mockResolvedValue([SEG_ROW]);
+    render(<NucleiPanel />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Run on whole slide/ }));
+    // bbox null is the whole slide; seg_hash is how the worker knows where the tissue is.
+    await waitFor(() => expect(startNuclei)
+      .toHaveBeenCalledWith('item-1', { bbox: null, seg_hash: 's1' }));
+  });
+
+  it('offers no Stop for a build that is not running', async () => {
+    listArtifacts.mockResolvedValue([SEG_ROW, READY_ROW]);
+    render(<NucleiPanel />);
+    expect(await screen.findByText('Ready')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Stop/ })).not.toBeInTheDocument();
+  });
+
+  it('stops a running build', async () => {
+    listArtifacts.mockResolvedValue([
+      SEG_ROW, { ...READY_ROW, status: 'running', stage: 'nuclei', progress: 0.2, job_id: 'j9' },
+    ]);
+    render(<NucleiPanel />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    expect(cancelNuclei).toHaveBeenCalledWith('item-1', 'n1');
+  });
+
+  it('says it is stopping while the worker finishes its tile', async () => {
+    listArtifacts.mockResolvedValue([
+      SEG_ROW,
+      { ...READY_ROW, status: 'running', stage: 'stopping', progress: 0.2, job_id: 'j9' },
+    ]);
+    render(<NucleiPanel />);
+
+    expect(await screen.findByText('Stopping — finishing the current tile')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Stopping…' })).toBeDisabled();
+  });
+
+  it('offers to resume a stopped build, and says what it already holds', async () => {
+    listArtifacts.mockResolvedValue([SEG_ROW, {
+      ...READY_ROW, status: 'cancelled', stage: 'stopped', progress: 0.4,
+      result: { n_nuclei: 4120, remaining: 37 },
+    }]);
+    render(<NucleiPanel />);
+
+    expect(await screen.findByText('Stopped — 4,120 nuclei, 37 tiles left')).toBeInTheDocument();
+    // The same call as starting it: coverage is what makes resuming free.
+    await userEvent.click(await screen.findByRole('button', { name: /Resume whole slide/ }));
+    await waitFor(() => expect(startNuclei)
+      .toHaveBeenCalledWith('item-1', { bbox: null, seg_hash: 's1' }));
+  });
+
+  it('tells the layer a build is running, so the mask can catch up on its own', async () => {
+    listArtifacts.mockResolvedValue([
+      SEG_ROW, { ...READY_ROW, status: 'running', progress: 0.2, job_id: 'j9' },
+    ]);
+    render(<NucleiPanel />);
+
+    await waitFor(() => expect(useStore.getState().artifactRuns).toEqual({ n1: true }));
+  });
+
+  it("shows a full cache as the worker's own refusal", async () => {
+    listArtifacts.mockResolvedValue([SEG_ROW]);
+    startNuclei.mockRejectedValue(new Error('only 0.5 GB free on the nuclei cache'));
+    render(<NucleiPanel />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Run on whole slide/ }));
+    expect(await screen.findByText(/0.5 GB free/)).toBeInTheDocument();
   });
 });

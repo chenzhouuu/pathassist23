@@ -209,11 +209,13 @@ def test_tallies_describe_exactly_the_tiles_marked_done(cache_root):
 # ── the control plane ──────────────────────────────────────────────────────────────
 
 
-def test_whole_slide_is_refused_rather_than_run_over_background():
+def test_a_bbox_is_a_rectangle_or_null_and_nothing_else():
+    """null is the whole slide (see test_nuclei_wholeslide); anything else is a typo, and a typo
+    that ran over the whole slide would be hours of GPU nobody asked for."""
     client = _app_with_fakes().test_client()
-    r = client.post("/nuclei", json={"slide_ref": "item1", "bbox": None})
+    r = client.post("/nuclei", json={"slide_ref": "item1", "bbox": "everything"})
     assert r.status_code == 400
-    assert "whole-slide" in r.get_json()["detail"]
+    assert "null = whole slide" in r.get_json()["detail"]
 
 
 def test_meta_for_an_unbuilt_artifact_is_404():

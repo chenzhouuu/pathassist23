@@ -82,10 +82,15 @@ services:
       # Where nuclei artifacts are stored (Inc 5). Distinct from CELLVIT_CACHE above, which is
       # the model checkpoint — one is 2.7 GB of weights, the other grows with every slide.
       CELLVIT_ARTIFACT_CACHE: /cache
+      CELLVIT_PREPROCESS_CACHE: /pcache
     volumes:
       # Reuse the already-downloaded 2.7 GB SAM-H checkpoint instead of re-downloading.
       - ${CELLVIT_WEIGHTS_DIR:-/home/chen/.cache/cellvit}:/weights-cache
       - cellvit_cache:/cache
+      # The preprocess DAG's artifacts, READ-ONLY: a whole-slide run reads this slide's tissue
+      # contours to pick the cores worth the GPU, instead of running every core of a slide that
+      # is mostly glass.
+      - preprocess_cache:/pcache:ro
     deploy:
       resources:
         reservations:

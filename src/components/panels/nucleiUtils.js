@@ -16,8 +16,29 @@ export function isRunning(row) {
   return !!row && (row.status === 'queued' || row.status === 'running');
 }
 
+/** A build was stopped part-way and can be picked up again — coverage makes resuming free. */
 export function isStopped(row) {
   return row?.status === 'cancelled';
+}
+
+/** Asked to stop, still finishing its core. Not stoppable again, and not stopped yet. */
+export function isStopping(row) {
+  return isRunning(row) && row.stage === 'stopping';
+}
+
+export function canStop(row) {
+  return isRunning(row) && !!row.job_id && row.stage !== 'stopping';
+}
+
+/** The segmentation a whole-slide run needs to know where the tissue is. */
+export function findReadySegmentation(rows = []) {
+  return rows.find((r) => r.kind === 'segmentation' && r.status === 'ready') || null;
+}
+
+/** A resumable build labels its start button honestly. */
+export function startLabel(row, whole) {
+  if (!whole) return 'Run on region';
+  return isStopped(row) ? 'Resume whole slide' : 'Run on whole slide';
 }
 
 export function progressPercent(row) {
@@ -26,14 +47,32 @@ export function progressPercent(row) {
   return Math.max(0, Math.min(100, Math.round(p * 100)));
 }
 
+const STAGE_WORDS = { nuclei: 'Segmenting', raster: 'Drawing', starting: 'Starting' };
+
 /** What the build is doing, in the words the panel shows. */
 export function describeStage(row) {
   if (!row) return 'Not built';
   if (row.status === 'ready') return 'Ready';
-  if (row.status === 'failed') return 'Failed';
-  if (row.status === 'cancelled') return 'Stopped';
-  if (isRunning(row)) return `Working ${progressPercent(row)}%`;
+  if (row.status === 'failed') return `Failed — ${row.error || 'unknown error'}`;
+  // A stopped build is not a failed one: it holds a complete artifact of a smaller area, so it
+  // says what it covered and what is left rather than reporting an error.
+  if (isStopped(row)) {
+    const left = row.result?.remaining;
+    const covered = formatCount(row.result?.n_nuclei ?? row.n_items);
+    const where = covered ? `${covered} nuclei` : 'part of the slide';
+    return left ? `Stopped — ${where}, ${left} tiles left` : `Stopped — ${where}`;
+  }
+  if (isStopping(row)) return 'Stopping — finishing the current tile';
+  if (isRunning(row)) return `${STAGE_WORDS[row.stage] || 'Working'} ${progressPercent(row)}%`;
   return row.status || 'Unknown';
+}
+
+/** How much of the slide the artifact covers, from its own coverage record. */
+export function coverageSummary(meta) {
+  const n = meta?.coverage?.n_tiles;
+  if (!n) return null;
+  const mm2 = Number(meta?.summary?.area_mm2);
+  return { tiles: n, mm2: Number.isFinite(mm2) ? mm2 : null };
 }
 
 /**
@@ -103,7 +142,7 @@ export function colorsOf(meta) {
 }
 
 /** Query params for a tile URL. Fixed key order: OSD caches by URL string. */
-export function tileParams({ show, opacity, classes } = {}) {
+export function tileParams({ show, opacity, classes, rev } = {}) {
   const params = {};
   const all = classes || [];
   // Omit `show` when nothing is filtered — a shorter URL is a better cache key.
@@ -111,6 +150,11 @@ export function tileParams({ show, opacity, classes } = {}) {
     params.show = [...show].sort().join(',');
   }
   if (opacity != null && opacity !== 1) params.alpha = String(Math.round(opacity * 1000) / 1000);
+  // How many cores the artifact covers. The worker ignores it; it is in the URL because a tile is
+  // only immutable for a *given* coverage. Without it, the transparent tiles fetched before a
+  // region was computed would stay in the browser's cache — a build that grew would keep showing
+  // the emptiness it had when you first looked at it.
+  if (Number.isFinite(Number(rev)) && Number(rev) > 0) params.rev = String(rev);
   return params;
 }
 
