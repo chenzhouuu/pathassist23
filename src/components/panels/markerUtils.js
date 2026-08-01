@@ -12,8 +12,12 @@ export const DEFAULT_DISPLAY = { lo: 0.15, hi: 0.95, gamma: 0.8 };
 // channel drawn over it. It belongs behind them, as the reference figure's grey structural layer.
 export const DAPI_WEIGHT = 0.35;
 
-export const MODES = ['he', 'markers', 'pheno'];
-export const MODE_LABEL = { he: 'H&E', markers: 'Markers', pheno: 'Phenotype' };
+// Two pictures, mutually exclusive (D8) — a marker composite and a phenotype map are both dense
+// and saturated, and stacking them makes neither readable. The third mode used to be 'he', which
+// only ever meant "no data layer"; the Workspace's eye says that now (Inc 5 · 03b), so a mode that
+// means off would be a second switch for the thing the eye owns.
+export const MODES = ['markers', 'pheno'];
+export const MODE_LABEL = { markers: 'Markers', pheno: 'Phenotype' };
 
 // Fallback only — the real vocabulary, presets and palette come from GET /biomarker/catalog, so
 // the UI never claims a marker the deployed model does not actually have.
@@ -22,6 +26,28 @@ export const MODE_LABEL = { he: 'H&E', markers: 'Markers', pheno: 'Phenotype' };
 // immune, so it shows something on almost any field. Opening on Immune leaves a stromal region
 // looking blank, which reads as "the model found nothing" when it simply found nothing immune.
 export const FALLBACK_PRESET = 'Lineage';
+
+// How the marker/phenotype layer is drawn when nothing has said otherwise. Held in the store from
+// Inc 5 · 03b, for the same reason as the tissue layer's: the picture outlives the panel, which
+// unmounts on every tab switch.
+//
+// `channels` is null rather than a list because the real channel set comes from the catalog, which
+// is fetched. Null means "whatever this preset says", so a layer switched on from the Workspace
+// draws correctly even if the Markers panel has never been opened.
+export const MARKER_LAYER_DEFAULTS = Object.freeze({
+  mode: 'markers',
+  preset: FALLBACK_PRESET,
+  channels: null,
+  display: DEFAULT_DISPLAY,
+  dapiOn: true,
+  dapiW: DAPI_WEIGHT,
+  hidden: Object.freeze({}),          // lineage → hidden?
+  heFade: 0,                          // the composite is opaque, so the H&E goes dark under it
+});
+
+export function withMarkerDefaults(patch) {
+  return { ...MARKER_LAYER_DEFAULTS, ...(patch || {}) };
+}
 
 // `ch=` is the compositing spec: ordered marker:colour pairs. Colours are stored without '#'
 // because they ride in a URL.
@@ -54,8 +80,11 @@ export function tileParams(mode, { channels, display, dapi, dapiWeight, show, al
 
 // A stable signature for "the picture the current controls describe". The layer manager remounts
 // only when this changes, which is what keeps a pan from tearing down the pyramid.
+//
+// No artifact means no picture, and the mode alone is a stable name for that — which is how the
+// caller says "nothing is switched on" since the 'he' mode was removed (Inc 5 · 03b).
 export function layerSignature(mode, artHash, params) {
-  if (!artHash || mode === 'he') return `${mode}`;
+  if (!artHash) return `${mode}`;
   const keys = Object.keys(params || {}).sort();
   return `${mode}|${artHash}|${keys.map((k) => `${k}=${params[k]}`).join('&')}`;
 }

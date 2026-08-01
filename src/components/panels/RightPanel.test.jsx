@@ -22,14 +22,15 @@ const render = () => rtlRender(
 const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [] };
 
 const EXPECTED_TABS = [
-  'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess',
-  'Markers', 'Tissue', 'Task', 'Workspace', 'Panels',
+  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess',
+  'Markers', 'Tissue', 'Task', 'Panels',
 ];
 
 describe('RightPanel tab bar', () => {
   beforeEach(() => {
     useStore.setState({
-      ...AS_ADMIN, rightPanelOpen: true, rightPanelTab: 'metadata', activeItem: null, panels: [],
+      ...AS_ADMIN, rightPanelOpen: true, rightPanelTab: null, activeItem: null, panels: [],
+      visibleArtifacts: {},
     });
   });
 
@@ -41,20 +42,30 @@ describe('RightPanel tab bar', () => {
     expect(labels).toEqual(EXPECTED_TABS);
   });
 
-  it('mounts the Workspace panel when its tab is picked, and leaves the others working', async () => {
+  it('lands an ai-user on the Workspace without their having picked it', () => {
     render();
-    expect(screen.getByText('No slide selected')).toBeInTheDocument();   // Info, the default tab
+    expect(useStore.getState().rightPanelTab).toBe(null);   // nothing pinned
+    expect(screen.getByRole('button', { name: 'Workspace' })).toHaveClass('active');
+  });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
-    expect(useStore.getState().rightPanelTab).toBe('workspace');
-    expect(screen.getByText('No slide selected')).toBeInTheDocument();   // Workspace, no slide open
+  it('lands everyone else on Info', () => {
+    useStore.setState({ user: { _id: 'u2', login: 'viewer', admin: false }, userGroups: [] });
+    render();
+    expect(screen.getByRole('button', { name: 'Info' })).toHaveClass('active');
+  });
 
+  it('switches panels when a tab is picked, and pins the choice', async () => {
+    render();
     useStore.setState({ activeItem: { _id: 'item-1', name: 'slide.svs' } });
-    expect(await screen.findByText('Artifacts')).toBeInTheDocument();
+    expect(await screen.findByText('Artifacts')).toBeInTheDocument();    // Workspace, the landing tab
 
     await userEvent.click(screen.getByRole('button', { name: 'Panels' }));
     expect(useStore.getState().rightPanelTab).toBe('panels');
     expect(screen.queryByText('Artifacts')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+    expect(useStore.getState().rightPanelTab).toBe('workspace');
+    expect(await screen.findByText('Artifacts')).toBeInTheDocument();
   });
 
   it('hides the ai-users tabs from a user without the role', () => {

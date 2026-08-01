@@ -83,8 +83,8 @@ export const useStore = create((set, get) => ({
     set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [],
           copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,
           copilotPhenotypes: null,
-          copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,
-          visibleArtifacts: {}, tissueLayerParams: {} }),
+          copilotRegions: [], tissueContours: {}, taskHeatmap: null,
+          visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {} }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -97,9 +97,9 @@ export const useStore = create((set, get) => ({
       chatMessages: [],          // clear AskPA conversation when slide changes
       chatPendingAttachment: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
-      tissueLayerParams: {},
+      tissueLayerParams: {}, markerLayerParams: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -126,9 +126,9 @@ export const useStore = create((set, get) => ({
       selectedAnnotation: null,
       drawingMode: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
-      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
+      copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
-      tissueLayerParams: {},
+      tissueLayerParams: {}, markerLayerParams: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -268,11 +268,13 @@ export const useStore = create((set, get) => ({
   // painted as outlined polygons by TissueOverlay and toggled from the Preprocess panel. GeoJSON
   // FeatureCollection of Polygons in level-0 px. Setting contours reveals the overlay; dropped on
   // slide change (like the copilot region overlays).
-  tissueContours: null,                              // GeoJSON FeatureCollection | null
-  showTissueOverlay: false,
-  setTissueContours: (gj) => set({ tissueContours: gj, showTissueOverlay: !!gj }),
-  clearTissueContours: () => set({ tissueContours: null, showTissueOverlay: false }),
-  toggleTissueOverlay: () => set((s) => ({ showTissueOverlay: !s.showTissueOverlay })),
+  // Keyed by the segmentation artifact it came from, so switching the outline back on is free —
+  // and so the cache can never paint one segmentation's contours under another's name. Whether it
+  // is drawn is not recorded here: that is `visibleArtifacts`, like every other overlay
+  // (Inc 5 · 03b removed the `showTissueOverlay` boolean that used to be a second answer).
+  tissueContours: {},                                // { [seg_hash]: GeoJSON FeatureCollection }
+  cacheTissueContours: (hash, gj) =>
+    set((s) => ({ tissueContours: { ...s.tissueContours, [hash]: gj } })),
 
   // ── Artifact visibility (Inc 5 · D7) ──────────────────────────────────────
   // Which of the slide's artifacts are on the viewer, keyed by artifact hash. The Workspace's eye
@@ -310,6 +312,11 @@ export const useStore = create((set, get) => ({
   tissueLayerParams: {},
   setTissueLayerParams: (patch) =>
     set((s) => ({ tissueLayerParams: { ...s.tissueLayerParams, ...patch } })),
+
+  // The same, for the marker/phenotype layer. Patches markerUtils' MARKER_LAYER_DEFAULTS.
+  markerLayerParams: {},
+  setMarkerLayerParams: (patch) =>
+    set((s) => ({ markerLayerParams: { ...s.markerLayerParams, ...patch } })),
 
   // ── Task evidence map (Inc 2c) ────────────────────────────────────────────
   // The per-patch signed class evidence a downstream task produced, plus how the viewer shows it.
@@ -459,7 +466,9 @@ export const useStore = create((set, get) => ({
   rightPanelOpen: false,
   rightRailVisible: true,
   leftPanelTab: 'slides',
-  rightPanelTab: 'metadata',
+  // null = the user has not picked one yet, so the landing tab is whatever their role should open
+  // on (Inc 5 · 03b: the Workspace, for ai-users). A click sets it and it stays set.
+  rightPanelTab: null,
   autoCollapseViewerPanels: (() => {
     const raw = localStorage.getItem('pathassist_auto_collapse_panels');
     return raw == null ? true : raw === 'true';

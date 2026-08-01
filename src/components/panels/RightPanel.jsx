@@ -53,6 +53,13 @@ export default function RightPanel() {
   if (!rightPanelOpen) return null;
 
   const allTabs = [
+    // First in the bar and where ai-users land: it answers "what does this slide have" before you
+    // pick a panel to tune (Inc 5 · 03b).
+    { id:'workspace',   label:'Workspace', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/>
+        <polyline points="2 12 12 17 22 12"/>
+      </svg> },
     { id:'metadata',    label:'Info',   show: true, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
@@ -92,13 +99,6 @@ export default function RightPanel() {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
       </svg> },
-    // Inc 5 · 01. It sits at the end of the AI group for now; ticket 03 moves it to the front of
-    // the bar and makes it where ai-users land, once the eye in it owns overlay visibility.
-    { id:'workspace',   label:'Workspace', show: hasRole('ai-users'), icon:
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/>
-        <polyline points="2 12 12 17 22 12"/>
-      </svg> },
     { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -106,7 +106,10 @@ export default function RightPanel() {
       </svg> },
   ];
   const tabs = allTabs.filter((t) => t.show);
-  const activeLabel = tabs.find((t) => t.id === rightPanelTab)?.label || 'Info';
+  // Nobody has picked a tab yet → land on the first one this role can see, which is the Workspace
+  // for ai-users and Info for everyone else. A click pins the choice (Inc 5 · 03b).
+  const activeTab = rightPanelTab || tabs[0]?.id || 'metadata';
+  const activeLabel = tabs.find((t) => t.id === activeTab)?.label || 'Info';
 
   return (
     <div className="app-sidepanel app-sidepanel-right" style={{ width: panelW, position: 'relative' }}>
@@ -147,7 +150,7 @@ export default function RightPanel() {
         {tabs.map(t => (
           <button key={t.id}
             title={t.label}
-            className={`tab viewer-right-tab flex items-center gap-1 ${rightPanelTab === t.id ? 'active' : ''}`}
+            className={`tab viewer-right-tab flex items-center gap-1 ${activeTab === t.id ? 'active' : ''}`}
             onClick={() => setRightPanelTab(t.id)}
             style={{ flex:1, justifyContent:'center', minWidth:0 }}>
             {t.icon}
@@ -162,17 +165,17 @@ export default function RightPanel() {
         ))}
       </div>
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {rightPanelTab === 'metadata'    && <MetadataPanel/>}
-        {rightPanelTab === 'panels'      && <PanelsPanel/>}
-        {rightPanelTab === 'ai'          && <AIPanel/>}
-        {rightPanelTab === 'analysis'    && <AnalysisPanel/>}
-        {rightPanelTab === 'chat'        && <PathChatPanel/>}
-        {rightPanelTab === 'copilot'     && <CopilotPanel/>}
-        {rightPanelTab === 'preprocess'  && <PreprocessPanel/>}
-        {rightPanelTab === 'task'        && <TaskPanel/>}
-        {rightPanelTab === 'markers'     && <MarkersPanel/>}
-        {rightPanelTab === 'tissue'      && <TissuePanel/>}
-        {rightPanelTab === 'workspace'   && <WorkspacePanel/>}
+        {activeTab === 'metadata'    && <MetadataPanel/>}
+        {activeTab === 'panels'      && <PanelsPanel/>}
+        {activeTab === 'ai'          && <AIPanel/>}
+        {activeTab === 'analysis'    && <AnalysisPanel/>}
+        {activeTab === 'chat'        && <PathChatPanel/>}
+        {activeTab === 'copilot'     && <CopilotPanel/>}
+        {activeTab === 'preprocess'  && <PreprocessPanel/>}
+        {activeTab === 'task'        && <TaskPanel/>}
+        {activeTab === 'markers'     && <MarkersPanel/>}
+        {activeTab === 'tissue'      && <TissuePanel/>}
+        {activeTab === 'workspace'   && <WorkspacePanel/>}
       </div>
     </div>
   );

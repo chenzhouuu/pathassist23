@@ -2,10 +2,16 @@
 // Tissue segmentation overlay (Inc 2b-3). Paints the tissue contours a Preprocess segmentation
 // stage produced as outlined polygons on the slide, mirroring RegionOverlay/NucleiOverlay: a
 // <canvas> pinned over OSD, re-projected via imgToViewer on every viewport event so the outlines
-// track pan/zoom. Non-interactive; driven entirely by the store's tissueContours + showTissueOverlay.
+// track pan/zoom. Non-interactive.
+//
+// What to draw comes from the same two places every other overlay reads since Inc 5 · 03b: the
+// Workspace's `visibleArtifacts` says whether a segmentation is switched on, and `tissueContours`
+// holds what ArtifactLayers fetched for it, keyed by the artifact's hash. There is no second
+// boolean saying "shown" — that was the mechanism the eye replaced.
 // Contours are a GeoJSON FeatureCollection of Polygons in level-0 px (Trident contours.geojson).
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
+import { visibleHashOf } from './ArtifactLayers.jsx';
 import { imgToViewer } from '../annotations/annotationUtils.js';
 
 const STROKE = '#34d399';                 // tissue green — distinct from copilot purple / nuclei cyan
@@ -29,8 +35,8 @@ function polygonRings(geojson) {
 
 export default function TissueOverlay({ viewer }) {
   const canvasRef = useRef(null);
-  const tissueContours = useStore((s) => s.tissueContours);
-  const showTissueOverlay = useStore((s) => s.showTissueOverlay);
+  const segHash = useStore((s) => visibleHashOf(s.visibleArtifacts, 'segmentation'));
+  const tissueContours = useStore((s) => (segHash ? s.tissueContours[segHash] : null));
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -43,7 +49,7 @@ export default function TissueOverlay({ viewer }) {
     }
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!showTissueOverlay || !tissueContours) return;
+    if (!tissueContours) return;
 
     const rings = polygonRings(tissueContours);
     if (!rings.length) return;
@@ -69,7 +75,7 @@ export default function TissueOverlay({ viewer }) {
       ctx.stroke();
     }
     ctx.restore();
-  }, [viewer, tissueContours, showTissueOverlay]);
+  }, [viewer, tissueContours]);
 
   // Re-render on every OSD viewport change so the outlines stay pinned to the tissue.
   useEffect(() => {

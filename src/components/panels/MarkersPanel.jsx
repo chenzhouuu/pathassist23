@@ -2,34 +2,33 @@
 //
 // Deliberately independent of the copilot conversation: this is an imaging modality you switch on,
 // not something an agent has to be asked for. It drives the biomarker service's own job/artifact
-// control plane and mounts the resulting tile pyramid on the viewer.
+// control plane and holds the parameters its tile pyramid is drawn with.
 //
-// Three mutually exclusive modes (D8) — H&E, Markers, Phenotype — because a marker composite and a
-// phenotype map are both dense, saturated pictures and stacking them makes neither readable.
+// It does not mount the pyramid — ArtifactLayers does, from the Workspace's eye (Inc 5 · 03b). This
+// panel unmounts on every tab switch, so a layer it owned could not survive the click that turned
+// it on. The parameters live in the store for the same reason: the picture outlives the controls.
+//
+// Two mutually exclusive modes (D8) — Markers, Phenotype — because a marker composite and a
+// phenotype map are both dense, saturated pictures and stacking them makes neither readable. The
+// third used to be 'H&E', which only ever meant "no data layer"; the eye says that now.
 //
 // Everything scientific is honest by construction: the marker vocabulary, presets, palette and
 // near-equivalent labels all come from the service (GET /biomarker/catalog), and every number
 // shown is a **predicted marker-positivity probability**, slide-relative, research use only.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import { getBiomarkerMeta, getCatalog, startBiomarker } from '../../api/biomarkerApi.js';
 import {
-  clearMarkerLayers, setMarkersBase, syncMarkerLayer,
-} from '../viewer/markerLayers.js';
-import {
-  DAPI_WEIGHT, DEFAULT_DISPLAY, FALLBACK_PRESET, MODES, MODE_LABEL,
+  MODES, MODE_LABEL,
   coverageSummary, describeStage, findBiomarkerRow, findReadySegmentation, isRunning,
-  layerSignature, markerLabel, phenotypeLegend, presetChannels, presetNames, separableMarkers,
-  tileParams,
+  markerLabel, phenotypeLegend, presetChannels, presetNames, separableMarkers, withMarkerDefaults,
 } from './markerUtils.js';
 
 const POLL_MS = 2500;
-const LAYER_FOR = { markers: 'markers', pheno: 'pheno' };
 
 export default function MarkersPanel() {
   const activeItem = useStore((s) => s.activeItem);
-  const viewer = useStore((s) => s.viewer);
   const copilotRoi = useStore((s) => s.copilotRoi);
   const itemId = activeItem?._id || null;
 
@@ -39,27 +38,41 @@ export default function MarkersPanel() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const [mode, setMode] = useState('he');
-  const [preset, setPreset] = useState(FALLBACK_PRESET);
-  const [channels, setChannels] = useState([]);
-  const [display, setDisplay] = useState({ ...DEFAULT_DISPLAY });
-  const [dapiOn, setDapiOn] = useState(true);
-  const [dapiW, setDapiW] = useState(DAPI_WEIGHT);
-  const [hidden, setHidden] = useState({});          // lineage → hidden?
-  const [heFade, setHeFade] = useState(0);           // H&E opacity under a data layer
+  // The render parameters live in the store (Inc 5 · 03b): the layer outlives this panel, so its
+  // settings have to as well. `set` patches, `withMarkerDefaults` fills — one home for the defaults.
+  const markerLayerParams = useStore((s) => s.markerLayerParams);
+  const setMarkerLayerParams = useStore((s) => s.setMarkerLayerParams);
+  const { mode, preset, display, dapiOn, dapiW, hidden, heFade } =
+    withMarkerDefaults(markerLayerParams);
+  // Null means "whatever this preset says", so the layer draws correctly before anyone has picked
+  // channels. Resolved the same way here and in ArtifactLayers, from the same catalog.
+  const channels = markerLayerParams.channels || presetChannels(catalog, preset);
+  const setMode = (v) => setMarkerLayerParams({ mode: v });
+  const setDisplay = (fn) => setMarkerLayerParams({ display: fn(display) });
+  const setDapiOn = (v) => setMarkerLayerParams({ dapiOn: v });
+  const setDapiW = (v) => setMarkerLayerParams({ dapiW: v });
+  const setHeFade = (v) => setMarkerLayerParams({ heFade: v });
+  const toggleLineage = (name) => setMarkerLayerParams({ hidden: { ...hidden, [name]: !hidden[name] } });
+  const setChannels = (fn) => setMarkerLayerParams({
+    channels: typeof fn === 'function' ? fn(channels) : fn,
+  });
 
-  const mountedSig = useRef(null);
   const pollRef = useRef(null);
 
   const bioRow = findBiomarkerRow(rows);
   const segRow = findReadySegmentation(rows);
   const artHash = bioRow?.status === 'ready' || bioRow?.progress > 0 ? bioRow?.art_hash : null;
 
+  // Whether the Workspace has this artifact on the slide. Read-only here — the panel reports the
+  // state, it does not own it, and the controls stay live either way so a picture can be set up
+  // before it is switched on.
+  const shownFromWorkspace = useStore((s) => !!s.visibleArtifacts[artHash]);
+
   // ── data ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let live = true;
     getCatalog()
-      .then((c) => { if (live) { setCatalog(c); setChannels(presetChannels(c, FALLBACK_PRESET)); } })
+      .then((c) => { if (live) setCatalog(c); })
       .catch((e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, []);
@@ -90,38 +103,8 @@ export default function MarkersPanel() {
   }, [bioRow?.status, refresh]);
 
   // ── the picture ───────────────────────────────────────────────────────────────
-  const shownLineages = useMemo(
-    () => phenotypeLegend(meta).map((l) => l.name).filter((n) => !hidden[n]),
-    [meta, hidden],
-  );
-  const allShown = phenotypeLegend(meta).every((l) => !hidden[l.name]);
-
-  const params = useMemo(() => tileParams(mode, {
-    channels,
-    display,
-    dapi: dapiOn ? (catalog?.dapi_color || '808080') : null,
-    dapiWeight: dapiW,
-    // omit `show` when nothing is filtered — a shorter URL is a better cache key
-    show: allShown ? null : shownLineages,
-  }), [mode, channels, display, dapiOn, dapiW, catalog, allShown, shownLineages]);
-
-  const signature = layerSignature(mode, artHash, params);
-
-  useEffect(() => {
-    if (!viewer) return;
-    mountedSig.current = syncMarkerLayer(viewer, {
-      signature, mounted: mountedSig.current,
-      itemId, artHash, layer: LAYER_FOR[mode] || null, meta, params,
-    });
-    // "Remove the H&E background" is the base layer's opacity, not a separate black rectangle.
-    // Declared as this panel's *preference* — the Tissue panel may be open too (Inc 4 D4).
-    setMarkersBase(viewer, mode === 'he'
-      ? null
-      : { opacity: heFade, backdrop: '#000' });
-  }, [viewer, signature, itemId, artHash, mode, meta, params, heFade]);
-
-  // Leaving the panel (or the slide) must not leave a map stranded on the viewer.
-  useEffect(() => () => { clearMarkerLayers(viewer); }, [viewer]);
+  // Mounting the pyramid is not this panel's job any more (Inc 5 · 03b). The Workspace's eye says
+  // whether the layer is on screen and ArtifactLayers draws it, from the parameters above.
 
   // ── actions ───────────────────────────────────────────────────────────────────
   const run = async (whole) => {
@@ -164,15 +147,21 @@ export default function MarkersPanel() {
 
   return (
     <div className="mk-panel">
-      {/* ── mode ─────────────────────────────────────────────────────────── */}
+      {/* ── which picture ────────────────────────────────────────────────── */}
+      <div className="mk-row">
+        <span className="mk-label">Appearance</span>
+        <span className="mk-dim">
+          {shownFromWorkspace ? 'On the slide' : 'Switch it on in Workspace'}
+        </span>
+      </div>
       <div className="mk-modes">
         {MODES.map((m) => (
           <button
             key={m}
             type="button"
             className={`mk-mode ${mode === m ? 'active' : ''}`}
-            disabled={m !== 'he' && !artHash}
-            title={m !== 'he' && !artHash ? 'Build the map first' : ''}
+            disabled={!artHash}
+            title={artHash ? '' : 'Build the map first'}
             onClick={() => setMode(m)}
           >
             {MODE_LABEL[m]}
@@ -291,7 +280,7 @@ export default function MarkersPanel() {
             <label key={l.name} className="mk-check">
               <input
                 type="checkbox" checked={!hidden[l.name]}
-                onChange={() => setHidden((h) => ({ ...h, [l.name]: !h[l.name] }))}
+                onChange={() => toggleLineage(l.name)}
               />
               <span
                 className="mk-swatch"
@@ -305,12 +294,10 @@ export default function MarkersPanel() {
         </div>
       )}
 
-      {(mode !== 'he') && (
-        <div className="mk-foot">
-          Predicted marker-positivity probability from H&amp;E — not a stain, not a measurement.
-          Positivity is relative to this slide. Research use only.
-        </div>
-      )}
+      <div className="mk-foot">
+        Predicted marker-positivity probability from H&amp;E — not a stain, not a measurement.
+        Positivity is relative to this slide. Research use only.
+      </div>
 
       {error && <div className="mk-error">{error}</div>}
     </div>

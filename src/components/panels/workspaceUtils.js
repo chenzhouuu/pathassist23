@@ -32,10 +32,9 @@ export function canDraw(row) {
 }
 
 /**
- * Whether the eye is offered for this row — which is narrower than `canDraw` while 03b is
- * outstanding. `tissue` moved to the always-mounted layer owner in 03a; the marker layers and the
- * segmentation outline are still switched from their own panels, and an eye that did nothing would
- * be worse than no eye. The two sets converge when 03b lands, and this function goes with them.
+ * Whether the eye is offered for this row. Every drawable kind has a working eye since 03b, so
+ * this is `canDraw` — it stays a separate name because it asks a different question of the same
+ * answer: `canDraw` is about the artifact, this is about what the viewer can mount.
  */
 export function canSwitch(row) {
   return SWITCHABLE_KINDS.includes(row?.kind);

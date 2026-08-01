@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../../store/index.js';
 import {
-  listArtifacts, startSegment, startPatch, startFeatures, getSegmentationContours,
+  listArtifacts, startSegment, startPatch, startFeatures,
 } from '../../api/preprocessApi.js';
 import {
   ENCODERS, SEGMENTERS, MAGS, OVERLAPS, DEFAULT_FORM,
@@ -29,9 +29,6 @@ function StagePill({ state }) {
 
 export default function PreprocessPanel() {
   const activeItem = useStore((s) => s.activeItem);
-  const setTissueContours = useStore((s) => s.setTissueContours);
-  const clearTissueContours = useStore((s) => s.clearTissueContours);
-  const showTissueOverlay = useStore((s) => s.showTissueOverlay);
   const itemId = activeItem?._id || null;
 
   const [form, setForm] = useState({ ...DEFAULT_FORM });
@@ -42,7 +39,6 @@ export default function PreprocessPanel() {
   const [error, setError] = useState(null);
   const [advSeg, setAdvSeg] = useState(false);
   const [advTile, setAdvTile] = useState(false);
-  const [overlayBusy, setOverlayBusy] = useState(false);
   const pollRef = useRef(null);
   const chainSig = useRef(null);
 
@@ -131,15 +127,6 @@ export default function PreprocessPanel() {
   }, [itemId, patch, form, refresh]);
 
   const runAll = useCallback(() => { setError(null); chainSig.current = null; setChain(true); }, []);
-
-  const viewOverlay = useCallback(async () => {
-    if (!itemId || seg?.status !== 'ready') return;
-    setOverlayBusy(true); setError(null);
-    try {
-      const gj = await getSegmentationContours(itemId, seg.art_hash);
-      setTissueContours(gj);
-    } catch (e) { setError(e.message); } finally { setOverlayBusy(false); }
-  }, [itemId, seg, setTissueContours]);
 
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const setBool = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.checked }));
@@ -256,15 +243,8 @@ export default function PreprocessPanel() {
                   {busy === 'seg' ? <><span className="pp-spin" />Starting…</>
                     : segReady ? 'Re-segment' : 'Run segmentation'}
                 </button>
-                {segReady && (
-                  showTissueOverlay
-                    ? <button className="pp-run pp-run--ghost" onClick={clearTissueContours}
-                        title="Hide tissue outline on the slide">👁 Hide</button>
-                    : <button className="pp-run pp-run--ghost" onClick={viewOverlay}
-                        disabled={overlayBusy} title="Draw tissue outline on the slide">
-                        {overlayBusy ? <><span className="pp-spin" />…</> : '👁 View'}
-                      </button>
-                )}
+                {/* The outline is switched on from the Workspace now (Inc 5 · 03b) — one eye
+                    per artifact, in one place, rather than a View/Hide pair per panel. */}
               </div>
             </div>
 

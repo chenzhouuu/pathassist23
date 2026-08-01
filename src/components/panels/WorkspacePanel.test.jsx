@@ -2,7 +2,7 @@
 // §5.2 asks for, read off the artifact table and nothing else, and that a build in flight arrives
 // at ready on its own.
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +14,9 @@ import { useStore } from '../../store/index.js';
 
 const SLIDE = { _id: 'item-1', name: 'slide.svs' };
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+
+/** The row a title sits in — every row's controls are scoped to it, and titles repeat across rows. */
+const rowFor = (title) => screen.getByText(title).closest('[data-cy="data-row"]');
 
 const ROWS = [
   {
@@ -76,13 +79,14 @@ describe('WorkspacePanel', () => {
     expect(titles).toEqual(['Tissue map', 'Features', 'Segmentation']);
   });
 
-  it('offers an eye only for kinds the viewer can actually switch', async () => {
+  it('offers an eye to every drawable kind and to no other', async () => {
     listArtifacts.mockResolvedValue(ROWS);
     render(<WorkspacePanel />);
     await screen.findByText('Tissue map');
-    // One eye, for the tissue row. Features cannot be drawn at all; segmentation and biomarker can,
-    // but their layer owners move across in 03b, and an eye that did nothing would be a lie.
-    expect(screen.getAllByRole('button', { name: /^(Show|Hide)$/ })).toHaveLength(1);
+    // Segmentation and tissue can be drawn; a features artifact has nothing to put on a slide.
+    expect(screen.getAllByRole('button', { name: /^(Show|Hide)$/ })).toHaveLength(2);
+    expect(within(rowFor('Features')).queryByRole('button', { name: /^(Show|Hide)$/ }))
+      .not.toBeInTheDocument();
   });
 
   it('records the artifact as visible when its eye is clicked, and clears it when clicked again',
@@ -91,19 +95,31 @@ describe('WorkspacePanel', () => {
       render(<WorkspacePanel />);
       await screen.findByText('Tissue map');
 
-      await userEvent.click(screen.getByRole('button', { name: 'Show' }));
+      await userEvent.click(within(rowFor('Tissue map')).getByRole('button', { name: 'Show' }));
       expect(useStore.getState().visibleArtifacts).toEqual({ tis1: { kind: 'tissue' } });
 
-      await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
+      await userEvent.click(within(rowFor('Tissue map')).getByRole('button', { name: 'Hide' }));
       expect(useStore.getState().visibleArtifacts).toEqual({});
     });
+
+  it('lets a tissue map and an outline be on the slide at the same time', async () => {
+    listArtifacts.mockResolvedValue(ROWS);
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+
+    await userEvent.click(within(rowFor('Tissue map')).getByRole('button', { name: 'Show' }));
+    await userEvent.click(within(rowFor('Segmentation')).getByRole('button', { name: 'Show' }));
+    // Different kinds, different layer slots — switching one on must not switch the other off.
+    expect(useStore.getState().visibleArtifacts)
+      .toEqual({ tis1: { kind: 'tissue' }, seg1: { kind: 'segmentation' } });
+  });
 
   it('nothing is on the slide until an eye is clicked', async () => {
     listArtifacts.mockResolvedValue(ROWS);
     render(<WorkspacePanel />);
     await screen.findByText('Tissue map');
     expect(useStore.getState().visibleArtifacts).toEqual({});
-    expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument();
+    expect(within(rowFor('Tissue map')).getByRole('button', { name: 'Show' })).toBeInTheDocument();
   });
 
   it('carries a running build to ready without a manual refresh', async () => {

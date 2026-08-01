@@ -9,6 +9,16 @@ vi.mock('../../api/tissueApi.js', () => ({
   tileUrl: (item, hash, layer, z, x, y) => `/t/${hash}/${layer}/${z}/${x}/${y}.png`,
   tileAjaxHeaders: () => ({}),
 }));
+vi.mock('../../api/biomarkerApi.js', () => ({
+  getBiomarkerMeta: vi.fn(),
+  getCatalog: vi.fn(),
+}));
+vi.mock('../../api/preprocessApi.js', () => ({ getSegmentationContours: vi.fn() }));
+vi.mock('./markerLayers.js', () => ({
+  syncMarkerLayer: vi.fn(() => 'marker-signature'),
+  setMarkersBase: vi.fn(),
+  clearMarkerLayers: vi.fn(),
+}));
 vi.mock('./overlayLayers.js', () => ({
   buildTileSource: vi.fn(() => ({ fake: 'tileSource' })),
   syncLayer: vi.fn(() => 'mounted-signature'),
@@ -19,6 +29,9 @@ vi.mock('./overlayLayers.js', () => ({
 
 import ArtifactLayers, { visibleHashOf } from './ArtifactLayers.jsx';
 import { getTissueMeta } from '../../api/tissueApi.js';
+import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
+import { getSegmentationContours } from '../../api/preprocessApi.js';
+import { syncMarkerLayer } from './markerLayers.js';
 import { removeLayer, syncLayer } from './overlayLayers.js';
 import { useStore } from '../../store/index.js';
 
@@ -29,17 +42,25 @@ const META = {
   level_offset: 2,
 };
 
+const BIO_META = { slide: { width: 40000, height: 30000 }, levels: 6, level_offset: 2 };
+const CONTOURS = { type: 'FeatureCollection', features: [] };
+
 const VIEWER = { id: 'osd' };
 
 describe('ArtifactLayers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getTissueMeta.mockResolvedValue(META);
+    getBiomarkerMeta.mockResolvedValue(BIO_META);
+    getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
+    getSegmentationContours.mockResolvedValue(CONTOURS);
     useStore.setState({
       viewer: VIEWER,
       activeItem: { _id: 'item-1' },
       visibleArtifacts: {},
       tissueLayerParams: {},
+      markerLayerParams: {},
+      tissueContours: {},
     });
   });
 
@@ -137,5 +158,90 @@ describe('one layer slot per kind', () => {
     expect(visibleHashOf({ a: { kind: 'tissue' } }, 'biomarker')).toBe(null);
     expect(visibleHashOf({}, 'tissue')).toBe(null);
     expect(visibleHashOf(undefined, 'tissue')).toBe(null);
+  });
+});
+
+describe('the biomarker layer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getBiomarkerMeta.mockResolvedValue(BIO_META);
+    getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
+    getTissueMeta.mockResolvedValue(META);
+    getSegmentationContours.mockResolvedValue(CONTOURS);
+    useStore.setState({
+      viewer: VIEWER, activeItem: { _id: 'item-1' },
+      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, tissueContours: {},
+    });
+  });
+
+  it('mounts nothing until a biomarker artifact is switched on', async () => {
+    render(<ArtifactLayers />);
+    await waitFor(() => expect(syncMarkerLayer).toHaveBeenCalled());
+    expect(syncMarkerLayer.mock.calls.at(-1)[1].layer).toBe(null);
+    expect(getBiomarkerMeta).not.toHaveBeenCalled();
+  });
+
+  it('mounts the markers layer, in the mode the panel chose', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('bio1', 'biomarker', true);
+
+    await waitFor(() => expect(syncMarkerLayer.mock.calls.at(-1)[1].layer).toBe('markers'));
+    expect(getBiomarkerMeta).toHaveBeenCalledWith('item-1', 'bio1');
+
+    useStore.getState().setMarkerLayerParams({ mode: 'pheno' });
+    await waitFor(() => expect(syncMarkerLayer.mock.calls.at(-1)[1].layer).toBe('pheno'));
+  });
+
+  it('takes it down when the eye is switched off', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('bio1', 'biomarker', true);
+    await waitFor(() => expect(syncMarkerLayer.mock.calls.at(-1)[1].layer).toBe('markers'));
+
+    useStore.getState().setArtifactVisible('bio1', 'biomarker', false);
+    await waitFor(() => expect(syncMarkerLayer.mock.calls.at(-1)[1].layer).toBe(null));
+  });
+
+  it('draws a tissue map and a biomarker layer at the same time', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('tis1', 'tissue', true);
+    useStore.getState().setArtifactVisible('bio1', 'biomarker', true);
+
+    await waitFor(() => expect(syncLayer).toHaveBeenCalled());
+    await waitFor(() => expect(syncMarkerLayer.mock.calls.at(-1)[1].layer).toBe('markers'));
+    expect(syncLayer.mock.calls.at(-1)[1].key).toBe('tissue');
+  });
+});
+
+describe('the segmentation outline', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getSegmentationContours.mockResolvedValue(CONTOURS);
+    getTissueMeta.mockResolvedValue(META);
+    getBiomarkerMeta.mockResolvedValue(BIO_META);
+    getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
+    useStore.setState({
+      viewer: VIEWER, activeItem: { _id: 'item-1' },
+      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, tissueContours: {},
+    });
+  });
+
+  it('fetches the contours when a segmentation is switched on', async () => {
+    render(<ArtifactLayers />);
+    expect(getSegmentationContours).not.toHaveBeenCalled();
+
+    useStore.getState().setArtifactVisible('seg1', 'segmentation', true);
+    await waitFor(() => expect(getSegmentationContours).toHaveBeenCalledWith('item-1', 'seg1'));
+    await waitFor(() => expect(useStore.getState().tissueContours.seg1).toEqual(CONTOURS));
+  });
+
+  it('does not fetch them again to switch the outline back on', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('seg1', 'segmentation', true);
+    await waitFor(() => expect(useStore.getState().tissueContours.seg1).toEqual(CONTOURS));
+
+    useStore.getState().setArtifactVisible('seg1', 'segmentation', false);
+    useStore.getState().setArtifactVisible('seg1', 'segmentation', true);
+    await waitFor(() => expect(useStore.getState().tissueContours.seg1).toEqual(CONTOURS));
+    expect(getSegmentationContours).toHaveBeenCalledTimes(1);
   });
 });
