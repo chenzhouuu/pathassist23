@@ -39,7 +39,7 @@ from .artifacts import (
 from .geometry import offset_points, offset_rings
 from .pannuke import TYPE_NAMES, color_for, name_for
 from .pyramid import levels_for
-from .raster import MAX_LEVEL_OFFSET, rasterise_artifact
+from .raster import draw_one_core, rasterise_artifact, scale_for
 from .tiling import clip_bbox_to_slide, core_tiles, haloed_read_window
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,12 @@ def run_region(
     stopped = False
     computed: list[tuple[int, int]] = []
 
+    # Fixed for the whole job, so the picture a core is drawn into is the one the artifact will
+    # keep — derived from the slide, never assumed.
+    offset = level_offset(slide.mpp or STORE_MPP, STORE_MPP)
+    s = scale_for(offset)
+    n_levels = levels_for(-(-slide.width // s), -(-slide.height // s))
+
     # Ids continue from what is already stored, so a resume never reissues an id that a previous
     # run gave to a different nucleus.
     next_inst = int((cov.totals or {}).get("next_inst", 1))
@@ -146,15 +152,17 @@ def run_region(
         cov.save(root)
         computed.append((tx, ty))
 
+        # Draw it now, so a whole-slide run fills in on screen as it goes instead of showing
+        # nothing for an hour. The seams against cores that do not exist yet are fixed below.
+        draw_one_core(root, tx, ty, s=s, n_levels=n_levels)
+
         if report is not None:
             report("nuclei", (i + 1) / total if total else 1.0)
 
-    # Even a stopped job draws: the raster is what makes the covered area viewable at all, and it
-    # costs a fraction of one core's inference. It is also where a core computed next to an older
-    # one gets its seam filled in, so it runs after the loop rather than inside it (raster.py).
+    # Even a stopped job finalises: this is where a core drawn before its neighbour existed gets
+    # that neighbour's overhang, and it costs a fraction of one core's inference.
     if report is not None:
         report("raster", 0.98)
-    offset = min(level_offset(slide.mpp or STORE_MPP, STORE_MPP), MAX_LEVEL_OFFSET)
     rasterise_artifact(root, cov=cov, offset=offset, width=slide.width, height=slide.height,
                        computed=computed)
 
@@ -190,15 +198,26 @@ def _write_meta(root: Path, *, art: str, slide: SlideInfo, backend: str, offset:
     })
 
 
-def _write_summary(root: Path, cov: Coverage, slide: SlideInfo) -> dict:
-    """The numbers the panel reports, derived from coverage's tallies and nothing else."""
+def summary_from_coverage(cov: Coverage, mpp: float | None) -> dict:
+    """The numbers the panel reports, derived from coverage's tallies and nothing else.
+
+    Kept as a function so the meta route can call it too. `summary.json` is written once, at the
+    end of a job; coverage is written after every core. A reader mid-job that took its counts from
+    the file and its tile list from coverage would see one artifact giving two accounts of itself —
+    exactly what the atomic tally exists to prevent. So the live answer is computed from coverage,
+    and the file is only a fallback for artifacts written before the tallies moved there.
+    """
     totals = cov.totals or {}
-    doc = {
+    return {
         "n_nuclei": int(totals.get("n_nuclei", 0)),
         "counts_by_class": dict(totals.get("counts_by_class") or {}),
         "n_tiles": len(cov.done),
-        "area_mm2": _tile_area_mm2(len(cov.done), cov.core, slide.mpp),
+        "area_mm2": _tile_area_mm2(len(cov.done), cov.core, mpp),
     }
+
+
+def _write_summary(root: Path, cov: Coverage, slide: SlideInfo) -> dict:
+    doc = summary_from_coverage(cov, slide.mpp)
     write_json(summary_path(root), doc)
     return dict(doc)
 

@@ -121,6 +121,37 @@ def _stub_segment_array(
     return points, classes, contours
 
 
+def reset_cellvit_model() -> None:
+    """Drop the inference singleton and tear ray down with it, so the next call rebuilds both.
+
+    Why this exists. `CellViTInference` is reused across calls, and it drives its tiling through a
+    pool of ray actors that live inside it. Somewhere past twenty-odd consecutive `process_wsi`
+    calls those actors stop delivering: the worker thread blocks in `ray.get()` inside
+    `process_wsi` with the actors alive at ~0 % CPU and the GPU idle, and never comes back. It was
+    observed twice on a whole-slide run (once after 21 cores, once after 26), and confirmed by
+    stack dump. Nothing in this service can interrupt it — a `ray.get()` deep inside vendored code
+    is not cancellable, and cooperative stop only gets a look-in between cores.
+
+    So the state is not allowed to accumulate that far. This is a recycle, not a fix: the upstream
+    behaviour is unexplained, and the mitigation is to give it a fresh session often enough that it
+    never gets there. It costs a model reload, which is why it happens on a count rather than on
+    every call.
+
+    Note this protects the interactive `/segment` route too — it was on exactly the same path to
+    the same wedge, just more slowly.
+    """
+    global _MODEL
+    with _MODEL_LOCK:
+        _MODEL = None
+    try:
+        import ray
+
+        if ray.is_initialized():
+            ray.shutdown()
+    except Exception:  # noqa: BLE001 — no ray (stub env) or an already-dead session is not an error
+        logger.debug("ray shutdown during recycle was a no-op", exc_info=True)
+
+
 def _get_cellvit_model():
     """Lazily build the CellViT-SAM-H inference model (singleton). GPU only."""
     global _MODEL
@@ -227,6 +258,29 @@ def segment_array(
     All three lists are index-aligned: ``contours[i]`` is the polygon of the nucleus whose
     centroid is ``points[i]`` and whose class is ``classes[i]``.
     """
-    if get_settings().model == "cellvit":
-        return _cellvit_segment_array(pixels, mpp)
-    return _stub_segment_array(pixels, mpp)
+    if get_settings().model != "cellvit":
+        return _stub_segment_array(pixels, mpp)
+    _recycle_if_due()
+    return _cellvit_segment_array(pixels, mpp)
+
+
+# Consecutive real inferences since the last rebuild. Guarded by its own lock rather than
+# _MODEL_LOCK, which _get_cellvit_model holds across a 2.7 GB load.
+_CALLS = 0
+_CALLS_LOCK = threading.Lock()
+
+
+def _recycle_if_due() -> None:
+    """Rebuild the model every `recycle_every` inferences (0 disables). See reset_cellvit_model."""
+    global _CALLS
+    every = get_settings().recycle_every
+    if every <= 0:
+        return
+    with _CALLS_LOCK:
+        _CALLS += 1
+        due = _CALLS > every
+        if due:
+            _CALLS = 1
+    if due:
+        logger.info("recycling the CellViT session after %d inferences", every)
+        reset_cellvit_model()

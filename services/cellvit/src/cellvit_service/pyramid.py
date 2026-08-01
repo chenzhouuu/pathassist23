@@ -134,6 +134,22 @@ def build_levels(root: Path, n_levels: int) -> None:
             _build_parent(root, z, px, py)
 
 
+def build_levels_above(root: Path, n_levels: int, tiles: list[tuple[int, int]]) -> None:
+    """Rebuild only the ancestors of `tiles` (level-0 coordinates), all the way to the top.
+
+    Exact, not an approximation: a parent is always built by reading all four of its children off
+    disk, so refreshing one chain cannot miss a sibling that another core wrote. It exists beside
+    the full rebuild because it is what a *running* job can afford — the whole pyramid every core
+    would be quadratic, and then a whole-slide run would show nothing until it finished.
+    """
+    live = {(int(x), int(y)) for x, y in tiles}
+    for z in range(1, n_levels):
+        parents = {(x // 2, y // 2) for x, y in live}
+        for px, py in sorted(parents):
+            _build_parent(root, z, px, py)
+        live = parents
+
+
 def _build_parent(root: Path, z: int, px: int, py: int) -> None:
     cls = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
     cov = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
@@ -177,6 +193,7 @@ def _pad_to_even(a: np.ndarray) -> np.ndarray:
 
 
 __all__ = [
-    "build_levels", "downsample_class", "downsample_cover", "levels_for", "pad_tile",
+    "build_levels", "build_levels_above", "downsample_class", "downsample_cover", "levels_for",
+    "pad_tile",
     "read_class_tile", "read_cover_tile", "write_class_tile", "write_cover_tile",
 ]

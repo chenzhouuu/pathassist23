@@ -34,6 +34,10 @@ class Settings:
     # map's pixel density — so filling the volume mid-job is a real risk, and a half-written
     # pyramid renders as holes rather than as an error.
     min_free_gb: float = 20.0
+    # Rebuild the CellViT session every N inferences (0 = never). Past twenty-odd consecutive
+    # calls its ray actors stop delivering and the worker blocks in ray.get() forever — see
+    # infer.reset_cellvit_model. 12 leaves a wide margin under the earliest wedge observed (21).
+    recycle_every: int = 12
 
 
 @lru_cache
@@ -46,4 +50,5 @@ def get_settings() -> Settings:
         artifact_cache=Path(os.getenv("CELLVIT_ARTIFACT_CACHE", "/cache")),
         preprocess_cache=Path(os.getenv("CELLVIT_PREPROCESS_CACHE", "/pcache")),
         min_free_gb=float(os.getenv("CELLVIT_MIN_FREE_GB", "20.0")),
+        recycle_every=int(os.getenv("CELLVIT_RECYCLE_EVERY", "12")),
     )

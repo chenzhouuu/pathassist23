@@ -254,6 +254,87 @@ def test_cancelling_an_unknown_job_is_a_404():
     assert client.post("/nuclei/cancel/nope").status_code == 404
 
 
+# ── what a reader sees while it runs ───────────────────────────────────────────────
+
+
+def test_the_counts_and_the_tile_list_agree_at_every_moment_of_a_run(cache_root):
+    """The Inc 4 invariant, at the surface rather than in the file.
+
+    `summary.json` is written once, at the end; coverage is written after every core. A reader
+    mid-job that took its counts from the file and its tile list from coverage would see one
+    artifact giving two accounts of itself — the exact failure the atomic tally exists to prevent.
+    """
+    from cellvit_service.nuclei import summary_from_coverage
+
+    seen = []
+    tiles = [(0, 0), (1, 0), (2, 0)]
+    state = {"calls": 0}
+
+    def on_core():
+        state["calls"] += 1
+        cov = Coverage.load(artifact_dir(cache_root, "item1", ART))
+        s = summary_from_coverage(cov, 0.25)
+        seen.append((len(cov.done), s["n_tiles"], s["n_nuclei"]))
+
+    app = _app(tiles=tiles, on_core=on_core)
+    client = app.test_client()
+    run = _whole(client)
+    globals()["ART"] = run["art_hash"]
+    _await(client, run["job_id"])
+
+    assert len(seen) == 3
+    for done, n_tiles, n_nuclei in seen:
+        assert n_tiles == done                      # never a count of a different set of tiles
+        assert n_nuclei == 2 * done                 # two per core, and only for the cores done
+
+
+def test_meta_reports_the_live_count_not_the_one_the_last_job_wrote(cache_root):
+    import json
+
+    from cellvit_service.artifacts import summary_path
+
+    client = _app(tiles=[(0, 0)]).test_client()
+    run = _whole(client)
+    _await(client, run["job_id"])
+
+    root = artifact_dir(cache_root, "item1", run["art_hash"])
+    with open(summary_path(root), "w") as fh:
+        json.dump({"n_nuclei": 999999, "n_tiles": 99}, fh)   # a file that has fallen behind
+
+    meta = client.get(f"/nuclei/item1/{run['art_hash']}/meta").get_json()
+    assert meta["summary"]["n_nuclei"] == 2
+    assert meta["summary"]["n_tiles"] == meta["coverage"]["n_tiles"] == 1
+
+
+def test_a_core_is_drawn_as_it_lands_not_only_when_the_job_ends(cache_root):
+    """A whole-slide run is hours long. A picture that only appeared at the end would not be a
+    picture of anything you could watch."""
+    from cellvit_service.pyramid import read_class_tile
+
+    seen = []
+    state = {"calls": 0}
+
+    def on_core():
+        state["calls"] += 1
+        if state["calls"] == 2:                      # core (0,0) is stored and drawn by now
+            root = artifact_dir(cache_root, "item1", ART)
+            seen.append(read_class_tile(root, 0, 4, 4) is not None)     # inside core (0,0)
+            # …and all the way up: the top level of an 8192x4096 slide is one tile at z=5, which
+            # is the level you are actually looking at while watching a slide fill in.
+            seen.append(read_class_tile(root, 5, 0, 0) is not None)
+
+    app = _app(tiles=[(0, 0), (1, 0)], on_core=on_core)
+    client = app.test_client()
+    run = _whole(client)
+    globals()["ART"] = run["art_hash"]
+    _await(client, run["job_id"])
+
+    assert seen == [True, True], "the first core had no picture while the second was running"
+
+
+ART = ""
+
+
 # ── which cores hold tissue ────────────────────────────────────────────────────────
 
 

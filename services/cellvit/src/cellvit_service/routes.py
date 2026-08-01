@@ -29,7 +29,7 @@ from .artifacts import (
     summary_path,
 )
 from .config import get_settings
-from .nuclei import SlideInfo, run_region
+from .nuclei import SlideInfo, run_region, summary_from_coverage
 from .pyramid import read_class_tile, read_cover_tile
 from .tiles import (
     TRANSPARENT_TILE,
@@ -164,7 +164,14 @@ def register(app) -> None:
         cov = Coverage.load(root)
         meta["coverage"] = {"core": cov.core, "n_tiles": len(cov.done),
                             "bounds": cov.bounds(), "done": sorted(cov.done)}
-        meta["summary"] = read_json(summary_path(root)) or {}
+        # Both halves of this answer come from the same file, and therefore the same atomic write:
+        # the counts always describe exactly the tiles listed beside them, including halfway
+        # through a running job. summary.json is written only at the end, so reading it here would
+        # pair a live tile list with stale counts.
+        meta["summary"] = (
+            summary_from_coverage(cov, (meta.get("slide") or {}).get("mpp"))
+            if cov.totals is not None else (read_json(summary_path(root)) or {})
+        )
         return jsonify(meta)
 
     @app.get("/nuclei/<item>/<ahash>/tile/<layer>/<int:z>/<int:x>/<int:y>.png")

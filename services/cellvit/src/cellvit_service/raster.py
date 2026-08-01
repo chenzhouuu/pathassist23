@@ -27,9 +27,16 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .artifacts import CORE, TILE, Coverage, cells_path, class_tile_path, read_cells
+from .artifacts import CORE, TILE, Coverage, cells_path, class_tile_path, read_cell_arrays
 from .pannuke import class_ids
-from .pyramid import build_levels, levels_for, pad_tile, write_class_tile, write_cover_tile
+from .pyramid import (
+    build_levels,
+    build_levels_above,
+    levels_for,
+    pad_tile,
+    write_class_tile,
+    write_cover_tile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,18 +48,41 @@ DRAWABLE = frozenset(class_ids())
 MAX_LEVEL_OFFSET = 3
 
 
+def scale_for(offset: int) -> int:
+    """Level-0 px per stored px, refusing an offset that would put two cores in one tile."""
+    if offset > MAX_LEVEL_OFFSET:
+        raise RuntimeError(f"level offset {offset} would put more than one core in a tile")
+    return 1 << offset
+
+
+def draw_one_core(root: Path, tx: int, ty: int, *, s: int, n_levels: int) -> None:
+    """Draw a core and refresh the pyramid above it — the *live* picture, during a run.
+
+    A whole-slide run is hours long, so a picture that only appeared at the end would not be a
+    picture of anything you could watch. This draws each core as it lands and pushes it up the
+    pyramid along its own ancestor chain, which is bounded work per core.
+
+    It is a preview, and knowingly incomplete: the cores to this one's right and below have not
+    been computed yet, so the nuclei that will overhang from them are missing and this core's
+    right and bottom seams are provisional. The finalisation pass in `rasterise_artifact` redraws
+    them once the neighbours exist, which is what makes the finished artifact seamless.
+    """
+    tiles = rasterise_core(root, tx, ty, s=s)
+    build_levels_above(root, n_levels, tiles)
+
+
 def rasterise_artifact(
     root: Path, *, cov: Coverage, offset: int, width: int, height: int,
     computed: list[tuple[int, int]] | None = None,
 ) -> int:
     """Redraw whatever the new cores invalidated, then rebuild the pyramid. Returns cores drawn.
 
-    Called once at the end of a job rather than per core, because a core drawn before its
-    neighbour existed would have to be drawn again anyway.
+    Run once at the end of a job. Every core here has already been drawn as it landed; what this
+    fixes is the seams, where a core drawn before its neighbour existed is missing that
+    neighbour's overhang. It also picks up any covered core with no picture at all — an artifact
+    built before the raster existed, or a job that died mid-redraw.
     """
-    if offset > MAX_LEVEL_OFFSET:
-        raise RuntimeError(f"level offset {offset} would put more than one core in a tile")
-    s = 1 << offset
+    s = scale_for(offset)
 
     todo = _needs_redraw(root, cov=cov, s=s, computed=computed or [])
     for tx, ty in todo:
@@ -87,30 +117,33 @@ def _has_picture(root: Path, core: tuple[int, int], s: int) -> bool:
     return class_tile_path(root, 0, tx * side // TILE, ty * side // TILE).is_file()
 
 
-def rasterise_core(root: Path, tx: int, ty: int, *, s: int) -> None:
-    """Draw one core's picture from its own rings and every neighbour's that reaches into it."""
+def rasterise_core(root: Path, tx: int, ty: int, *, s: int) -> list[tuple[int, int]]:
+    """Draw one core's picture from its own rings and every neighbour's that reaches into it.
+
+    Returns the level-0 tile coordinates it wrote, so the caller can refresh their ancestors.
+    """
     side = CORE // s
     canvas = Image.new("L", (side, side), 0)
     draw = ImageDraw.Draw(canvas)
     origin = np.array([tx * CORE, ty * CORE], dtype=np.float64)
 
     for nx, ny in [(tx, ty), *_neighbours((tx, ty))]:
-        cells = read_cells(cells_path(root, nx, ny))
+        cells = read_cell_arrays(cells_path(root, nx, ny))
         if cells is None:
             continue
-        for ring, cls in zip(cells["rings"], cells["cls"].tolist(), strict=True):
-            if int(cls) not in DRAWABLE:
+        off, ring_xy, cls = cells["ring_off"], (cells["ring_xy"] - origin) / s, cells["cls"]
+        for i, c in enumerate(cls.tolist()):
+            if c not in DRAWABLE:
                 # An id the taxonomy does not name has no colour, and filling it with 0 would
                 # erase whatever neighbour was already drawn there. It stays out of the picture
                 # and stays in the counts, where it is reported as "Unknown".
                 continue
-            pts = (np.asarray(ring, dtype=np.float64) - origin) / s
+            pts = ring_xy[off[i]:off[i + 1]]
             if len(pts) < 3 or not _touches(pts, side):
                 continue
-            draw.polygon([(float(px), float(py)) for px, py in pts], fill=int(cls))
+            draw.polygon([(float(px), float(py)) for px, py in pts], fill=c)
 
-    idx = np.asarray(canvas, dtype=np.uint8)
-    _write_core_tiles(root, tx, ty, side, idx)
+    return _write_core_tiles(root, tx, ty, side, np.asarray(canvas, dtype=np.uint8))
 
 
 def _touches(pts: np.ndarray, side: int) -> bool:
@@ -121,7 +154,8 @@ def _touches(pts: np.ndarray, side: int) -> bool:
     return bool(hi[0] >= 0 and hi[1] >= 0 and lo[0] <= side and lo[1] <= side)
 
 
-def _write_core_tiles(root: Path, tx: int, ty: int, side: int, idx: np.ndarray) -> None:
+def _write_core_tiles(root: Path, tx: int, ty: int, side: int,
+                      idx: np.ndarray) -> list[tuple[int, int]]:
     """Split a core's raster onto the global TILE px grid.
 
     Cores are aligned to that grid (``side`` is a whole number of tiles), so no two cores share a
@@ -130,19 +164,22 @@ def _write_core_tiles(root: Path, tx: int, ty: int, side: int, idx: np.ndarray) 
     ox, oy = tx * side, ty * side
     if ox % TILE or oy % TILE:
         raise RuntimeError(f"core origin ({ox},{oy}) is not tile-aligned")
+    written: list[tuple[int, int]] = []
     for dy in range(0, side, TILE):
         for dx in range(0, side, TILE):
             sub = pad_tile(idx[dy:dy + TILE, dx:dx + TILE])
-            write_class_tile(root, 0, (ox + dx) // TILE, (oy + dy) // TILE, sub)
+            x, y = (ox + dx) // TILE, (oy + dy) // TILE
+            write_class_tile(root, 0, x, y, sub)
             # At level 0 a pixel is nucleus or it is not; coverage only becomes a fraction on the
             # way up the pyramid. Written anyway so every level has the same pair of planes and
             # the renderer needs no special case for the finest one.
-            write_cover_tile(root, 0, (ox + dx) // TILE, (oy + dy) // TILE,
-                             ((sub != 0) * 255).astype(np.uint8))
+            write_cover_tile(root, 0, x, y, ((sub != 0) * 255).astype(np.uint8))
+            written.append((x, y))
+    return written
 
 
 def _ceil_div(a: int, b: int) -> int:
     return (a + b - 1) // b
 
 
-__all__ = ["MAX_LEVEL_OFFSET", "rasterise_artifact", "rasterise_core"]
+__all__ = ["MAX_LEVEL_OFFSET", "draw_one_core", "rasterise_artifact", "rasterise_core"]

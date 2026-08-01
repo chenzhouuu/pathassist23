@@ -178,21 +178,40 @@ def write_cells(
     tmp.replace(path)
 
 
-def read_cells(path: Path) -> dict | None:
-    """A core tile's nuclei back, with rings restored to level-0 slide pixels."""
+def read_cell_arrays(path: Path) -> dict | None:
+    """A core tile's nuclei as the arrays they are stored as, rings still packed.
+
+    The CSR form, with ``ring_xy`` offset back to level-0 slide pixels and ``ring_off`` marking
+    each nucleus's slice. This is what the rasteriser wants: unpacking a million polygons into
+    Python lists and immediately converting each one back to an array is most of the cost of
+    drawing a core, and it buys nothing.
+    """
     if not path.is_file():
         return None
     with np.load(path) as z:
         ox, oy = (int(v) for v in z["origin"])
-        ring_off = z["ring_off"]
-        ring_xy = z["ring_xy"].astype(np.float64) + np.array([ox, oy], dtype=np.float64)
-        rings = [
-            ring_xy[ring_off[i]:ring_off[i + 1]].tolist() for i in range(len(ring_off) - 1)
-        ]
         return {
             "xy": z["xy"], "cls": z["cls"], "inst": z["inst"],
-            "rings": rings, "origin": (ox, oy),
+            "ring_off": z["ring_off"],
+            "ring_xy": z["ring_xy"].astype(np.float64) + np.array([ox, oy], dtype=np.float64),
+            "origin": (ox, oy),
         }
+
+
+def read_cells(path: Path) -> dict | None:
+    """The same, with rings unpacked into ``[[x, y], ...]`` lists in level-0 slide pixels.
+
+    The friendly form, for readers that want one polygon at a time. The rasteriser uses
+    :func:`read_cell_arrays` instead.
+    """
+    a = read_cell_arrays(path)
+    if a is None:
+        return None
+    off, xy = a["ring_off"], a["ring_xy"]
+    return {
+        "xy": a["xy"], "cls": a["cls"], "inst": a["inst"], "origin": a["origin"],
+        "rings": [xy[off[i]:off[i + 1]].tolist() for i in range(len(off) - 1)],
+    }
 
 
 @dataclass
@@ -254,5 +273,6 @@ class Coverage:
 __all__ = [
     "CORE", "HALO", "PIPELINE_VERSION", "STORE_MPP", "TILE", "Coverage", "art_hash",
     "artifact_dir", "cells_path", "class_tile_path", "cover_tile_path", "level_offset",
-    "meta_path", "read_cells", "read_json", "summary_path", "write_cells", "write_json",
+    "meta_path", "read_cell_arrays", "read_cells", "read_json", "summary_path", "write_cells",
+    "write_json",
 ]
