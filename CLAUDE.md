@@ -37,4 +37,20 @@ src/
 
 ## Notes
 - More background: `docs/` (architecture, feature plans, project overview).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as markdown files under `.scratch/<feature-slug>/` in this repo — no external
+tracker. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root, both created lazily when there is
+something real to record. See `docs/agents/domain.md`.
 <!-- Add project-specific rules below as the project grows. -->
