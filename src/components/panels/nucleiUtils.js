@@ -73,6 +73,65 @@ export function formatCount(n) {
   return typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString() : '';
 }
 
+// ── the layer (Inc 5 · 06) ──────────────────────────────────────────────────────────
+//
+// How the mask is drawn, when nothing has said otherwise. In the store rather than in the panel,
+// because the layer goes on rendering while the panel is closed — the right panel unmounts a panel
+// on every tab switch. The store holds a patch; this is what it patches, so the defaults have
+// exactly one home.
+export const DEFAULT_OPACITY = 0.65;   // point-like and sparse — it can afford to be more solid
+                                       // than the areal tissue map underneath it
+
+export const NUCLEI_LAYER_DEFAULTS = Object.freeze({
+  opacity: DEFAULT_OPACITY,
+  hidden: Object.freeze({}),           // { [className]: true }
+});
+
+export function withNucleiDefaults(patch) {
+  return { ...NUCLEI_LAYER_DEFAULTS, ...(patch || {}) };
+}
+
+/** The class list this artifact actually has — from its own meta, then PanNuke as a fallback. */
+export function classesOf(meta) {
+  const c = meta?.classes;
+  return Array.isArray(c) && c.length ? c : [...PANNUKE_ORDER];
+}
+
+/** Class → '#rrggbb', from the artifact's own palette so a swatch can never drift from the map. */
+export function colorsOf(meta) {
+  return meta?.colors && Object.keys(meta.colors).length ? meta.colors : {};
+}
+
+/** Query params for a tile URL. Fixed key order: OSD caches by URL string. */
+export function tileParams({ show, opacity, classes } = {}) {
+  const params = {};
+  const all = classes || [];
+  // Omit `show` when nothing is filtered — a shorter URL is a better cache key.
+  if (show && all.length && show.length && show.length < all.length) {
+    params.show = [...show].sort().join(',');
+  }
+  if (opacity != null && opacity !== 1) params.alpha = String(Math.round(opacity * 1000) / 1000);
+  return params;
+}
+
+export function layerSignature(artHash, params) {
+  if (!artHash) return 'none';
+  const keys = Object.keys(params || {}).sort();
+  return `nuclei|${artHash}|${keys.map((k) => `${k}=${params[k]}`).join('&')}`;
+}
+
+/** Stored tiles are at the nuclei store resolution; `level_offset` converts an OSD level to it. */
+export function levelOffsetFor(meta) {
+  const n = meta?.layers?.classes?.level_offset;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** How many pyramid levels the artifact has. 0 means it has no picture yet — do not mount. */
+export function layerLevels(meta) {
+  const n = meta?.layers?.classes?.levels;
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** The one-line summary, the same shape the Workspace row shows. '' before anything is stored. */
 export function summaryLine(summary) {
   const bits = [];

@@ -157,8 +157,10 @@ describe('describeArtifact', () => {
     expect(describeScale(r)).toBe('12,403 nuclei · 4.19 mm² · Neoplastic/Connective');
   });
 
-  it('has no eye yet — the picture is ticket 06', () => {
-    expect(canDraw(row({ kind: 'nuclei' }))).toBe(false);
+  it('has an eye, now that there is a mask to switch on', () => {
+    const r = row({ kind: 'nuclei' });
+    expect(canDraw(r)).toBe(true);
+    expect(describeArtifact(r, NOW).canSwitch).toBe(true);
   });
 });
 

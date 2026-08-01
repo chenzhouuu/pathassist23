@@ -1,20 +1,19 @@
 // src/components/panels/NucleiPanel.jsx — nuclei as a stored artifact (Inc 5, ticket 05).
 //
 // Shaped like the Tissue panel, because it drives the same kind of thing: a service's own
-// job/artifact control plane, over a region you draw. What it does not do is mount a layer —
-// there is no picture yet. Ticket 06 rasterises the rings this build stores and gives the row an
-// eye in the Workspace; 07 makes it whole-slide, stoppable and resumable.
+// job/artifact control plane, over a region you draw. It does not mount the mask — ArtifactLayers
+// does, for as long as the slide is open — but it tunes it, because these controls have to outlive
+// a tab switch and the layer does. Ticket 07 makes the build whole-slide, stoppable and resumable.
 //
 // Every number here is read back from the artifact's meta, not kept from the call that made it.
-// That is the point of the ticket: reload the page and the same counts come back, because they
-// came off disk.
+// That is the point: reload the page and the same counts come back, because they came off disk.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { listArtifacts } from '../../api/preprocessApi.js';
 import { getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
 import {
-  classRows, describeStage, findNucleiRow, formatArea, formatCount, formatPercent, isRunning,
-  progressPercent, summaryLine, totalNuclei,
+  classRows, colorsOf, describeStage, findNucleiRow, formatArea, formatCount, formatPercent,
+  isRunning, layerLevels, progressPercent, summaryLine, totalNuclei, withNucleiDefaults,
 } from './nucleiUtils.js';
 import { formatRoi, useRegionSelect } from './useRegionSelect.js';
 
@@ -32,8 +31,20 @@ export default function NucleiPanel() {
   const [busy, setBusy] = useState(false);
   const pollRef = useRef(null);
 
+  // The layer's own settings live in the store, not here: the mask keeps rendering while this
+  // panel is closed, and the right panel unmounts a panel on every tab switch.
+  const storedLayer = useStore((s) => s.nucleiLayerParams);
+  const setNucleiLayerParams = useStore((s) => s.setNucleiLayerParams);
+  const visibleArtifacts = useStore((s) => s.visibleArtifacts);
+
   const row = findNucleiRow(rows);
   const artHash = row?.art_hash || null;
+  const layer = withNucleiDefaults(storedLayer);
+  const drawn = layerLevels(meta) > 0;
+  const shownOnSlide = !!artHash && visibleArtifacts[artHash]?.kind === 'nuclei';
+
+  const toggleHidden = (name) =>
+    setNucleiLayerParams({ hidden: { ...layer.hidden, [name]: !layer.hidden[name] } });
 
   const refresh = useCallback(async () => {
     if (!itemId) { setRows([]); setMeta(null); return; }
@@ -73,6 +84,9 @@ export default function NucleiPanel() {
   const summary = meta?.summary || null;
   const classes = classRows(summary);
   const n = totalNuclei(summary);
+  // The palette comes off the artifact, so a swatch here and the mask on the slide can never
+  // disagree about what colour a class is.
+  const palette = colorsOf(meta);
 
   return (
     <div className="mk-panel">
@@ -146,25 +160,62 @@ export default function NucleiPanel() {
                   <span className="mk-count">{formatArea(summary)}</span>
                 </div>
               )}
+              {/* A checkbox hides a class from the *picture*. Its count stays on screen either
+                  way — hiding a class from the map must not hide it from the maths. */}
               {classes.map((c) => (
-                <div key={c.name} className="mk-row">
-                  <span className="mk-label">{c.name}</span>
+                <label key={c.name} className="mk-check">
+                  <input
+                    type="checkbox" checked={!layer.hidden[c.name]} disabled={!drawn}
+                    onChange={() => toggleHidden(c.name)}
+                  />
+                  <span className="mk-swatch" style={{ background: palette[c.name] || '#888' }} />
+                  {c.name}
                   <span className="mk-count">
                     {formatCount(c.count)} · {formatPercent(c.fraction)}
                   </span>
-                </div>
+                </label>
               ))}
             </>
           )}
         </div>
       )}
 
+      {/* ── the mask ─────────────────────────────────────────────────────── */}
+      {drawn && (
+        <div className="mk-section">
+          <div className="mk-row">
+            <span className="mk-label">Mask</span>
+            <span className="mk-dim">
+              {shownOnSlide ? 'on the slide' : 'switch it on from the Workspace'}
+            </span>
+          </div>
+          <Slider
+            label="Opacity" min={0.05} max={1} value={layer.opacity}
+            onChange={(v) => setNucleiLayerParams({ opacity: v })}
+          />
+        </div>
+      )}
+
       <div className="mk-foot">
         Predicted nucleus outlines and PanNuke classes from H&amp;E. The polygons are what is
-        stored; anything drawn from them is drawn from these numbers. Research use only.
+        stored; the mask is drawn from them, so the shape on screen and the count above are the
+        same object. Research use only.
       </div>
 
       {error && <div className="mk-error">{error}</div>}
+    </div>
+  );
+}
+
+function Slider({ label, value, min, max, onChange }) {
+  return (
+    <div className="mk-slider">
+      <span>{label}</span>
+      <input
+        type="range" min={min} max={max} step={0.01} value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <em>{Number(value).toFixed(2)}</em>
     </div>
   );
 }

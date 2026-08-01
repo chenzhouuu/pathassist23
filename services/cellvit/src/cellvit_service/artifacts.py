@@ -12,8 +12,11 @@ screen can never come from two different objects (D3).
       coverage.json      {"core": 2048, "done": [[tx, ty], ...], "totals": {...}}
       summary.json       n_nuclei, counts_by_class, area_mm2, n_tiles
       cells/{tx}_{ty}.npz    per-core-tile vector truth (see write_cells)
+      classes/{z}/{x}_{y}.png  paletted class raster, drawn from the rings (ticket 06)
+      cover/{z}/{x}_{y}.png    what fraction of each pixel is nucleus (ticket 06)
 
-The rasters (`classes/`, `instances/`) arrive in tickets 06 and 08. Nothing here writes a pixel.
+The instance-id raster arrives in ticket 08. The class raster is derived — deleting it costs a
+redraw, never a number, because every count comes from `cells/` and `coverage.json`.
 
 **The artifact's identity is what changes the numbers, and nothing else.** Not the bbox — that is
 coverage, and two regions on one slide accumulate into one artifact. Not the segmentation either:
@@ -39,9 +42,13 @@ PIPELINE_VERSION = "inc5-1"
 CORE = 2048
 HALO = 256
 
-# Nuclei are ~10 µm across. The tissue map's 1 µm/px would make them mush, so the raster this
-# artifact will grow in ticket 06 stores at the slide's own resolution (plan §4.3).
+# Nuclei are ~10 µm across. The tissue map's 1 µm/px would make them mush, so the raster stores at
+# the slide's own resolution (plan §4.3).
 STORE_MPP = 0.25
+
+# Pyramid tile side, in stored pixels. 256 like the tissue map, and a core is a whole number of
+# them at every offset this service allows, so no two cores ever share a tile.
+TILE = 256
 
 _SAFE = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -83,6 +90,14 @@ def artifact_dir(cache_root: Path | str, item: str, ahash: str) -> Path:
 
 def cells_path(root: Path, tx: int, ty: int) -> Path:
     return root / "cells" / f"{int(tx)}_{int(ty)}.npz"
+
+
+def class_tile_path(root: Path, z: int, x: int, y: int) -> Path:
+    return root / "classes" / str(int(z)) / f"{int(x)}_{int(y)}.png"
+
+
+def cover_tile_path(root: Path, z: int, x: int, y: int) -> Path:
+    return root / "cover" / str(int(z)) / f"{int(x)}_{int(y)}.png"
 
 
 def meta_path(root: Path) -> Path:
@@ -237,7 +252,7 @@ class Coverage:
 
 
 __all__ = [
-    "CORE", "HALO", "PIPELINE_VERSION", "STORE_MPP", "Coverage", "art_hash", "artifact_dir",
-    "cells_path", "level_offset", "meta_path", "read_cells", "read_json", "summary_path",
-    "write_cells", "write_json",
+    "CORE", "HALO", "PIPELINE_VERSION", "STORE_MPP", "TILE", "Coverage", "art_hash",
+    "artifact_dir", "cells_path", "class_tile_path", "cover_tile_path", "level_offset",
+    "meta_path", "read_cells", "read_json", "summary_path", "write_cells", "write_json",
 ]

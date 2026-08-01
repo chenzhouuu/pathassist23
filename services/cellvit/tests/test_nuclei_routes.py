@@ -99,7 +99,7 @@ def test_rings_survive_storage(tmp_path):
     assert back["inst"].tolist() == [1, 2]
     # Rings are stored relative to the tile origin as int16, so they come back rounded to the
     # pixel — which is the resolution a polygon on a slide is meaningful at.
-    for got, want in zip(back["rings"], rings):
+    for got, want in zip(back["rings"], rings, strict=True):
         assert np.allclose(np.array(got), np.rint(np.array(want)), atol=0.5)
 
 

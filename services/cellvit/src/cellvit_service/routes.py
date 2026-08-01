@@ -1,9 +1,9 @@
-"""The nuclei artifact's HTTP surface: enqueue a job, poll it, read it back (Inc 5, ticket 05).
+"""The nuclei artifact's HTTP surface: enqueue a job, poll it, read it back, serve its tiles.
 
 Registered beside the existing `/segment`, which is unchanged — that route is the agent's
 stateless "what is in this box" call and keeps working exactly as it did. What is new is the
 artifact control plane: a job that stores rings on disk, addressed by a content hash, which the
-Workspace lists and later tickets rasterise.
+Workspace lists and the viewer draws (Inc 5, tickets 05 and 06).
 
 Everything expensive is reached through `app.config` seams, so the whole surface is testable with a
 Flask test client and no GPU, no weights and no slide:
@@ -17,7 +17,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
 from .artifacts import (
     Coverage,
@@ -29,8 +29,34 @@ from .artifacts import (
 )
 from .config import get_settings
 from .nuclei import SlideInfo, run_region
+from .pyramid import read_class_tile, read_cover_tile
+from .tiles import (
+    TRANSPARENT_TILE,
+    BadClassSpec,
+    colourise,
+    encode_png,
+    parse_colors,
+    parse_show,
+)
 
 logger = logging.getLogger(__name__)
+
+# A tile is immutable for a given (art_hash, coverage revision, query).
+_TILE_CACHE = "public, max-age=86400"
+
+
+def _png(body: bytes, rev: int = 0) -> Response:
+    resp = Response(body, mimetype="image/png")
+    resp.headers["Cache-Control"] = _TILE_CACHE
+    resp.headers["ETag"] = f'W/"{rev}"'
+    return resp
+
+
+def _f(raw: str | None, default: float) -> float:
+    try:
+        return float(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        return default
 
 # The only backend today. Named rather than implied so the artifact hash, the meta and the panel
 # all say which model produced a nucleus, and a future decoder can coexist instead of invalidating
@@ -50,7 +76,9 @@ def register(app) -> None:
             # Whole-slide is ticket 07: it needs the tissue mask to know where to bother looking,
             # and a cooperative stop to be interruptible. Refusing is better than quietly running
             # for hours over background.
-            return jsonify({"detail": "a bbox object is required (whole-slide is not yet built)"}), 400
+            return jsonify({
+                "detail": "a bbox object is required (whole-slide is not yet built)",
+            }), 400
 
         s = get_settings()
         if app.config.get("SEGMENT") is None:
@@ -110,6 +138,32 @@ def register(app) -> None:
                             "bounds": cov.bounds(), "done": sorted(cov.done)}
         meta["summary"] = read_json(summary_path(root)) or {}
         return jsonify(meta)
+
+    @app.get("/nuclei/<item>/<ahash>/tile/<layer>/<int:z>/<int:x>/<int:y>.png")
+    def nuclei_tile(item: str, ahash: str, layer: str, z: int, x: int, y: int):
+        """One rendered tile of the nuclei mask.
+
+        Colours, class selection and opacity are query parameters, so changing any of them is a
+        URL change rather than a rebuild — the picture on disk is just an index and a coverage
+        fraction (tiles.py).
+        """
+        if layer != "classes":
+            return jsonify({"detail": f"unknown layer {layer!r}"}), 400
+        root = _root(item, ahash)
+        rev = len(Coverage.load(root).done)
+
+        try:
+            show = parse_show(request.args.get("show"))
+            colors = parse_colors(request.args.get("ch"))
+        except BadClassSpec as exc:
+            return jsonify({"detail": str(exc)}), 400
+
+        idx = read_class_tile(root, z, x, y)
+        if idx is None:
+            return _png(TRANSPARENT_TILE, rev)
+        rgba = colourise(idx, read_cover_tile(root, z, x, y), show=show,
+                         alpha=_f(request.args.get("alpha"), 1.0), colors=colors)
+        return _png(encode_png(rgba), rev)
 
     @app.delete("/nuclei/<item>/<ahash>")
     def delete_nuclei(item: str, ahash: str):

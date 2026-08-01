@@ -13,6 +13,10 @@ vi.mock('../../api/biomarkerApi.js', () => ({
   getBiomarkerMeta: vi.fn(),
   getCatalog: vi.fn(),
 }));
+vi.mock('../../api/nucleiApi.js', () => ({
+  getNucleiMeta: vi.fn(),
+  tileUrl: (item, hash, layer, z, x, y) => `/n/${hash}/${layer}/${z}/${x}/${y}.png`,
+}));
 vi.mock('../../api/preprocessApi.js', () => ({ getSegmentationContours: vi.fn() }));
 vi.mock('./markerLayers.js', () => ({
   syncMarkerLayer: vi.fn(() => 'marker-signature'),
@@ -24,15 +28,16 @@ vi.mock('./overlayLayers.js', () => ({
   syncLayer: vi.fn(() => 'mounted-signature'),
   removeLayer: vi.fn(),
   setBasePreference: vi.fn(),
-  LAYER_ORDER: ['tissue', 'markers', 'pheno'],
+  LAYER_ORDER: ['tissue', 'nuclei', 'markers', 'pheno'],
 }));
 
 import ArtifactLayers, { visibleHashOf } from './ArtifactLayers.jsx';
 import { getTissueMeta } from '../../api/tissueApi.js';
 import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
+import { getNucleiMeta } from '../../api/nucleiApi.js';
 import { getSegmentationContours } from '../../api/preprocessApi.js';
 import { syncMarkerLayer } from './markerLayers.js';
-import { removeLayer, syncLayer } from './overlayLayers.js';
+import { buildTileSource, removeLayer, syncLayer } from './overlayLayers.js';
 import { useStore } from '../../store/index.js';
 
 const META = {
@@ -43,6 +48,12 @@ const META = {
 };
 
 const BIO_META = { slide: { width: 40000, height: 30000 }, levels: 6, level_offset: 2 };
+const NUC_META = {
+  slide: { width: 40000, height: 30000, mpp: 0.25 },
+  classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
+  colors: { Neoplastic: '#D55E00' },
+  layers: { classes: { level_offset: 0, levels: 8 } },
+};
 const CONTOURS = { type: 'FeatureCollection', features: [] };
 
 const VIEWER = { id: 'osd' };
@@ -54,12 +65,14 @@ describe('ArtifactLayers', () => {
     getBiomarkerMeta.mockResolvedValue(BIO_META);
     getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
     getSegmentationContours.mockResolvedValue(CONTOURS);
+    getNucleiMeta.mockResolvedValue(NUC_META);
     useStore.setState({
       viewer: VIEWER,
       activeItem: { _id: 'item-1' },
       visibleArtifacts: {},
       tissueLayerParams: {},
       markerLayerParams: {},
+      nucleiLayerParams: {},
       tissueContours: {},
     });
   });
@@ -168,9 +181,11 @@ describe('the biomarker layer', () => {
     getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
     getTissueMeta.mockResolvedValue(META);
     getSegmentationContours.mockResolvedValue(CONTOURS);
+    getNucleiMeta.mockResolvedValue(NUC_META);
     useStore.setState({
       viewer: VIEWER, activeItem: { _id: 'item-1' },
-      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, tissueContours: {},
+      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {},
+      nucleiLayerParams: {}, tissueContours: {},
     });
   });
 
@@ -212,6 +227,92 @@ describe('the biomarker layer', () => {
   });
 });
 
+describe('the nuclei mask', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getNucleiMeta.mockResolvedValue(NUC_META);
+    getTissueMeta.mockResolvedValue(META);
+    getBiomarkerMeta.mockResolvedValue(BIO_META);
+    getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
+    getSegmentationContours.mockResolvedValue(CONTOURS);
+    useStore.setState({
+      viewer: VIEWER, activeItem: { _id: 'item-1' },
+      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {},
+      nucleiLayerParams: {}, tissueContours: {},
+    });
+  });
+
+  const nucleiCalls = () => syncLayer.mock.calls.filter(([, o]) => o.key === 'nuclei');
+
+  it('mounts the mask when its row\'s eye is opened', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+
+    await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
+    expect(getNucleiMeta).toHaveBeenCalledWith('item-1', 'nuc1');
+    const opts = nucleiCalls().at(-1)[1];
+    expect(opts.signature).toContain('nuc1');
+    // Drawn at the artifact's own stored resolution and depth, not at guesses.
+    expect(buildTileSource.mock.calls.at(-1)[0]).toMatchObject({ levelOffset: 0, levels: 8 });
+  });
+
+  it('does not mount a build whose rings have not been drawn yet', async () => {
+    // A row can be ready with counts before the raster exists — an artifact from before the mask,
+    // or a job that died between storing and drawing. Mounting then asks for tiles that are not
+    // there, so the eye shows nothing instead.
+    getNucleiMeta.mockResolvedValue({ ...NUC_META, layers: {} });
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+
+    await waitFor(() => expect(getNucleiMeta).toHaveBeenCalled());
+    expect(nucleiCalls()).toHaveLength(0);
+  });
+
+  it('takes it down again when the eye is closed', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+    await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
+
+    removeLayer.mockClear();
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', false);
+    await waitFor(() => expect(removeLayer).toHaveBeenCalledWith(VIEWER, 'nuclei'));
+  });
+
+  it('changes opacity without asking for a single new tile', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+    await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
+    const before = nucleiCalls().at(-1)[1].signature;
+
+    useStore.getState().setNucleiLayerParams({ opacity: 0.2 });
+    await waitFor(() => expect(nucleiCalls().at(-1)[1].opacity).toBe(0.2));
+    expect(nucleiCalls().at(-1)[1].signature).toBe(before);
+  });
+
+  it('asks for a different picture when a class is hidden', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+    await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
+    const before = nucleiCalls().at(-1)[1].signature;
+
+    useStore.getState().setNucleiLayerParams({ hidden: { Dead: true } });
+    await waitFor(() => expect(nucleiCalls().at(-1)[1].signature).not.toBe(before));
+    expect(nucleiCalls().at(-1)[1].signature).toContain('show=');
+  });
+
+  it('stacks with the tissue map underneath it', async () => {
+    render(<ArtifactLayers />);
+    useStore.getState().setArtifactVisible('tis1', 'tissue', true);
+    useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
+
+    await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
+    // Two independent slots, so switching one on never switched the other off.
+    expect(syncLayer.mock.calls.some(([, o]) => o.key === 'tissue' && o.tileSource)).toBe(true);
+    expect(useStore.getState().visibleArtifacts)
+      .toEqual({ tis1: { kind: 'tissue' }, nuc1: { kind: 'nuclei' } });
+  });
+});
+
 describe('the segmentation outline', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -219,9 +320,11 @@ describe('the segmentation outline', () => {
     getTissueMeta.mockResolvedValue(META);
     getBiomarkerMeta.mockResolvedValue(BIO_META);
     getCatalog.mockResolvedValue({ dapi_color: '808080', presets: {} });
+    getNucleiMeta.mockResolvedValue(NUC_META);
     useStore.setState({
       viewer: VIEWER, activeItem: { _id: 'item-1' },
-      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, tissueContours: {},
+      visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {},
+      nucleiLayerParams: {}, tissueContours: {},
     });
   });
 

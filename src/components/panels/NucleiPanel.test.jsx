@@ -1,7 +1,7 @@
 // The Nuclei panel (Inc 5 · 05). The claim is that the numbers on screen came off disk: the panel
 // reports the stored artifact's meta, not whatever the call that started the build returned.
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +20,8 @@ const READY_ROW = { kind: 'nuclei', art_hash: 'n1', status: 'ready', params: {},
 const META = {
   art_hash: 'n1',
   slide: { width: 4096, height: 4096, mpp: 0.25 },
+  colors: { Neoplastic: '#D55E00', Connective: '#0072B2', Inflammatory: '#009E73' },
+  layers: { classes: { level_offset: 0, levels: 5 } },
   summary: {
     n_nuclei: 1200, n_tiles: 3, area_mm2: 12.582,
     counts_by_class: { Neoplastic: 800, Connective: 300, Inflammatory: 100 },
@@ -28,7 +30,9 @@ const META = {
 
 describe('NucleiPanel', () => {
   beforeEach(() => {
-    useStore.setState({ activeItem: SLIDE, copilotRoi: null });
+    useStore.setState({
+      activeItem: SLIDE, copilotRoi: null, nucleiLayerParams: {}, visibleArtifacts: {},
+    });
     listArtifacts.mockResolvedValue([]);
     getNucleiMeta.mockResolvedValue(META);
     startNuclei.mockResolvedValue({ kind: 'nuclei', art_hash: 'n1', status: 'queued' });
@@ -102,5 +106,44 @@ describe('NucleiPanel', () => {
 
     expect(await screen.findByText('Working 0%')).toBeInTheDocument();
     expect(screen.queryByText(/nuclei ·/)).not.toBeInTheDocument();
+  });
+
+  // ── the mask (Inc 5 · 06) ────────────────────────────────────────────────────────
+
+  it('tunes the mask through the store, so the layer survives leaving this tab', async () => {
+    listArtifacts.mockResolvedValue([READY_ROW]);
+    render(<NucleiPanel />);
+
+    const slider = await screen.findByRole('slider', { name: '' });
+    fireEvent.change(slider, { target: { value: '0.3' } });
+    expect(useStore.getState().nucleiLayerParams.opacity).toBe(0.3);
+  });
+
+  it('hides a class from the picture without hiding it from the counts', async () => {
+    listArtifacts.mockResolvedValue([READY_ROW]);
+    render(<NucleiPanel />);
+
+    const box = await screen.findByRole('checkbox', { name: /Neoplastic/ });
+    await userEvent.click(box);
+    expect(useStore.getState().nucleiLayerParams.hidden).toEqual({ Neoplastic: true });
+    expect(screen.getByText('800 · 66.7%')).toBeInTheDocument();
+  });
+
+  it('says where the eye is when the mask is built but not switched on', async () => {
+    listArtifacts.mockResolvedValue([READY_ROW]);
+    render(<NucleiPanel />);
+    expect(await screen.findByText(/switch it on from the Workspace/)).toBeInTheDocument();
+
+    useStore.setState({ visibleArtifacts: { n1: { kind: 'nuclei' } } });
+    expect(await screen.findByText('on the slide')).toBeInTheDocument();
+  });
+
+  it('offers no mask controls before the picture exists', async () => {
+    listArtifacts.mockResolvedValue([READY_ROW]);
+    getNucleiMeta.mockResolvedValue({ ...META, layers: {} });
+    render(<NucleiPanel />);
+
+    expect(await screen.findByText('1,200 nuclei · 12.58 mm² · 3 tiles')).toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   });
 });

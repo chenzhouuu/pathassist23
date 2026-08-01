@@ -14,8 +14,9 @@
 //   tissueLayerParams   the Tissue panel's controls, in the store because the layer outlives it
 //   markerLayerParams   the same, for the Markers panel
 //
-// Three pictures, one per drawable kind, each in its own layer slot so they stack (Inc 4 D4):
+// Four pictures, one per drawable kind, each in its own layer slot so they stack (Inc 4 D4):
 //   tissue        a class/probability pyramid, under everything
+//   nuclei        the nucleus mask, above the tissue it subdivides
 //   biomarker     the marker composite or the phenotype map — one or the other, never both (D8)
 //   segmentation  the tissue outline, a canvas rather than a pyramid. TissueOverlay paints it;
 //                 what this owns is fetching the contours once and caching them by hash.
@@ -23,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { getTissueMeta, tileAjaxHeaders, tileUrl } from '../../api/tissueApi.js';
 import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
+import { getNucleiMeta, tileUrl as nucleiTileUrl } from '../../api/nucleiApi.js';
 import { getSegmentationContours } from '../../api/preprocessApi.js';
 import {
   LAYER_FOR_RENDER, classesOf, layerLevels, layerSignature, levelOffsetFor, tileParams,
@@ -32,11 +34,16 @@ import {
   layerSignature as markerSignature, phenotypeLegend, presetChannels,
   tileParams as markerTileParams, withMarkerDefaults,
 } from '../panels/markerUtils.js';
+import {
+  classesOf as nucleiClassesOf, layerLevels as nucleiLevels,
+  layerSignature as nucleiSignature, levelOffsetFor as nucleiOffsetFor,
+  tileParams as nucleiTileParams, withNucleiDefaults,
+} from '../panels/nucleiUtils.js';
 import { clearMarkerLayers, setMarkersBase, syncMarkerLayer } from './markerLayers.js';
 import { buildTileSource, removeLayer, setBasePreference, syncLayer } from './overlayLayers.js';
 
 /** The artifact kinds this component can put on the viewer. The Workspace offers an eye for these. */
-export const SWITCHABLE_KINDS = ['tissue', 'biomarker', 'segmentation'];
+export const SWITCHABLE_KINDS = ['tissue', 'nuclei', 'biomarker', 'segmentation'];
 
 const LAYER_FOR_MODE = { markers: 'markers', pheno: 'pheno' };
 
@@ -108,6 +115,55 @@ function TissueTileLayer({ viewer, itemId, hash }) {
     removeLayer(viewer, 'tissue');
     setBasePreference(viewer, 'tissue', null);
   }, [viewer]);
+
+  return null;
+}
+
+// ── nuclei ───────────────────────────────────────────────────────────────────────────
+
+function NucleiTileLayer({ viewer, itemId, hash }) {
+  const stored = useStore((s) => s.nucleiLayerParams);
+  const meta = useArtifactMeta(getNucleiMeta, itemId, hash);
+  const mountedSig = useRef(null);
+
+  const p = useMemo(() => withNucleiDefaults(stored), [stored]);
+  const classes = useMemo(() => nucleiClassesOf(meta), [meta]);
+  const shown = useMemo(() => classes.filter((c) => !p.hidden[c]), [classes, p.hidden]);
+
+  const params = useMemo(
+    () => nucleiTileParams({ show: shown, opacity: 1, classes }),
+    [shown, classes],
+  );
+
+  // A build that has run but not yet drawn reports no levels. Mounting then would ask for tiles
+  // that do not exist and leave an empty layer on the viewer, so the eye simply shows nothing
+  // until there is something to show.
+  const levels = nucleiLevels(meta);
+  const visible = !!hash && !!meta && levels > 0;
+  const signature = visible ? nucleiSignature(hash, params) : 'none';
+
+  useEffect(() => {
+    if (!viewer) return;
+    if (!visible) {
+      removeLayer(viewer, 'nuclei');
+      mountedSig.current = 'none';
+      return;
+    }
+    const tileSource = buildTileSource({
+      slideWidth: meta?.slide?.width,
+      slideHeight: meta?.slide?.height,
+      levelOffset: nucleiOffsetFor(meta),
+      levels,
+      tileUrlFor: (level, x, y) => nucleiTileUrl(itemId, hash, 'classes', level, x, y, params),
+    });
+    mountedSig.current = syncLayer(viewer, {
+      key: 'nuclei', signature, mounted: mountedSig.current, tileSource,
+      // Layer opacity, not a tile parameter: dragging the slider must not refetch a single tile.
+      opacity: p.opacity, ajaxHeaders: tileAjaxHeaders(),
+    });
+  }, [viewer, visible, signature, itemId, hash, meta, params, levels, p.opacity]);
+
+  useEffect(() => () => { if (viewer) removeLayer(viewer, 'nuclei'); }, [viewer]);
 
   return null;
 }
@@ -202,6 +258,8 @@ export default function ArtifactLayers() {
     <>
       <TissueTileLayer viewer={viewer} itemId={itemId}
                        hash={visibleHashOf(visibleArtifacts, 'tissue')} />
+      <NucleiTileLayer viewer={viewer} itemId={itemId}
+                       hash={visibleHashOf(visibleArtifacts, 'nuclei')} />
       <MarkerTileLayer viewer={viewer} itemId={itemId}
                        hash={visibleHashOf(visibleArtifacts, 'biomarker')} />
       <SegmentationContours itemId={itemId}

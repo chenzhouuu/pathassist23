@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  classRows, describeStage, findNucleiRow, formatArea, formatPercent, isRunning, isStopped,
-  progressPercent, summaryLine, totalNuclei,
+  DEFAULT_OPACITY, classRows, classesOf, colorsOf, describeStage, findNucleiRow, formatArea,
+  formatPercent, isRunning, isStopped, layerLevels, layerSignature, levelOffsetFor,
+  progressPercent, summaryLine, tileParams, totalNuclei, withNucleiDefaults,
 } from './nucleiUtils.js';
 
 const summary = (over = {}) => ({
@@ -77,6 +78,74 @@ describe('formatArea', () => {
 
   it('rounds to something a person can read', () => {
     expect(formatArea(summary())).toBe('12.58 mm²');
+  });
+});
+
+// ── the layer (Inc 5 · 06) ─────────────────────────────────────────────────────────
+
+const META = {
+  slide: { width: 4096, height: 4096, mpp: 0.25 },
+  classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
+  colors: { Neoplastic: '#D55E00', Connective: '#0072B2' },
+  layers: { classes: { level_offset: 0, levels: 5 } },
+};
+
+describe('the artifact describes its own layer', () => {
+  it('takes the class list and palette from the artifact, not from the frontend', () => {
+    expect(classesOf(META)).toEqual(META.classes);
+    expect(colorsOf(META).Neoplastic).toBe('#D55E00');
+  });
+
+  it('falls back to PanNuke order when meta says nothing, and to no palette at all', () => {
+    expect(classesOf(null)[0]).toBe('Neoplastic');
+    expect(colorsOf(null)).toEqual({});
+  });
+
+  it('reads the stored resolution and the pyramid depth off the artifact', () => {
+    expect(levelOffsetFor(META)).toBe(0);
+    expect(layerLevels(META)).toBe(5);
+  });
+
+  it('reports no levels for a build with no picture, so the layer is not mounted', () => {
+    expect(layerLevels({ slide: META.slide })).toBe(0);
+    expect(layerLevels(null)).toBe(0);
+  });
+});
+
+describe('tileParams', () => {
+  const all = META.classes;
+
+  it('omits show when nothing is hidden — a shorter URL is a better cache key', () => {
+    expect(tileParams({ show: all, opacity: 1, classes: all })).toEqual({});
+  });
+
+  it('names the classes still shown, sorted, so the URL is stable', () => {
+    const p = tileParams({ show: ['Connective', 'Neoplastic'], opacity: 1, classes: all });
+    expect(p.show).toBe('Connective,Neoplastic');
+  });
+
+  it('leaves opacity out of the URL — it is a layer property, not a tile one', () => {
+    // The panel passes opacity: 1 here and applies the real value to the mounted layer, so
+    // dragging the slider must not change a single tile URL.
+    expect(tileParams({ show: all, opacity: 1, classes: all }).alpha).toBeUndefined();
+    expect(tileParams({ opacity: 0.5 }).alpha).toBe('0.5');
+  });
+});
+
+describe('layerSignature', () => {
+  it('changes when the picture changes and not when it does not', () => {
+    const a = layerSignature('n1', { show: 'Neoplastic' });
+    expect(layerSignature('n1', { show: 'Neoplastic' })).toBe(a);
+    expect(layerSignature('n1', { show: 'Dead' })).not.toBe(a);
+    expect(layerSignature('n2', { show: 'Neoplastic' })).not.toBe(a);
+    expect(layerSignature(null, {})).toBe('none');
+  });
+});
+
+describe('withNucleiDefaults', () => {
+  it('is a patch over one set of defaults', () => {
+    expect(withNucleiDefaults(null).opacity).toBe(DEFAULT_OPACITY);
+    expect(withNucleiDefaults({ opacity: 0.2 })).toEqual({ opacity: 0.2, hidden: {} });
   });
 });
 

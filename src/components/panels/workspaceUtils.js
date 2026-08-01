@@ -21,8 +21,8 @@ export const KIND_LABEL = Object.freeze({
 });
 
 // Kinds with something to put on the slide. The rest are still listed — they answer "what has this
-// slide cost me" — but they get no eye (Inc 5 D2). `nuclei` joins this set in ticket 06.
-export const DRAWABLE = Object.freeze(['segmentation', 'tissue', 'biomarker']);
+// slide cost me" — but they get no eye (Inc 5 D2).
+export const DRAWABLE = Object.freeze(['segmentation', 'tissue', 'biomarker', 'nuclei']);
 
 export function kindLabel(kind) {
   return KIND_LABEL[kind] || kind || 'Artifact';

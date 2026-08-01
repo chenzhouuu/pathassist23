@@ -1,9 +1,9 @@
 """Run nuclei over a region, core tile by core tile, and store the rings (Inc 5, ticket 05).
 
-The shape is ``tissue/wholeslide.py``'s, minus the raster: enumerate the core tiles a bbox covers,
-read each one with a halo, run the model, keep what belongs to this core, persist, extend coverage.
-What differs is what "keep" means. The tissue map crops a prediction to the core rectangle; a
-nucleus is not a rectangle, so ownership is decided by the **centroid**:
+The shape is ``tissue/wholeslide.py``'s: enumerate the core tiles a bbox covers, read each one with
+a halo, run the model, keep what belongs to this core, persist, extend coverage, then draw. What
+differs is what "keep" means. The tissue map crops a prediction to the core rectangle; a nucleus is
+not a rectangle, so ownership is decided by the **centroid**:
 
     a nucleus belongs to the core its centroid falls in
 
@@ -26,6 +26,7 @@ from .artifacts import (
     CORE,
     HALO,
     STORE_MPP,
+    TILE,
     Coverage,
     cells_path,
     level_offset,
@@ -36,7 +37,9 @@ from .artifacts import (
     write_json,
 )
 from .geometry import offset_points, offset_rings
-from .pannuke import TYPE_NAMES, name_for
+from .pannuke import TYPE_NAMES, color_for, name_for
+from .pyramid import levels_for
+from .raster import MAX_LEVEL_OFFSET, rasterise_artifact
 from .tiling import clip_bbox_to_slide, core_tiles, haloed_read_window
 
 logger = logging.getLogger(__name__)
@@ -97,6 +100,7 @@ def run_region(
     todo = cov.missing(tiles)
     total = len(todo)
     stopped = False
+    computed: list[tuple[int, int]] = []
 
     # Ids continue from what is already stored, so a resume never reissues an id that a previous
     # run gave to a different nucleus.
@@ -140,11 +144,21 @@ def run_region(
         cov.add(tx, ty)
         cov.totals = {"n_nuclei": n_nuclei, "counts_by_class": counts, "next_inst": next_inst}
         cov.save(root)
+        computed.append((tx, ty))
 
         if report is not None:
             report("nuclei", (i + 1) / total if total else 1.0)
 
-    _write_meta(root, art=art, slide=slide, backend=backend)
+    # Even a stopped job draws: the raster is what makes the covered area viewable at all, and it
+    # costs a fraction of one core's inference. It is also where a core computed next to an older
+    # one gets its seam filled in, so it runs after the loop rather than inside it (raster.py).
+    if report is not None:
+        report("raster", 0.98)
+    offset = min(level_offset(slide.mpp or STORE_MPP, STORE_MPP), MAX_LEVEL_OFFSET)
+    rasterise_artifact(root, cov=cov, offset=offset, width=slide.width, height=slide.height,
+                       computed=computed)
+
+    _write_meta(root, art=art, slide=slide, backend=backend, offset=offset)
     summary = _write_summary(root, cov, slide)
     summary["stopped"] = stopped
     summary["remaining"] = max(0, len(cov.missing(tiles)))
@@ -152,16 +166,26 @@ def run_region(
     return summary
 
 
-def _write_meta(root: Path, *, art: str, slide: SlideInfo, backend: str) -> None:
-    """Everything a later reader needs to interpret the vectors without asking the slide again."""
+def _write_meta(root: Path, *, art: str, slide: SlideInfo, backend: str, offset: int) -> None:
+    """Everything a later reader needs to interpret the vectors, and to draw them, without asking
+    the slide again. The palette lives here rather than in the frontend so a recolour can never
+    drift from the map it is describing."""
+    s = 1 << offset
+    n_levels = levels_for(-(-slide.width // s), -(-slide.height // s))
     write_json(meta_path(root), {
         "art_hash": art,
         "backend": backend,
         "slide": {"width": slide.width, "height": slide.height, "mpp": slide.mpp},
-        "store_mpp": STORE_MPP,
-        "level_offset": level_offset(slide.mpp or STORE_MPP, STORE_MPP),
+        # The resolution actually used, not the one asked for: an integer octave offset is what
+        # keeps the tile grid aligned, and a 0.5 µm/px slide is stored at its own 0.5 rather than
+        # being upsampled to 0.25.
+        "store_mpp": round((slide.mpp or STORE_MPP) * s, 5),
+        "level_offset": offset,
+        "layers": {"classes": {"level_offset": offset, "levels": n_levels}},
+        "tile": TILE,
         "core": CORE,
         "classes": [TYPE_NAMES[k] for k in sorted(TYPE_NAMES)],
+        "colors": {TYPE_NAMES[k]: f"#{color_for(k)}" for k in sorted(TYPE_NAMES)},
         "class_ids": {str(k): v for k, v in TYPE_NAMES.items()},
     })
 

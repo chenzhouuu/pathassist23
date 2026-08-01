@@ -16,7 +16,12 @@ from ..loop.biomarker_map_client import (
     map_job_status,
 )
 from ..loop.events import RunFinished
-from ..loop.nuclei_client import enqueue_nuclei, get_nuclei_meta, nuclei_job_status
+from ..loop.nuclei_client import (
+    enqueue_nuclei,
+    get_nuclei_meta,
+    get_nuclei_tile,
+    nuclei_job_status,
+)
 from ..loop.preprocess_client import (
     get_contours,
     get_job_status,
@@ -1149,6 +1154,43 @@ async def nuclei_meta(
         )
     except httpx.HTTPError as exc:
         raise _nuclei_error(exc) from exc
+
+
+@router.get("/slides/{item}/nuclei/{art_hash}/tile/{layer}/{z}/{x}/{y}.png")
+async def nuclei_tile(
+    item: str,
+    art_hash: str,
+    layer: str,
+    z: int,
+    x: int,
+    y: int,
+    request: Request,
+    user: dict = Depends(require_user),
+    cellvit_url: str | None = Depends(get_cellvit_url),
+) -> Response:
+    """Authenticated proxy for one rendered tile of the nuclei mask.
+
+    Class selection, colours and opacity live in the query string and are forwarded verbatim — the
+    gateway never interprets them. Cache headers pass through, because an unchanged
+    (art_hash, coverage, query) tile is immutable.
+    """
+    try:
+        tile = await get_nuclei_tile(
+            base_url=_need_cellvit(cellvit_url),
+            path=f"/nuclei/{item}/{art_hash}/tile/{layer}/{z}/{x}/{y}.png",
+            params=dict(request.query_params),
+        )
+    except httpx.HTTPError as exc:
+        raise _nuclei_error(exc) from exc
+    headers = {}
+    if tile.cache_control:
+        headers["Cache-Control"] = tile.cache_control
+    if tile.etag:
+        headers["ETag"] = tile.etag
+    return Response(
+        content=tile.body, media_type=tile.content_type,
+        status_code=tile.status_code, headers=headers,
+    )
 
 
 @router.get("/tissue/catalog")

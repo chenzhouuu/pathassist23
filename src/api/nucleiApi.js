@@ -1,8 +1,8 @@
 // src/api/nucleiApi.js — the nuclei artifact's control plane (Inc 5).
 //
 // Separate from the stateless `/segment` call the agent makes (wsiAnalysis.js): that one answers
-// "what is in this box" and returns; this one builds a stored artifact the Workspace lists and
-// later tickets draw. Same gateway, same Girder session, different lifetime.
+// "what is in this box" and returns; this one builds a stored artifact the Workspace lists and the
+// viewer draws. Same gateway, same Girder session, different lifetime.
 // Each api module carries its own base + auth + refusal vocabulary, like tissueApi and
 // biomarkerApi do — the refusals are what differ, and they are what a user actually reads.
 const COPILOT_BASE = (import.meta.env.VITE_COPILOT_API_URL || '/api/copilot').replace(/\/$/, '');
@@ -57,4 +57,19 @@ export async function getNucleiMeta(itemId, artHash) {
     { headers: authHeaders() },
   );
   return asJson(r, 'Load nuclei artifact');
+}
+
+// The tile URL OpenSeadragon fetches directly. No token in the query string: the layer is mounted
+// with `loadTilesWithAjax` + `ajaxHeaders`, so tiles authenticate with the same header as every
+// other call and the gateway needs no second auth surface.
+export function tileUrl(itemId, artHash, layer, level, x, y, params = {}) {
+  const qs = new URLSearchParams(params);
+  return `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei/`
+    + `${encodeURIComponent(artHash)}/tile/${layer}/${level}/${x}/${y}.png?${qs.toString()}`;
+}
+
+// The headers OSD must send for tile requests (see tileUrl).
+export function tileAjaxHeaders() {
+  const token = localStorage.getItem('girderToken');
+  return token ? { 'Girder-Token': token } : {};
 }

@@ -348,7 +348,9 @@ async def test_a_finished_nuclei_build_puts_its_counts_on_the_row(client, art_st
 
 
 @pytest.mark.anyio
-async def test_deleting_a_nuclei_artifact_reaches_the_cellvit_worker(client, art_store, monkeypatch):
+async def test_deleting_a_nuclei_artifact_reaches_the_cellvit_worker(
+    client, art_store, monkeypatch,
+):
     await _seed(art_store, "item9", "nuclei", "n1")
     calls = []
     monkeypatch.setattr(routes_mod, "delete_artifact", _deleted(calls))
@@ -356,3 +358,52 @@ async def test_deleting_a_nuclei_artifact_reaches_the_cellvit_worker(client, art
 
     assert client.delete(f"{_BASE}/item9/artifacts/n1").status_code == 204
     assert calls[0] == ("http://cellvit:8020", "nuclei", "item9", "n1")
+
+
+# ── the mask (Inc 5, ticket 06) ────────────────────────────────────────────────────
+
+
+def _fake_tile(seen, *, status_code=200):
+    from agent.loop.nuclei_client import TileResponse
+
+    async def get(*, base_url, path, params, client=None):
+        seen.append((base_url, path, params))
+        return TileResponse(body=b"\x89PNG", content_type="image/png",
+                            cache_control="public, max-age=86400", etag='W/"3"',
+                            status_code=status_code)
+    return get
+
+
+def test_a_nuclei_tile_is_proxied_with_its_query_and_cache_headers(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(routes_mod, "get_nuclei_tile", _fake_tile(seen))
+    _with_cellvit(client)
+
+    r = client.get(f"{_BASE}/item9/nuclei/n1/tile/classes/2/3/4.png?alpha=0.6&show=Neoplastic")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    # An unchanged (artifact, coverage, query) tile is immutable, so the worker's caching survives
+    # the hop through the gateway.
+    assert r.headers["cache-control"] == "public, max-age=86400"
+    assert r.headers["etag"] == 'W/"3"'
+
+    base, path, params = seen[0]
+    assert base == "http://cellvit:8020"
+    assert path == "/nuclei/item9/n1/tile/classes/2/3/4.png"
+    # Forwarded verbatim: the gateway does not know what a class is.
+    assert params == {"alpha": "0.6", "show": "Neoplastic"}
+
+
+def test_a_bad_class_spec_stays_a_400_rather_than_becoming_a_502(client, monkeypatch):
+    """A typo in the class list is the panel's error to show, not a broken worker."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "get_nuclei_tile", _fake_tile(seen, status_code=400))
+    _with_cellvit(client)
+
+    r = client.get(f"{_BASE}/item9/nuclei/n1/tile/classes/0/0/0.png?show=Tumour")
+    assert r.status_code == 400
+
+
+def test_a_tile_without_a_configured_worker_is_503(client):
+    r = client.get(f"{_BASE}/item9/nuclei/n1/tile/classes/0/0/0.png")
+    assert r.status_code == 503

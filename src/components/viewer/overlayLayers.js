@@ -23,8 +23,11 @@
 
 const TILE = 256;
 
-// Bottom → top. Not user-controllable: tissue is areal and would bury the point-like layers.
-export const LAYER_ORDER = ['tissue', 'markers', 'pheno'];
+// Bottom → top. Not user-controllable: each layer sits above the one it subdivides, so the finer
+// claim is always the readable one. Tissue is areal and would bury everything; the nucleus mask
+// divides that tissue into cells; the marker and phenotype layers are per-cell attributes and
+// belong on top of the cells they describe.
+export const LAYER_ORDER = ['tissue', 'nuclei', 'markers', 'pheno'];
 
 // Per-viewer state. WeakMap so a discarded viewer takes its bookkeeping with it.
 const basePrefs = new WeakMap();

@@ -84,7 +84,7 @@ export const useStore = create((set, get) => ({
           copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,
           copilotPhenotypes: null,
           copilotRegions: [], tissueContours: {}, taskHeatmap: null,
-          visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {} }),
+          visibleArtifacts: {}, tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {} }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -99,7 +99,7 @@ export const useStore = create((set, get) => ({
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
-      tissueLayerParams: {}, markerLayerParams: {},
+      tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -128,7 +128,7 @@ export const useStore = create((set, get) => ({
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
-      tissueLayerParams: {}, markerLayerParams: {},
+      tissueLayerParams: {}, markerLayerParams: {}, nucleiLayerParams: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -317,6 +317,11 @@ export const useStore = create((set, get) => ({
   markerLayerParams: {},
   setMarkerLayerParams: (patch) =>
     set((s) => ({ markerLayerParams: { ...s.markerLayerParams, ...patch } })),
+
+  // The same, for the nuclei mask. Patches nucleiUtils' NUCLEI_LAYER_DEFAULTS.
+  nucleiLayerParams: {},
+  setNucleiLayerParams: (patch) =>
+    set((s) => ({ nucleiLayerParams: { ...s.nucleiLayerParams, ...patch } })),
 
   // ── Task evidence map (Inc 2c) ────────────────────────────────────────────
   // The per-patch signed class evidence a downstream task produced, plus how the viewer shows it.
