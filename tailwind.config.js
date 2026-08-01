@@ -18,6 +18,8 @@ export default {
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
+          // OHIF's `primary-dark`, #090c29 — the same triplet --card already holds.
+          dark: 'hsl(var(--card))',
         },
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
@@ -27,6 +29,10 @@ export default {
           // edits and a re-sync from upstream stays a diff rather than a merge.
           // `secondary-dark` is OHIF's #041c4a — the same colour --popover already holds.
           dark: 'hsl(var(--popover))',
+          // `secondary-light` is the one alias that is a choice rather than an identity: OHIF's
+          // #3a3f99 has no exact twin here, and --input is the nearest by role (the edge colour on
+          // a raised surface). Only the tooltip border uses it.
+          light: 'hsl(var(--input))',
         },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',

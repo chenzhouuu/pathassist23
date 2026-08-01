@@ -1,19 +1,63 @@
 // src/components/panels/WorkspacePanel.jsx — the per-slide artifact workspace (Inc 5).
 //
 // One place that lists every artifact a slide has, says what each one is in a line, switches its
-// overlay on and off, and deletes it. This ticket (Inc 5 · 01) is the shell: the tab and the
-// vendored OHIF section the list will be built out of. The rows arrive in ticket 02, bound to the
-// slide's artifact table; the eye in 03; delete in 04.
+// overlay on and off, and deletes it. Ticket 02 delivers the list; the eye arrives in 03 and delete
+// in 04, both of which DataRow already has sockets for.
 //
-// The panel itself is ordinary .jsx like every other panel — only the components it is assembled
-// from are vendored TypeScript. That boundary is the point: OHIF's files stay a copy, and the app
-// code that binds them to this repo's data stays ours.
-import React from 'react';
+// The list is the artifact table itself (D1) — there is no separate workspace record. Rows come
+// from the gateway's /artifacts endpoint, which reconciles any in-flight build against its worker
+// before answering, so a queued row becomes ready here without the panel knowing which worker owns
+// which kind.
+//
+// The panel is ordinary .jsx like every other panel; only the components it is assembled from are
+// vendored TypeScript. That boundary is the point: OHIF's files stay a copy, and the app code that
+// binds them to this repo's data stays ours.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
+import { listArtifacts } from '../../api/preprocessApi.js';
+import { TooltipProvider } from '../ui/tooltip.tsx';
 import { PanelSection } from '../workspace/vendor/ohif/PanelSection.tsx';
+import { DataRow } from '../workspace/vendor/ohif/DataRow.tsx';
+import { describeArtifact, isInFlight, sortArtifacts } from './workspaceUtils.js';
+
+const POLL_MS = 2500;
 
 export default function WorkspacePanel() {
   const activeItem = useStore((s) => s.activeItem);
+  const itemId = activeItem?._id || null;
+
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const pollRef = useRef(null);
+
+  const refresh = useCallback(async () => {
+    if (!itemId) { setRows([]); setLoaded(false); return; }
+    try {
+      setRows(await listArtifacts(itemId));
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoaded(true);
+    }
+  }, [itemId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Poll only while something is actually building — a slide whose artifacts are all finished is
+  // a static list, and the endpoint reconciles against the workers on every call.
+  const building = rows.some(isInFlight);
+  useEffect(() => {
+    if (!building) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return undefined;
+    }
+    pollRef.current = setInterval(() => { refresh(); }, POLL_MS);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
+  }, [building, refresh]);
+
+  const described = useMemo(() => sortArtifacts(rows).map((row) => describeArtifact(row)), [rows]);
 
   if (!activeItem) {
     return (
@@ -32,17 +76,39 @@ export default function WorkspacePanel() {
   }
 
   return (
-    <div className="p-2">
-      <PanelSection>
-        <PanelSection.Header>
-          <span>Artifacts</span>
-        </PanelSection.Header>
-        <PanelSection.Content>
-          <div className="px-2.5 py-6 text-center text-xs" style={{ color: 'var(--muted-hex)' }}>
-            This slide&apos;s artifacts will be listed here.
-          </div>
-        </PanelSection.Content>
-      </PanelSection>
-    </div>
+    <TooltipProvider>
+      <div className="p-2">
+        <PanelSection>
+          <PanelSection.Header>
+            <span>Artifacts{described.length ? ` (${described.length})` : ''}</span>
+          </PanelSection.Header>
+          <PanelSection.Content>
+            {error && (
+              <div className="px-2.5 py-3 text-xs" style={{ color: 'var(--danger)' }}>
+                {error}
+              </div>
+            )}
+            {!error && loaded && described.length === 0 && (
+              <div className="px-2.5 py-6 text-center text-xs" style={{ color: 'var(--muted-hex)' }}>
+                Nothing has been built for this slide yet.
+              </div>
+            )}
+            <div className="flex flex-col gap-px">
+              {described.map((view, i) => (
+                <DataRow
+                  key={view.key || i}
+                  number={i + 1}
+                  title={view.title}
+                  details={{ primary: view.primary, secondary: view.secondary }}
+                  isVisible
+                  disableEditing              /* the menu is empty until delete lands in 04 */
+                  className={view.failed ? 'opacity-70' : undefined}
+                />
+              ))}
+            </div>
+          </PanelSection.Content>
+        </PanelSection>
+      </div>
+    </TooltipProvider>
   );
 }
