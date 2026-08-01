@@ -11,6 +11,7 @@ import PreprocessPanel from './PreprocessPanel.jsx';
 import TaskPanel from './TaskPanel.jsx';
 import MarkersPanel from './MarkersPanel.jsx';
 import TissuePanel from './TissuePanel.jsx';
+import WorkspacePanel from './WorkspacePanel.jsx';
 
 const MIN_W = 248;
 const MAX_W = 780;
@@ -91,6 +92,13 @@ export default function RightPanel() {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
       </svg> },
+    // Inc 5 · 01. It sits at the end of the AI group for now; ticket 03 moves it to the front of
+    // the bar and makes it where ai-users land, once the eye in it owns overlay visibility.
+    { id:'workspace',   label:'Workspace', show: hasRole('ai-users'), icon:
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/>
+        <polyline points="2 12 12 17 22 12"/>
+      </svg> },
     { id:'panels',      label:'Panels', show: true, badge: panels.length || null, icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -164,6 +172,7 @@ export default function RightPanel() {
         {rightPanelTab === 'task'        && <TaskPanel/>}
         {rightPanelTab === 'markers'     && <MarkersPanel/>}
         {rightPanelTab === 'tissue'      && <TissuePanel/>}
+        {rightPanelTab === 'workspace'   && <WorkspacePanel/>}
       </div>
     </div>
   );

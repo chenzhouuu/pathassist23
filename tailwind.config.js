@@ -22,6 +22,11 @@ export default {
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
+          // OHIF's ui-next files are written against OHIF's own theme names. They are declared
+          // here, bound to triplets the palette already carries, so a vendored file needs no class
+          // edits and a re-sync from upstream stays a diff rather than a merge.
+          // `secondary-dark` is OHIF's #041c4a — the same colour --popover already holds.
+          dark: 'hsl(var(--popover))',
         },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
@@ -44,6 +49,10 @@ export default {
           foreground: 'hsl(var(--card-foreground))',
         },
         highlight: 'hsl(var(--highlight))',
+        // OHIF's #7bb2ce, which the palette already carries as --muted-foreground.
+        aqua: {
+          pale: 'hsl(var(--muted-foreground))',
+        },
         dsa: {
           bg: '#0d0e14',
           panel: '#13151f',
@@ -68,6 +77,23 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      // Radix measures an accordion's content and exposes the height as a custom property; the
+      // keyframes that consume it ship in the config rather than the stylesheet. PanelSection is
+      // an Accordion, so a collapse without these is instant instead of animated.
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
       },
     }
   },
