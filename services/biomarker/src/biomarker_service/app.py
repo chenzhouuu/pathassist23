@@ -46,11 +46,24 @@ def _nuclei_factory(slide_ref: str, token: str | None, nuclei_hash: str):
 
     `token` is no longer needed — reading an artifact touches no slide — and is kept in the
     signature because the caller has it and a later source may.
+
+    The caller asks for the *haloed* window and then narrows to the core by centroid, exactly as it
+    did against `/segment`, so the substitution changes where the cells come from and nothing about
+    what is done with them.
     """
     base = get_settings().batch_cellvit_url
 
     def fetch_nuclei(bbox: dict):
         res = fetch_cells(base_url=base, slide_ref=slide_ref, art_hash=nuclei_hash, bbox=bbox)
+        if not res.covered:
+            # The nuclei artifact does not reach here. Writing this core anyway would put an empty
+            # phenotype tile on the map, and an empty tile reads as "no cells" rather than "not
+            # computed" — a hole indistinguishable from a finding. Fail with the reason instead;
+            # extending the nuclei artifact and starting again resumes from coverage.
+            raise RuntimeError(
+                f"the nuclei artifact does not cover {bbox} — build nuclei over this area first, "
+                "or the phenotype map would report an uncomputed region as empty"
+            )
         return res.centroids, res.classes, res.contours
 
     return fetch_nuclei

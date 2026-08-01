@@ -24,4 +24,8 @@ stages already use. The dependency direction becomes the true one: biomarker is 
 - [x] The Workspace shows the parent relationship, and deleting a nuclei artifact that a biomarker
       artifact depends on is refused, naming it (ticket 04).
 - [x] The client function name that says "centroids" no longer describes what is fetched — rename it
-      along with the change.
+      along with the change. Done as a new module rather than a rename in place: the map path is now
+      `nuclei_client.fetch_cells`, and `cellvit_client.fetch_centroids` stays where it is because the
+      interactive `/phenotype` route still calls `/segment` and centroids are still all it wants.
+      That route is the agent's ad-hoc "what is in this box" call and has to work on a slide with no
+      artifact, so it is deliberately not switched.

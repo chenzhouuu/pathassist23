@@ -259,3 +259,41 @@ def test_delete_is_idempotent(tmp_path):
 def test_delete_refuses_a_path_that_would_escape_the_cache_root():
     client = _app_with_fakes().test_client()
     assert client.delete("/biomarker/item1/..").status_code in (400, 404)
+
+
+# ── the cells come from the artifact, not a second segmentation (Inc 5 · 09) ───────
+
+
+def test_the_nucleus_source_reads_the_stored_artifact_for_the_haloed_window(monkeypatch):
+    """The caller asks for the haloed window and narrows to the core itself, exactly as it did
+    against /segment — so the substitution changes where the cells come from and nothing else."""
+    from biomarker_service import app as app_mod
+    from biomarker_service.nuclei_client import CellsResult
+
+    asked = []
+
+    def fake(*, base_url, slide_ref, art_hash, bbox, **kw):
+        asked.append((slide_ref, art_hash, dict(bbox)))
+        return CellsResult(centroids=[[1.0, 2.0]], classes=["Neoplastic"],
+                           contours=[[[0, 0], [2, 0], [2, 2]]], instances=[7])
+    monkeypatch.setattr(app_mod, "fetch_cells", fake)
+
+    fetch = app_mod._nuclei_factory("item1", "tok", "nuc1")
+    cents, classes, contours = fetch({"x": 0, "y": 0, "width": 2560, "height": 2560})
+    assert cents == [[1.0, 2.0]] and classes == ["Neoplastic"] and len(contours) == 1
+    assert asked == [("item1", "nuc1", {"x": 0, "y": 0, "width": 2560, "height": 2560})]
+
+
+def test_a_window_the_nuclei_artifact_does_not_reach_fails_rather_than_reporting_no_cells(
+    monkeypatch,
+):
+    """An empty phenotype tile reads as "no cells", not as "not computed" — a hole that cannot be
+    told apart from a finding."""
+    from biomarker_service import app as app_mod
+    from biomarker_service.nuclei_client import CellsResult
+
+    monkeypatch.setattr(app_mod, "fetch_cells",
+                        lambda **kw: CellsResult(centroids=[], covered=False))
+    fetch = app_mod._nuclei_factory("item1", None, "nuc1")
+    with pytest.raises(RuntimeError, match="does not cover"):
+        fetch({"x": 0, "y": 0, "width": 256, "height": 256})
