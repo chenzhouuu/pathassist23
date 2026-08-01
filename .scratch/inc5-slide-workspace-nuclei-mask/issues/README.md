@@ -58,5 +58,22 @@ the test suite:
 - **The deployed tissue and preprocess containers predated ticket 04**, so their usage endpoints
   404'd. A rebuild, not a code change, but it is why the confirm dialog showed no size.
 
-Measured, for plan R3: **~7 s and ~0.8 MB per core** on the GPU box, so a 434-core whole slide is
-roughly **50 minutes and 350 MB** of class + cover + instance rasters.
+Measured, for plan R3, on TCGA-3C-AAAU (151392×37993, 434 tissue cores of 1406):
+
+| | |
+|---|---|
+| whole-slide run | **65 min**, 323,634 nuclei — ~9 s per core |
+| of which the finalisation pass | ~7 min (redraws every core to fix its seams) |
+| a redraw with no inference | 17 min for all 434 cores |
+| vectors (`cells/`) | 32 MB |
+| class + cover rasters | 317 MB |
+| instance raster (ticket 08) | 167 MB |
+| **artifact total** | **514 MB** |
+
+So the per-cell raster nearly doubles the artifact. It is written unconditionally today; if that
+becomes the reason a slide does not fit, making it opt-in is a config flag and a `layers` entry,
+not a redesign — nothing reads it but the view it feeds.
+
+The number that decides whether whole-slide is routine is not the hour, it is that the run has to
+be watched: without the session recycle above, the worker wedges after twenty-odd cores and nothing
+in this codebase can interrupt it.
