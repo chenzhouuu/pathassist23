@@ -12,9 +12,10 @@ import { useStore } from '../../store/index.js';
 import { listArtifacts } from '../../api/preprocessApi.js';
 import { cancelNuclei, getNucleiMeta, startNuclei } from '../../api/nucleiApi.js';
 import {
-  canStop, classRows, colorsOf, coverageSummary, describeStage, findNucleiRow,
-  findReadySegmentation, formatArea, formatCount, formatPercent, isRunning, isStopping,
-  layerLevels, progressPercent, startLabel, summaryLine, totalNuclei, withNucleiDefaults,
+  RENDERS, RENDER_LABEL, canStop, classRows, colorsOf, coverageSummary, describeStage,
+  findNucleiRow, findReadySegmentation, formatArea, formatCount, formatPercent, hasInstances,
+  isRunning, isStopping, layerLevels, progressPercent, startLabel, summaryLine, totalNuclei,
+  withNucleiDefaults,
 } from './nucleiUtils.js';
 import { formatRoi, useRegionSelect } from './useRegionSelect.js';
 
@@ -249,10 +250,32 @@ export default function NucleiPanel() {
               {shownOnSlide ? 'on the slide' : 'switch it on from the Workspace'}
             </span>
           </div>
+          {/* Two views over one raster: what a nucleus is, or which one it is. Same pixels on
+              disk, so switching costs a URL. Offered only once the per-cell plane exists — an
+              artifact built before it has one on its next run. */}
+          {hasInstances(meta) && (
+            <div className="mk-modes">
+              {RENDERS.map((r) => (
+                <button
+                  key={r} type="button"
+                  className={`mk-mode ${layer.render === r ? 'active' : ''}`}
+                  onClick={() => setNucleiLayerParams({ render: r })}
+                >
+                  {RENDER_LABEL[r]}
+                </button>
+              ))}
+            </div>
+          )}
           <Slider
             label="Opacity" min={0.05} max={1} value={layer.opacity}
             onChange={(v) => setNucleiLayerParams({ opacity: v })}
           />
+          {layer.render === 'instances' && hasInstances(meta) && (
+            <div className="mk-note mk-dim">
+              A colour per cell, not per class — so touching nuclei read as separate. The colours
+              carry no meaning of their own.
+            </div>
+          )}
         </div>
       )}
 

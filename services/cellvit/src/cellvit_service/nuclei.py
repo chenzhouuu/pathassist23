@@ -189,7 +189,10 @@ def _write_meta(root: Path, *, art: str, slide: SlideInfo, backend: str, offset:
         # being upsampled to 0.25.
         "store_mpp": round((slide.mpp or STORE_MPP) * s, 5),
         "level_offset": offset,
-        "layers": {"classes": {"level_offset": offset, "levels": n_levels}},
+        # Both rasters share a grid and a pyramid depth — they are the same array, split by a
+        # lookup (raster.rasterise_core) — so the viewer mounts either at the same geometry.
+        "layers": {"classes": {"level_offset": offset, "levels": n_levels},
+                   "instances": {"level_offset": offset, "levels": n_levels}},
         "tile": TILE,
         "core": CORE,
         "classes": [TYPE_NAMES[k] for k in sorted(TYPE_NAMES)],

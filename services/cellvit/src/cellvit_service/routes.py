@@ -30,11 +30,12 @@ from .artifacts import (
 )
 from .config import get_settings
 from .nuclei import SlideInfo, run_region, summary_from_coverage
-from .pyramid import read_class_tile, read_cover_tile
+from .pyramid import read_class_tile, read_cover_tile, read_instance_tile
 from .tiles import (
     TRANSPARENT_TILE,
     BadClassSpec,
     colourise,
+    colourise_instances,
     encode_png,
     parse_colors,
     parse_show,
@@ -182,10 +183,22 @@ def register(app) -> None:
         URL change rather than a rebuild — the picture on disk is just an index and a coverage
         fraction (tiles.py).
         """
-        if layer != "classes":
+        if layer not in ("classes", "instances"):
             return jsonify({"detail": f"unknown layer {layer!r}"}), 400
         root = _root(item, ahash)
         rev = len(Coverage.load(root).done)
+        alpha = _f(request.args.get("alpha"), 1.0)
+
+        if layer == "instances":
+            ids = read_instance_tile(root, z, x, y)
+            if ids is None:
+                return _png(TRANSPARENT_TILE, rev)
+            # `raw=1` serves the stored packing byte for byte — the form a future picker reads to
+            # turn a click into a nucleus. Without it the ids are scrambled into distinguishable
+            # colours, which is the only way a field of consecutive ids reads as separate cells.
+            raw = request.args.get("raw") in ("1", "true", "yes")
+            rgba = colourise_instances(ids, read_cover_tile(root, z, x, y), alpha=alpha, raw=raw)
+            return _png(encode_png(rgba), rev)
 
         try:
             show = parse_show(request.args.get("show"))
@@ -196,8 +209,8 @@ def register(app) -> None:
         idx = read_class_tile(root, z, x, y)
         if idx is None:
             return _png(TRANSPARENT_TILE, rev)
-        rgba = colourise(idx, read_cover_tile(root, z, x, y), show=show,
-                         alpha=_f(request.args.get("alpha"), 1.0), colors=colors)
+        rgba = colourise(idx, read_cover_tile(root, z, x, y), show=show, alpha=alpha,
+                         colors=colors)
         return _png(encode_png(rgba), rev)
 
     @app.delete("/nuclei/<item>/<ahash>")

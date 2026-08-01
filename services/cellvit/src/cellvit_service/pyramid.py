@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .artifacts import TILE, class_tile_path, cover_tile_path
+from .artifacts import TILE, class_tile_path, cover_tile_path, instance_tile_path
 from .pannuke import BACKGROUND_INDEX, class_ids, palette_bytes
 
 
@@ -83,6 +83,80 @@ def downsample_class(idx: np.ndarray) -> np.ndarray:
     best = np.take(np.array(ids, dtype=np.uint8), counts.argmax(axis=2))
     any_fg = counts.sum(axis=2) > 0
     return np.where(any_fg, best, BACKGROUND_INDEX).astype(np.uint8)
+
+
+# ── instances ──────────────────────────────────────────────────────────────────────
+#
+# One nucleus, one id, packed little-endian into RGB with alpha as the mask — the OME-NGFF
+# `labels` convention carried in the format a tile server can actually send. 24 bits is ~16.7 M
+# nuclei per slide against a real whole slide's ~1–10 M, and keeping alpha out of the number is
+# what lets a reader tell "id 0" from "no nucleus" without a second plane.
+#
+# The stored value is exact. Making neighbouring ids *look* different is the renderer's job
+# (tiles.colourise_instances), because consecutive ids differ by one and would otherwise paint a
+# smooth gradient across a field of separate cells.
+
+_ID_MAX = (1 << 24) - 1
+
+
+def pack_instances(ids: np.ndarray) -> np.ndarray:
+    """uint32 label raster → uint8 RGBA. 0 stays fully transparent."""
+    a = np.ascontiguousarray(ids, dtype=np.uint32)
+    if a.max(initial=0) > _ID_MAX:
+        raise RuntimeError(f"instance id {int(a.max())} does not fit in 24 bits")
+    rgba = np.zeros(a.shape + (4,), dtype=np.uint8)
+    rgba[..., 0] = a & 0xFF
+    rgba[..., 1] = (a >> 8) & 0xFF
+    rgba[..., 2] = (a >> 16) & 0xFF
+    rgba[..., 3] = np.where(a > 0, 255, 0)
+    return rgba
+
+
+def unpack_instances(rgba: np.ndarray) -> np.ndarray:
+    """The inverse. Alpha is the mask, so a transparent pixel reads back as id 0."""
+    a = rgba.astype(np.uint32)
+    ids = a[..., 0] | (a[..., 1] << 8) | (a[..., 2] << 16)
+    return np.where(a[..., 3] > 0, ids, 0).astype(np.uint32)
+
+
+def write_instance_tile(root: Path, z: int, x: int, y: int, ids: np.ndarray) -> None:
+    path = instance_tile_path(root, z, x, y)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    im = Image.fromarray(pack_instances(ids), mode="RGBA")
+    tmp = path.with_suffix(".png.tmp")
+    im.save(tmp, format="PNG", optimize=True)
+    tmp.replace(path)
+
+
+def read_instance_tile(root: Path, z: int, x: int, y: int) -> np.ndarray | None:
+    path = instance_tile_path(root, z, x, y)
+    if not path.is_file():
+        return None
+    with Image.open(path) as im:
+        return unpack_instances(np.array(im.convert("RGBA"), dtype=np.uint8))
+
+
+def downsample_instance(ids: np.ndarray) -> np.ndarray:
+    """2x2 mode over the non-background children; ties → lowest id.
+
+    The same rule as the class plane and for the same reason: an id is nominal, and the mean of
+    two ids is a third nucleus that does not exist. What is lost going up is which of two touching
+    cells won a pixel, which is not a question anyone asks at a zoom where a cell is one pixel.
+    """
+    a = _pad_to_even(ids).astype(np.uint32)
+    h, w = a.shape
+    quads = a.reshape(h // 2, 2, w // 2, 2).transpose(0, 2, 1, 3).reshape(h // 2, w // 2, 4)
+    quads = np.sort(quads, axis=2)                       # ties resolve to the lowest id
+
+    best = np.zeros(quads.shape[:2], dtype=np.uint32)
+    best_n = np.zeros(quads.shape[:2], dtype=np.uint8)
+    for k in range(4):
+        v = quads[..., k]
+        n = (quads == v[..., None]).sum(axis=2).astype(np.uint8)
+        take = (v > 0) & (n > best_n)
+        best = np.where(take, v, best)
+        best_n = np.where(take, n, best_n)
+    return best
 
 
 # ── coverage ───────────────────────────────────────────────────────────────────────
@@ -153,6 +227,7 @@ def build_levels_above(root: Path, n_levels: int, tiles: list[tuple[int, int]]) 
 def _build_parent(root: Path, z: int, px: int, py: int) -> None:
     cls = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
     cov = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
+    ids = np.zeros((TILE * 2, TILE * 2), dtype=np.uint32)
     found = False
     for dy in (0, 1):
         for dx in (0, 1):
@@ -166,10 +241,15 @@ def _build_parent(root: Path, z: int, px: int, py: int) -> None:
             # A class tile with no cover tile beside it can only be a half-written pair; treat the
             # nucleus pixels as fully covered rather than dropping the tile from the picture.
             cov[sl] = pad_tile(child_cov) if child_cov is not None else (cls[sl] != 0) * 255
+            child_ids = read_instance_tile(root, z - 1, px * 2 + dx, py * 2 + dy)
+            if child_ids is not None:
+                ids[sl] = pad_tile(child_ids)
     if not found:
         return
     write_class_tile(root, z, px, py, downsample_class(cls))
     write_cover_tile(root, z, px, py, downsample_cover(cov))
+    if ids.any():
+        write_instance_tile(root, z, px, py, downsample_instance(ids))
 
 
 # ── shared ─────────────────────────────────────────────────────────────────────────
@@ -193,7 +273,8 @@ def _pad_to_even(a: np.ndarray) -> np.ndarray:
 
 
 __all__ = [
-    "build_levels", "build_levels_above", "downsample_class", "downsample_cover", "levels_for",
-    "pad_tile",
-    "read_class_tile", "read_cover_tile", "write_class_tile", "write_cover_tile",
+    "build_levels", "build_levels_above", "downsample_class", "downsample_cover",
+    "downsample_instance", "levels_for", "pack_instances", "pad_tile", "read_class_tile",
+    "read_cover_tile", "read_instance_tile", "unpack_instances", "write_class_tile",
+    "write_cover_tile", "write_instance_tile",
 ]

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPACITY, canStop, classRows, classesOf, colorsOf, coverageSummary, describeStage,
-  findNucleiRow, findReadySegmentation, formatArea, formatPercent, isRunning, isStopped,
-  isStopping, layerLevels, layerSignature, levelOffsetFor, progressPercent, startLabel,
-  summaryLine, tileParams, totalNuclei, withNucleiDefaults,
+  findNucleiRow, findReadySegmentation, formatArea, formatPercent, hasInstances, isRunning,
+  isStopped, isStopping, layerLevels, layerSignature, levelOffsetFor, progressPercent,
+  startLabel, summaryLine, tileParams, totalNuclei, withNucleiDefaults,
 } from './nucleiUtils.js';
 
 const summary = (over = {}) => ({
@@ -134,7 +134,7 @@ const META = {
   slide: { width: 4096, height: 4096, mpp: 0.25 },
   classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
   colors: { Neoplastic: '#D55E00', Connective: '#0072B2' },
-  layers: { classes: { level_offset: 0, levels: 5 } },
+  layers: { classes: { level_offset: 0, levels: 5 }, instances: { level_offset: 0, levels: 5 } },
 };
 
 describe('the artifact describes its own layer', () => {
@@ -151,6 +151,14 @@ describe('the artifact describes its own layer', () => {
   it('reads the stored resolution and the pyramid depth off the artifact', () => {
     expect(levelOffsetFor(META)).toBe(0);
     expect(layerLevels(META)).toBe(5);
+    expect(layerLevels(META, 'instances')).toBe(5);
+  });
+
+  it('offers the per-cell view only when the artifact carries that raster', () => {
+    // One built before ticket 08 has class tiles and no ids until its next run redraws it.
+    expect(hasInstances(META)).toBe(true);
+    expect(hasInstances({ layers: { classes: { levels: 5 } } })).toBe(false);
+    expect(hasInstances(null)).toBe(false);
   });
 
   it('reports no levels for a build with no picture, so the layer is not mounted', () => {
@@ -163,36 +171,47 @@ describe('tileParams', () => {
   const all = META.classes;
 
   it('omits show when nothing is hidden — a shorter URL is a better cache key', () => {
-    expect(tileParams({ show: all, opacity: 1, classes: all })).toEqual({});
+    expect(tileParams('classes', { show: all, opacity: 1, classes: all })).toEqual({});
   });
 
   it('names the classes still shown, sorted, so the URL is stable', () => {
-    const p = tileParams({ show: ['Connective', 'Neoplastic'], opacity: 1, classes: all });
+    const p = tileParams('classes', { show: ['Connective', 'Neoplastic'], classes: all });
     expect(p.show).toBe('Connective,Neoplastic');
   });
 
   it('leaves opacity out of the URL — it is a layer property, not a tile one', () => {
     // The panel passes opacity: 1 here and applies the real value to the mounted layer, so
     // dragging the slider must not change a single tile URL.
-    expect(tileParams({ show: all, opacity: 1, classes: all }).alpha).toBeUndefined();
-    expect(tileParams({ opacity: 0.5 }).alpha).toBe('0.5');
+    expect(tileParams('classes', { show: all, opacity: 1, classes: all }).alpha).toBeUndefined();
+    expect(tileParams('classes', { opacity: 0.5 }).alpha).toBe('0.5');
+  });
+
+  it('does not filter the per-cell view by class', () => {
+    // Its colours say which cell, not which kind — hiding a class there would remove cells
+    // without saying what they had in common.
+    const p = tileParams('instances', { show: ['Neoplastic'], classes: all });
+    expect(p.show).toBeUndefined();
   });
 });
 
 describe('layerSignature', () => {
   it('changes when the picture changes and not when it does not', () => {
-    const a = layerSignature('n1', { show: 'Neoplastic' });
-    expect(layerSignature('n1', { show: 'Neoplastic' })).toBe(a);
-    expect(layerSignature('n1', { show: 'Dead' })).not.toBe(a);
-    expect(layerSignature('n2', { show: 'Neoplastic' })).not.toBe(a);
-    expect(layerSignature(null, {})).toBe('none');
+    const a = layerSignature('classes', 'n1', { show: 'Neoplastic' });
+    expect(layerSignature('classes', 'n1', { show: 'Neoplastic' })).toBe(a);
+    expect(layerSignature('classes', 'n1', { show: 'Dead' })).not.toBe(a);
+    expect(layerSignature('classes', 'n2', { show: 'Neoplastic' })).not.toBe(a);
+    // Switching the view is a different picture of the same artifact.
+    expect(layerSignature('instances', 'n1', { show: 'Neoplastic' })).not.toBe(a);
+    expect(layerSignature('classes', null, {})).toBe('none');
   });
 });
 
 describe('withNucleiDefaults', () => {
   it('is a patch over one set of defaults', () => {
     expect(withNucleiDefaults(null).opacity).toBe(DEFAULT_OPACITY);
-    expect(withNucleiDefaults({ opacity: 0.2 })).toEqual({ opacity: 0.2, hidden: {} });
+    expect(withNucleiDefaults(null).render).toBe('classes');
+    expect(withNucleiDefaults({ opacity: 0.2 }))
+      .toEqual({ render: 'classes', opacity: 0.2, hidden: {} });
   });
 });
 

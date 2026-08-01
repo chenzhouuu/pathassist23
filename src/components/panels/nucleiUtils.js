@@ -121,7 +121,14 @@ export function formatCount(n) {
 export const DEFAULT_OPACITY = 0.65;   // point-like and sparse — it can afford to be more solid
                                        // than the areal tissue map underneath it
 
+// Two views over one raster: `classes` colours a nucleus by what it is, `instances` by which one
+// it is. Same grid, same pyramid, same pixels — they are one array split by a lookup on the
+// server, so switching is a URL change (Inc 5 · 08).
+export const RENDERS = Object.freeze(['classes', 'instances']);
+export const RENDER_LABEL = Object.freeze({ classes: 'Class', instances: 'Each cell' });
+
 export const NUCLEI_LAYER_DEFAULTS = Object.freeze({
+  render: 'classes',
   opacity: DEFAULT_OPACITY,
   hidden: Object.freeze({}),           // { [className]: true }
 });
@@ -142,11 +149,12 @@ export function colorsOf(meta) {
 }
 
 /** Query params for a tile URL. Fixed key order: OSD caches by URL string. */
-export function tileParams({ show, opacity, classes, rev } = {}) {
+export function tileParams(render, { show, opacity, classes, rev } = {}) {
   const params = {};
   const all = classes || [];
-  // Omit `show` when nothing is filtered — a shorter URL is a better cache key.
-  if (show && all.length && show.length && show.length < all.length) {
+  // The instance view has no class filter — its colours say which cell, not which kind, so
+  // hiding a class there would remove cells without saying what they had in common.
+  if (render !== 'instances' && show && all.length && show.length && show.length < all.length) {
     params.show = [...show].sort().join(',');
   }
   if (opacity != null && opacity !== 1) params.alpha = String(Math.round(opacity * 1000) / 1000);
@@ -158,22 +166,28 @@ export function tileParams({ show, opacity, classes, rev } = {}) {
   return params;
 }
 
-export function layerSignature(artHash, params) {
-  if (!artHash) return 'none';
+export function layerSignature(render, artHash, params) {
+  if (!artHash || !render) return 'none';
   const keys = Object.keys(params || {}).sort();
-  return `nuclei|${artHash}|${keys.map((k) => `${k}=${params[k]}`).join('&')}`;
+  return `nuclei|${render}|${artHash}|${keys.map((k) => `${k}=${params[k]}`).join('&')}`;
 }
 
 /** Stored tiles are at the nuclei store resolution; `level_offset` converts an OSD level to it. */
-export function levelOffsetFor(meta) {
-  const n = meta?.layers?.classes?.level_offset;
+export function levelOffsetFor(meta, layer = 'classes') {
+  const n = meta?.layers?.[layer]?.level_offset;
   return Number.isFinite(n) ? n : 0;
 }
 
 /** How many pyramid levels the artifact has. 0 means it has no picture yet — do not mount. */
-export function layerLevels(meta) {
-  const n = meta?.layers?.classes?.levels;
+export function layerLevels(meta, layer = 'classes') {
+  const n = meta?.layers?.[layer]?.levels;
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Whether this artifact carries the per-cell raster. Ones built before ticket 08 do not, until
+ *  their next run redraws them — so the switch is offered only when there is something to show. */
+export function hasInstances(meta) {
+  return layerLevels(meta, 'instances') > 0;
 }
 
 /** The one-line summary, the same shape the Workspace row shows. '' before anything is stored. */

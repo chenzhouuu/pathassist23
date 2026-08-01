@@ -18,6 +18,7 @@ from PIL import Image
 
 from .artifacts import TILE
 from .pannuke import TYPE_NAMES, class_ids, color_for
+from .pyramid import pack_instances
 
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
 
@@ -96,6 +97,40 @@ def colourise(
     return rgba
 
 
+def colourise_instances(
+    ids: np.ndarray, cover: np.ndarray | None, *, alpha: float = 1.0, raw: bool = False,
+) -> np.ndarray:
+    """Instance-id raster → uint8 RGBA, one colour per nucleus.
+
+    ``raw=True`` hands back the stored packing untouched, which is what a future picker reads to
+    turn a click into an id. The default *scrambles*: ids are handed out in the order nuclei are
+    computed, so neighbours differ by one and the exact packing paints a field of separate cells as
+    a smooth gradient — a picture in which nothing is distinguishable from its neighbour, which is
+    the one thing the instance view exists to show.
+
+    The scramble is a fixed integer hash, so it is deterministic (the same nucleus is the same
+    colour on every reload and in every tile it spans) without a palette to store or run out of.
+    """
+    a = ids.astype(np.uint32)
+    mask = a > 0
+    if raw:
+        rgba = pack_instances(a)
+    else:
+        # Knuth multiplicative hash on the low 24 bits, then the three bytes of the result become
+        # the colour. Cheap, and consecutive ids land far apart.
+        h = (a * np.uint32(2654435761)) & np.uint32(0xFFFFFF)
+        rgba = np.zeros(a.shape + (4,), dtype=np.uint8)
+        rgba[..., 0] = 60 + ((h & 0xFF) * 195 // 255)          # keep it off pure black, which
+        rgba[..., 1] = 60 + (((h >> 8) & 0xFF) * 195 // 255)   # reads as a hole rather than a cell
+        rgba[..., 2] = 60 + (((h >> 16) & 0xFF) * 195 // 255)
+        rgba[..., 3] = np.where(mask, int(np.clip(alpha, 0, 1) * 255), 0)
+
+    if not raw and cover is not None:
+        scale = cover.astype(np.float32) / 255.0
+        rgba[..., 3] = (rgba[..., 3].astype(np.float32) * scale).astype(np.uint8)
+    return rgba
+
+
 # zlib effort for a *served* tile. The same trade the tissue map measured: `optimize=True` costs an
 # order of magnitude more time to save a few percent of the bytes, and a tile is generated on
 # demand and cached for a day rather than archived.
@@ -121,5 +156,6 @@ TRANSPARENT_TILE: bytes = _transparent_png()
 
 
 __all__ = [
-    "TRANSPARENT_TILE", "BadClassSpec", "colourise", "encode_png", "parse_colors", "parse_show",
+    "TRANSPARENT_TILE", "BadClassSpec", "colourise", "colourise_instances", "encode_png",
+    "parse_colors", "parse_show",
 ]

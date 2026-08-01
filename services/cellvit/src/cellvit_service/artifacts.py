@@ -100,6 +100,10 @@ def cover_tile_path(root: Path, z: int, x: int, y: int) -> Path:
     return root / "cover" / str(int(z)) / f"{int(x)}_{int(y)}.png"
 
 
+def instance_tile_path(root: Path, z: int, x: int, y: int) -> Path:
+    return root / "instances" / str(int(z)) / f"{int(x)}_{int(y)}.png"
+
+
 def meta_path(root: Path) -> Path:
     return root / "meta.json"
 

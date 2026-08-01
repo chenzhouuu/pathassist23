@@ -248,7 +248,7 @@ def test_an_unknown_class_or_layer_is_refused_rather_than_silently_dropped(cache
     ah, _ = _run(client, {"x": 0, "y": 0, "width": CORE, "height": CORE})
 
     assert client.get(f"/nuclei/item1/{ah}/tile/classes/0/1/1.png?show=Tumour").status_code == 400
-    assert client.get(f"/nuclei/item1/{ah}/tile/instances/0/1/1.png").status_code == 400
+    assert client.get(f"/nuclei/item1/{ah}/tile/probs/0/1/1.png").status_code == 400
 
 
 def test_a_coarse_tile_fades_by_how_much_of_the_pixel_is_nucleus(cache_root):

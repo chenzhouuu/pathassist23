@@ -24,7 +24,7 @@ const META = {
   art_hash: 'n1',
   slide: { width: 4096, height: 4096, mpp: 0.25 },
   colors: { Neoplastic: '#D55E00', Connective: '#0072B2', Inflammatory: '#009E73' },
-  layers: { classes: { level_offset: 0, levels: 5 } },
+  layers: { classes: { level_offset: 0, levels: 5 }, instances: { level_offset: 0, levels: 5 } },
   summary: {
     n_nuclei: 1200, n_tiles: 3, area_mm2: 12.582,
     counts_by_class: { Neoplastic: 800, Connective: 300, Inflammatory: 100 },
@@ -214,6 +214,31 @@ describe('NucleiPanel', () => {
     render(<NucleiPanel />);
 
     await waitFor(() => expect(useStore.getState().artifactRuns).toEqual({ n1: true }));
+  });
+
+  // ── the per-cell view (Inc 5 · 08) ──────────────────────────────────────────────
+
+  it('switches the mask between what a nucleus is and which one it is', async () => {
+    listArtifacts.mockResolvedValue([READY_ROW]);
+    render(<NucleiPanel />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Each cell' }));
+    expect(useStore.getState().nucleiLayerParams.render).toBe('instances');
+    // The colours are identities, not categories, and the panel says so.
+    expect(await screen.findByText(/carry no meaning of their own/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Class' }));
+    expect(useStore.getState().nucleiLayerParams.render).toBe('classes');
+  });
+
+  it('does not offer the per-cell view for an artifact that has no ids yet', async () => {
+    // Built before ticket 08: class tiles, no instance raster, until its next run redraws it.
+    listArtifacts.mockResolvedValue([READY_ROW]);
+    getNucleiMeta.mockResolvedValue({ ...META, layers: { classes: { level_offset: 0, levels: 5 } } });
+    render(<NucleiPanel />);
+
+    expect(await screen.findByRole('slider')).toBeInTheDocument();   // the mask is there
+    expect(screen.queryByRole('button', { name: 'Each cell' })).not.toBeInTheDocument();
   });
 
   it("shows a full cache as the worker's own refusal", async () => {

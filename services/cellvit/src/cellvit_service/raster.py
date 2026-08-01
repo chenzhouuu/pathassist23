@@ -27,7 +27,15 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .artifacts import CORE, TILE, Coverage, cells_path, class_tile_path, read_cell_arrays
+from .artifacts import (
+    CORE,
+    TILE,
+    Coverage,
+    cells_path,
+    class_tile_path,
+    instance_tile_path,
+    read_cell_arrays,
+)
 from .pannuke import class_ids
 from .pyramid import (
     build_levels,
@@ -36,6 +44,7 @@ from .pyramid import (
     pad_tile,
     write_class_tile,
     write_cover_tile,
+    write_instance_tile,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,28 +120,46 @@ def _neighbours(core: tuple[int, int]) -> list[tuple[int, int]]:
 
 
 def _has_picture(root: Path, core: tuple[int, int], s: int) -> bool:
-    """Whether this core's raster exists, judged by its first level-0 tile."""
+    """Whether this core's rasters exist, judged by its first level-0 tile of each.
+
+    Both planes, not just the class one: an artifact drawn before the instance raster existed has
+    class tiles and no ids, and it should be redrawn rather than left half-pictured. The same
+    clause that made the raster self-healing in the first place (see the module docstring) is what
+    picks that up, with no migration.
+    """
     tx, ty = core
     side = CORE // s
-    return class_tile_path(root, 0, tx * side // TILE, ty * side // TILE).is_file()
+    x, y = tx * side // TILE, ty * side // TILE
+    return (class_tile_path(root, 0, x, y).is_file()
+            and instance_tile_path(root, 0, x, y).is_file())
 
 
 def rasterise_core(root: Path, tx: int, ty: int, *, s: int) -> list[tuple[int, int]]:
     """Draw one core's picture from its own rings and every neighbour's that reaches into it.
 
+    **One drawing pass, two rasters.** What gets filled is the nucleus's *instance id*; the class
+    raster is then a lookup from id to class over that array. Drawing twice would be the obvious
+    alternative and is worse in both directions: it doubles the polygon fills, and where two nuclei
+    overlap it leaves the two rasters free to disagree about which one owns a pixel. Derived this
+    way they cannot — the shapes are the same shapes, because they are the same array (D3 again,
+    one level down).
+
     Returns the level-0 tile coordinates it wrote, so the caller can refresh their ancestors.
     """
     side = CORE // s
-    canvas = Image.new("L", (side, side), 0)
+    # "I" is PIL's 32-bit integer mode: ids go in directly, with no palette to run out of.
+    canvas = Image.new("I", (side, side), 0)
     draw = ImageDraw.Draw(canvas)
     origin = np.array([tx * CORE, ty * CORE], dtype=np.float64)
+    cls_of: dict[int, int] = {}
 
     for nx, ny in [(tx, ty), *_neighbours((tx, ty))]:
         cells = read_cell_arrays(cells_path(root, nx, ny))
         if cells is None:
             continue
-        off, ring_xy, cls = cells["ring_off"], (cells["ring_xy"] - origin) / s, cells["cls"]
-        for i, c in enumerate(cls.tolist()):
+        off, ring_xy = cells["ring_off"], (cells["ring_xy"] - origin) / s
+        for i, (c, ident) in enumerate(zip(cells["cls"].tolist(), cells["inst"].tolist(),
+                                           strict=True)):
             if c not in DRAWABLE:
                 # An id the taxonomy does not name has no colour, and filling it with 0 would
                 # erase whatever neighbour was already drawn there. It stays out of the picture
@@ -141,9 +168,27 @@ def rasterise_core(root: Path, tx: int, ty: int, *, s: int) -> list[tuple[int, i
             pts = ring_xy[off[i]:off[i + 1]]
             if len(pts) < 3 or not _touches(pts, side):
                 continue
-            draw.polygon([(float(px), float(py)) for px, py in pts], fill=c)
+            draw.polygon([(float(px), float(py)) for px, py in pts], fill=int(ident))
+            cls_of[int(ident)] = c
 
-    return _write_core_tiles(root, tx, ty, side, np.asarray(canvas, dtype=np.uint8))
+    ids = np.asarray(canvas, dtype=np.uint32)
+    return _write_core_tiles(root, tx, ty, side, ids, _class_raster(ids, cls_of))
+
+
+def _class_raster(ids: np.ndarray, cls_of: dict[int, int]) -> np.ndarray:
+    """Instance raster → class raster, through a lookup table indexed by id.
+
+    A table rather than a loop over the ids present: a dense core holds thousands of nuclei, and
+    masking the array once per nucleus would be thousands of passes over four million pixels. The
+    table is one byte per id up to the largest one drawn here, which is a few MB at whole-slide
+    scale.
+    """
+    if not cls_of:
+        return np.zeros(ids.shape, dtype=np.uint8)
+    lut = np.zeros(max(cls_of) + 1, dtype=np.uint8)
+    for ident, c in cls_of.items():
+        lut[ident] = c
+    return lut[np.clip(ids, 0, len(lut) - 1)]
 
 
 def _touches(pts: np.ndarray, side: int) -> bool:
@@ -154,9 +199,9 @@ def _touches(pts: np.ndarray, side: int) -> bool:
     return bool(hi[0] >= 0 and hi[1] >= 0 and lo[0] <= side and lo[1] <= side)
 
 
-def _write_core_tiles(root: Path, tx: int, ty: int, side: int,
+def _write_core_tiles(root: Path, tx: int, ty: int, side: int, ids: np.ndarray,
                       idx: np.ndarray) -> list[tuple[int, int]]:
-    """Split a core's raster onto the global TILE px grid.
+    """Split a core's rasters onto the global TILE px grid.
 
     Cores are aligned to that grid (``side`` is a whole number of tiles), so no two cores share a
     tile and each is written outright.
@@ -170,8 +215,9 @@ def _write_core_tiles(root: Path, tx: int, ty: int, side: int,
             sub = pad_tile(idx[dy:dy + TILE, dx:dx + TILE])
             x, y = (ox + dx) // TILE, (oy + dy) // TILE
             write_class_tile(root, 0, x, y, sub)
+            write_instance_tile(root, 0, x, y, pad_tile(ids[dy:dy + TILE, dx:dx + TILE]))
             # At level 0 a pixel is nucleus or it is not; coverage only becomes a fraction on the
-            # way up the pyramid. Written anyway so every level has the same pair of planes and
+            # way up the pyramid. Written anyway so every level has the same set of planes and
             # the renderer needs no special case for the finest one.
             write_cover_tile(root, 0, x, y, ((sub != 0) * 255).astype(np.uint8))
             written.append((x, y))

@@ -8,16 +8,16 @@ shipping a million polygons to the browser.
 
 **Blocked by:** 06 — The nuclei mask on the slide.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Instance tiles are written in the same rasterisation pass as the class tiles, from the same
+- [x] Instance tiles are written in the same rasterisation pass as the class tiles, from the same
       rings — not a second inference and not a second walk over the slide.
-- [ ] The Nuclei panel switches the layer between classes and instances.
-- [ ] In the instance view, adjacent nuclei are visibly distinct — touching nuclei do not merge into
+- [x] The Nuclei panel switches the layer between classes and instances.
+- [x] In the instance view, adjacent nuclei are visibly distinct — touching nuclei do not merge into
       one blob.
-- [ ] Ids are unique within the artifact and stable across stop/resume: interrupt a run, resume it,
+- [x] Ids are unique within the artifact and stable across stop/resume: interrupt a run, resume it,
       and a nucleus computed before the stop keeps the same id (and therefore the same colour).
-- [ ] The packing follows the OME-NGFF `labels` convention, so a future export is a re-container
+- [x] The packing follows the OME-NGFF `labels` convention, so a future export is a re-container
       rather than a re-compute.
-- [ ] No client-side picking or hover is wired up — this ticket makes it possible, not present
+- [x] No client-side picking or hover is wired up — this ticket makes it possible, not present
       (plan §9).

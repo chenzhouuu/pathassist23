@@ -35,7 +35,7 @@ import {
   tileParams as markerTileParams, withMarkerDefaults,
 } from '../panels/markerUtils.js';
 import {
-  classesOf as nucleiClassesOf, layerLevels as nucleiLevels,
+  classesOf as nucleiClassesOf, hasInstances, layerLevels as nucleiLevels,
   layerSignature as nucleiSignature, levelOffsetFor as nucleiOffsetFor,
   tileParams as nucleiTileParams, withNucleiDefaults,
 } from '../panels/nucleiUtils.js';
@@ -147,20 +147,24 @@ function NucleiTileLayer({ viewer, itemId, hash }) {
   const classes = useMemo(() => nucleiClassesOf(meta), [meta]);
   const shown = useMemo(() => classes.filter((c) => !p.hidden[c]), [classes, p.hidden]);
 
+  // An artifact built before the instance raster existed has no per-cell layer until its next run
+  // redraws it, so asking for that view falls back rather than mounting a pyramid of holes.
+  const render = p.render === 'instances' && hasInstances(meta) ? 'instances' : 'classes';
+
   // Coverage is in the tile URL, so growing coverage is a different picture and OSD fetches it.
   // Unchanged coverage means an unchanged URL, so a poll that found nothing new costs nothing.
   const rev = meta?.coverage?.n_tiles;
   const params = useMemo(
-    () => nucleiTileParams({ show: shown, opacity: 1, classes, rev }),
-    [shown, classes, rev],
+    () => nucleiTileParams(render, { show: shown, opacity: 1, classes, rev }),
+    [render, shown, classes, rev],
   );
 
   // A build that has run but not yet drawn reports no levels. Mounting then would ask for tiles
   // that do not exist and leave an empty layer on the viewer, so the eye simply shows nothing
   // until there is something to show.
-  const levels = nucleiLevels(meta);
+  const levels = nucleiLevels(meta, render);
   const visible = !!hash && !!meta && levels > 0;
-  const signature = visible ? nucleiSignature(hash, params) : 'none';
+  const signature = visible ? nucleiSignature(render, hash, params) : 'none';
 
   useEffect(() => {
     if (!viewer) return;
@@ -172,16 +176,16 @@ function NucleiTileLayer({ viewer, itemId, hash }) {
     const tileSource = buildTileSource({
       slideWidth: meta?.slide?.width,
       slideHeight: meta?.slide?.height,
-      levelOffset: nucleiOffsetFor(meta),
+      levelOffset: nucleiOffsetFor(meta, render),
       levels,
-      tileUrlFor: (level, x, y) => nucleiTileUrl(itemId, hash, 'classes', level, x, y, params),
+      tileUrlFor: (level, x, y) => nucleiTileUrl(itemId, hash, render, level, x, y, params),
     });
     mountedSig.current = syncLayer(viewer, {
       key: 'nuclei', signature, mounted: mountedSig.current, tileSource,
       // Layer opacity, not a tile parameter: dragging the slider must not refetch a single tile.
       opacity: p.opacity, ajaxHeaders: tileAjaxHeaders(),
     });
-  }, [viewer, visible, signature, itemId, hash, meta, params, levels, p.opacity]);
+  }, [viewer, visible, signature, itemId, hash, meta, params, levels, render, p.opacity]);
 
   useEffect(() => () => { if (viewer) removeLayer(viewer, 'nuclei'); }, [viewer]);
 
