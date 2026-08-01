@@ -300,14 +300,17 @@ docker cp services/girder_pathassist dsa-girder-1:/opt/girder_pathassist
 docker exec -u root dsa-girder-1 /opt/venv/bin/pip install --no-cache-dir -e /opt/girder_pathassist
 docker restart dsa-girder-1        # entry points are only scanned at startup
 
-# After the first install, a code-only change needs just the file and the restart:
-docker cp services/girder_pathassist/src/girder_pathassist/rest.py \
-    dsa-girder-1:/opt/girder_pathassist/src/girder_pathassist/rest.py
+# After the first install, a code-only change needs just the source and the restart. Copy the
+# package directory rather than one file: an edit to `rest.py` usually comes with an edit to the
+# pure module beside it, and a half-copied package fails at import with a confusing traceback.
+docker cp services/girder_pathassist/src/girder_pathassist \
+    dsa-girder-1:/opt/girder_pathassist/src/
 docker restart dsa-girder-1
 
-# Confirm the route is mounted (401 = there and authenticated; 404 = not loaded)
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+# Confirm the routes are mounted (401 = there and authenticated; 404 = not loaded)
+curl -s -o /dev/null -w 'run  %{http_code}\n' -X POST -H 'Content-Type: application/json' \
     -d '{}' http://localhost:9080/api/v1/pathassist/run
+curl -s -o /dev/null -w 'runs %{http_code}\n' http://localhost:9080/api/v1/pathassist/runs
 ```
 
 This lives in the container's writable layer, so it survives `docker restart` and dies with

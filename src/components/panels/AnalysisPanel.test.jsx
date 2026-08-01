@@ -12,7 +12,8 @@ vi.mock('../../api/index.js', () => ({
   getDockerImages: vi.fn(),
   getCliXmlByPath: vi.fn(),
   runCliByPath: vi.fn(),
-  getJobs: vi.fn(),
+  listRuns: vi.fn(),
+  cancelJob: vi.fn(),
 }));
 vi.mock('../../api/preprocessApi.js', () => ({
   listArtifacts: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../../api/biomarkerApi.js', () => ({ startBiomarker: vi.fn() }));
 vi.mock('../../api/taskApi.js', () => ({ startPredict: vi.fn(), listTasks: vi.fn() }));
 
 import AnalysisPanel from './AnalysisPanel.jsx';
-import { getCliXmlByPath, getDockerImages, getJobs, runCliByPath } from '../../api/index.js';
+import { getCliXmlByPath, getDockerImages, listRuns, runCliByPath } from '../../api/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import { startNuclei } from '../../api/nucleiApi.js';
 import { useStore } from '../../store/index.js';
@@ -64,7 +65,7 @@ beforeEach(() => {
     copilotRoi: null, shownRoi: null, viewer: null,
   });
   getDockerImages.mockResolvedValue(IMAGES);
-  getJobs.mockResolvedValue([]);
+  listRuns.mockResolvedValue([]);
   getCliXmlByPath.mockResolvedValue(XML);
   listArtifacts.mockResolvedValue([]);
 });

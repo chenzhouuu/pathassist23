@@ -7,35 +7,25 @@
 // downstream of "we have `{title, description, groups}`" is shared.
 //
 // The old `running` view is gone. A submitted job is not a modal state: the panel returns to the
-// list and the run is watched in Runs (03). Until Runs lands, the recent-jobs strip at the foot of
-// the list is what confirms a submission.
+// list, and the Runs section beneath the catalog (03) is where every run — this slide's, other
+// slides', other users' — is watched.
 //
 // Native entries still submit to their existing endpoints. Moving each kind onto the Celery path is
 // 05–07, one at a time, and until a kind moves its own tab stays where it is.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
-import { getDockerImages, getCliXmlByPath, runCliByPath, getJobs } from '../../api/index.js';
+import { getDockerImages, getCliXmlByPath, runCliByPath } from '../../api/index.js';
 import { listArtifacts } from '../../api/preprocessApi.js';
 import { GIRDER_BASE } from '../../config/girder.js';
 import ParamField from './analysis/ParamField.jsx';
+import RunsSection from './analysis/RunsSection.jsx';
 import { cliRunParams } from './analysis/cliParams.js';
 import { isAutoFilled, parseXml } from './analysis/parseXml.js';
 import {
   NATIVE_GROUP, NATIVE_TOOLS, firstProblem, isEnabled, seedValues, toolParams,
 } from './analysis/nativeCatalog.js';
 import { useRegionSelect } from './useRegionSelect.js';
-
-// ── Girder job status codes ───────────────────────────────────────────────────
-const JOB_STATUS = { 0: 'inactive', 1: 'queued', 2: 'running', 3: 'success', 4: 'error', 5: 'cancelled' };
-const STATUS_COLOR = {
-  inactive: 'var(--muted-hex)',
-  queued: '#f5a623',
-  running: '#4da6ff',
-  success: '#4caf82',
-  error: '#e94560',
-  cancelled: 'var(--muted-hex)',
-};
 
 // ── Main AnalysisPanel ────────────────────────────────────────────────────────
 export default function AnalysisPanel() {
@@ -83,14 +73,6 @@ export default function AnalysisPanel() {
     queryFn: getDockerImages,
     retry: 1,
     staleTime: 60_000,
-  });
-
-  // ── Fetch recent jobs ─────────────────────────────────────────────────────
-  const { data: jobs } = useQuery({
-    queryKey: ['jobs'],
-    queryFn: getJobs,
-    refetchInterval: 8000,
-    retry: 1,
   });
 
   // ── This slide's artifacts — what the upstream pickers choose from ────────
@@ -274,7 +256,8 @@ export default function AnalysisPanel() {
         params['girderToken'] = localStorage.getItem('girderToken') || '';
         await runCliByPath(selected.run, params);
       }
-      qc.invalidateQueries({ queryKey: ['jobs'] });
+      // Do not wait out the poll interval to see what was just submitted.
+      qc.invalidateQueries({ queryKey: ['pathassist-runs'] });
       setSubmitted({ title: meta.title || selected.title || selected.name });
       // A submitted job is not a modal state — back to the list, and it is watched in Runs.
       setView('list');
@@ -395,28 +378,13 @@ export default function AnalysisPanel() {
           </details>
         )}
 
-        {/* Recent jobs — interim until the Runs section (03) */}
-        {jobs && jobs.length > 0 && (
-          <div className="mt-3 pt-2" style={{ borderTop: '1px solid var(--border-hex)' }}>
-            <div className="text-xs font-semibold uppercase tracking-wide mb-2"
-              style={{ color: 'var(--muted-hex)', fontSize: 10 }}>Recent Jobs</div>
-            {jobs.slice(0, 6).map(job => {
-              const s = JOB_STATUS[job.status] || 'inactive';
-              return (
-                <div key={job._id} className="flex items-start gap-2 py-1 px-1 rounded mb-0.5 hover:bg-black/5 transition-colors">
-                  <span className="font-mono text-xs mt-0.5 w-2 text-center flex-shrink-0"
-                    style={{ color: STATUS_COLOR[s] }}>
-                    {s === 'success' ? '✓' : s === 'error' ? '✗' : s === 'running' ? '↻' : '·'}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs truncate" style={{ color: 'var(--text)' }}>{job.title || job.type}</div>
-                    <div style={{ color: 'var(--muted-hex)', fontSize: 9 }}>{new Date(job.created).toLocaleString()}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      </div>
+
+      {/* Under the catalog, and pinned there. The catalog is nineteen rows deep, so a Runs
+          section that simply followed it in the scroll would be the one part of this panel
+          nobody ever saw — which is the problem the section exists to fix. */}
+      <div className="shrink-0 px-2 pb-2 overflow-y-auto" style={{ maxHeight: '45%' }}>
+        <RunsSection activeItem={activeItem} />
       </div>
     </div>
   );

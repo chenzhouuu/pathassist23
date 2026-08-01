@@ -270,6 +270,21 @@ export const getJobs = () =>
   client.get('/job?limit=50&sort=created&sortdir=-1').then((r) => r.data);
 export const getJob = (id) => client.get(`/job/${id}`).then((r) => r.data);
 
+// ─── Runs (Inc 6 · 03) ────────────────────────────────────────────────────────
+// The Runs list's only source. Not `/job`: that route lists the *current user's* jobs
+// (job_rest.py:44) while the A6000 is shared, so a queued run could not say what is ahead of it;
+// it also drops the `pathassist` field that names the slide and the kind (models/job.py:29). The
+// fields that would carry the slide instead — `kwargs`, `_original_params` — hold live Girder
+// tokens, so the answer is assembled server-side rather than filtered here.
+export const listRuns = (limit = 25) =>
+  client.get('/pathassist/runs', { params: { limit } }).then((r) => r.data);
+
+// Cooperative stop. Girder sets the job to CANCELING (824) and the driver forwards the request to
+// the service, which finishes the tile it is on first — so this resolves while the run is still
+// going, and the row says `Stopping…` until it settles.
+export const cancelJob = (id) =>
+  client.put(`/job/${id}/cancel`).then((r) => r.data);
+
 // ─── Slicer CLI execution ─────────────────────────────────────────────────────
 // GET the CLI's XML descriptor (describes parameters)
 // NOTE: imageName (e.g. "dsarchive/histomicstk") contains a real path slash —
