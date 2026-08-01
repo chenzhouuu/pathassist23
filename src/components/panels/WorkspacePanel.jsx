@@ -24,6 +24,8 @@ const POLL_MS = 2500;
 
 export default function WorkspacePanel() {
   const activeItem = useStore((s) => s.activeItem);
+  const visibleArtifacts = useStore((s) => s.visibleArtifacts);
+  const toggleArtifactVisible = useStore((s) => s.toggleArtifactVisible);
   const itemId = activeItem?._id || null;
 
   const [rows, setRows] = useState([]);
@@ -100,7 +102,13 @@ export default function WorkspacePanel() {
                   number={i + 1}
                   title={view.title}
                   details={{ primary: view.primary, secondary: view.secondary }}
-                  isVisible
+                  isVisible={!!visibleArtifacts[view.key]}
+                  // Withholding the callback is what leaves a row without an eye — a `features`
+                  // artifact has nothing to put on the slide, and neither has a kind whose layer
+                  // owner has not moved across yet (03b).
+                  onToggleVisibility={
+                    view.canSwitch ? () => toggleArtifactVisible(view.key, view.kind) : undefined
+                  }
                   disableEditing              /* the menu is empty until delete lands in 04 */
                   className={view.failed ? 'opacity-70' : undefined}
                 />

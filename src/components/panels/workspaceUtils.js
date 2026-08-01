@@ -8,6 +8,7 @@
 // carries nothing. A missing number renders as an omitted phrase, never as a zero or a guess —
 // "0 patches" and "unknown" both read as facts, and neither would be one.
 import { fmtInt, isInFlight, progressPercent, stageLabel } from './preprocessUtils.js';
+import { SWITCHABLE_KINDS } from '../viewer/ArtifactLayers.jsx';
 
 export const KIND_LABEL = Object.freeze({
   segmentation: 'Segmentation',
@@ -28,6 +29,16 @@ export function kindLabel(kind) {
 
 export function canDraw(row) {
   return DRAWABLE.includes(row?.kind);
+}
+
+/**
+ * Whether the eye is offered for this row — which is narrower than `canDraw` while 03b is
+ * outstanding. `tissue` moved to the always-mounted layer owner in 03a; the marker layers and the
+ * segmentation outline are still switched from their own panels, and an eye that did nothing would
+ * be worse than no eye. The two sets converge when 03b lands, and this function goes with them.
+ */
+export function canSwitch(row) {
+  return SWITCHABLE_KINDS.includes(row?.kind);
 }
 
 // ── The four segments ────────────────────────────────────────────────────────────────
@@ -149,7 +160,9 @@ export function describeArtifact(row, now = Date.now()) {
   const failed = row?.status === 'failed';
   return {
     key: row?.art_hash,
+    kind: row?.kind,
     title: kindLabel(row?.kind),
+    canSwitch: canSwitch(row),
     // A failed build's reason belongs on the row. It is the only thing that row has to say, and
     // sending the user to a log for it would be the panel withholding what it already knows.
     primary: [params, scale, failed ? row?.error : ''].filter(Boolean),

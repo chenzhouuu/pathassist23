@@ -1,8 +1,12 @@
 // src/components/panels/TissuePanel.jsx — the dense tissue-class map (Inc 4, Route B).
 //
 // Deliberately independent of the copilot conversation, like the Markers panel: this is an imaging
-// modality you switch on. It drives the tissue service's own job/artifact control plane and mounts
-// the resulting class/probability pyramid on the viewer.
+// modality you switch on. It drives the tissue service's own job/artifact control plane and holds
+// the parameters its class/probability pyramid is drawn with.
+//
+// It does not mount the pyramid — ArtifactLayers does, from the Workspace's eye (Inc 5 · 03a). This
+// panel unmounts on every tab switch, so a layer it owned could not survive the click that turned
+// it on. What stayed here is what a panel is for: the controls.
 //
 // Unlike Inc 3b's three mutually exclusive modes, this layer **stacks** (D4). Tissue is areal and
 // sits under the marker and phenotype layers, so "cytotoxic T cells inside the tumour region" is a
@@ -11,21 +15,17 @@
 // The class list, palette, provenance and licence all come from the service (GET /tissue/catalog
 // and the artifact's own meta), so the UI never claims a class the deployed backend does not
 // predict, and a recolour can never drift from what the map was rasterised with.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import {
-  cancelTissue, getTissueCatalog, getTissueMeta, getTissueStats, startTissue, tileAjaxHeaders,
-  tileUrl,
+  cancelTissue, getTissueCatalog, getTissueMeta, getTissueStats, startTissue,
 } from '../../api/tissueApi.js';
 import {
-  buildTileSource, removeLayer, setBasePreference, syncLayer,
-} from '../viewer/overlayLayers.js';
-import {
-  DEFAULT_CONF_FLOOR, DEFAULT_HIDDEN, DEFAULT_OPACITY, LAYER_FOR_RENDER, RENDERS, RENDER_LABEL,
-  backendNames, canStop, classesOf, colorsOf, compositionCsv, compositionRows, coverageSummary,
+  RENDERS, RENDER_LABEL,
+  backendNames, canStop, compositionCsv, compositionRows, coverageSummary,
   describeStage, findReadySegmentation, findTissueRow, formatPercent, isRunning, isStopped,
-  isStopping, layerLevels, layerSignature, levelOffsetFor, startLabel, tileParams, tsrOf,
+  isStopping, startLabel, tsrOf, withTissueDefaults,
 } from './tissueUtils.js';
 import { formatRoi, useRegionSelect } from './useRegionSelect.js';
 
@@ -33,7 +33,6 @@ const POLL_MS = 2500;
 
 export default function TissuePanel() {
   const activeItem = useStore((s) => s.activeItem);
-  const viewer = useStore((s) => s.viewer);
   // The region is shared app state, but this panel can now ask for one itself instead of
   // depending on the user having drawn a box in the Copilot tab first.
   const { roi: copilotRoi, awaiting: awaitingRoi, start: drawRoi, cancel: cancelRoi,
@@ -46,19 +45,21 @@ export default function TissuePanel() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const [on, setOn] = useState(true);
-  const [render, setRender] = useState('classes');
   const [backend, setBackend] = useState(null);
-  const [opacity, setOpacity] = useState(DEFAULT_OPACITY);
-  const [conf, setConf] = useState(true);
-  const [confFloor, setConfFloor] = useState(DEFAULT_CONF_FLOOR);
-  const [hidden, setHidden] = useState(() => Object.fromEntries(
-    DEFAULT_HIDDEN.map((n) => [n, true]),
-  ));
-  const [heFade, setHeFade] = useState(1);       // tissue is translucent, so the H&E stays by default
   const [roiStats, setRoiStats] = useState(null);
 
-  const mountedSig = useRef(null);
+  // The render parameters live in the store (Inc 5 · 03a): the layer outlives this panel, so its
+  // settings have to as well. `set` patches, `withTissueDefaults` fills — one home for the defaults.
+  const tissueLayerParams = useStore((s) => s.tissueLayerParams);
+  const setTissueLayerParams = useStore((s) => s.setTissueLayerParams);
+  const { render, opacity, conf, confFloor, hidden, heFade } = withTissueDefaults(tissueLayerParams);
+  const setRender = (v) => setTissueLayerParams({ render: v });
+  const setOpacity = (v) => setTissueLayerParams({ opacity: v });
+  const setConf = (v) => setTissueLayerParams({ conf: v });
+  const setConfFloor = (v) => setTissueLayerParams({ confFloor: v });
+  const setHeFade = (v) => setTissueLayerParams({ heFade: v });
+  const toggleHidden = (name) => setTissueLayerParams({ hidden: { ...hidden, [name]: !hidden[name] } });
+
   const pollRef = useRef(null);
 
   const row = findTissueRow(rows);
@@ -69,9 +70,10 @@ export default function TissuePanel() {
   // `meta`, which only exists once there is something to draw — that is the guard, below.
   const artHash = row?.art_hash || null;
 
-  const classes = useMemo(() => classesOf(meta, catalog, backend), [meta, catalog, backend]);
-  const colors = useMemo(() => colorsOf(meta, catalog, backend), [meta, catalog, backend]);
-  const shown = useMemo(() => classes.filter((c) => !hidden[c]), [classes, hidden]);
+  // Whether the Workspace has this artifact on the slide. Read-only here — the panel reports the
+  // state, it does not own it, and the appearance controls stay live either way so a map can be
+  // set up before it is switched on.
+  const shownFromWorkspace = useStore((s) => !!s.visibleArtifacts[artHash]);
 
   // ── data ──────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -108,43 +110,11 @@ export default function TissuePanel() {
   }, [row?.status, refresh]);
 
   // ── the picture ───────────────────────────────────────────────────────────────
-  const layer = LAYER_FOR_RENDER[render];
-  const params = useMemo(() => tileParams(render, {
-    show: shown, opacity: 1, conf, confFloor, classes,
-  }), [render, shown, conf, confFloor, classes]);
-
-  const visible = on && !!artHash && !!meta;
-  const signature = visible ? layerSignature(render, artHash, params) : 'none';
-
-  useEffect(() => {
-    if (!viewer) return;
-    if (!visible) {
-      removeLayer(viewer, 'tissue');
-      mountedSig.current = 'none';
-      setBasePreference(viewer, 'tissue', null);
-      return;
-    }
-    const tileSource = buildTileSource({
-      slideWidth: meta?.slide?.width,
-      slideHeight: meta?.slide?.height,
-      levelOffset: levelOffsetFor(meta, layer),
-      levels: layerLevels(meta, layer),
-      tileUrlFor: (level, x, y) => tileUrl(itemId, artHash, layer, level, x, y, params),
-    });
-    mountedSig.current = syncLayer(viewer, {
-      key: 'tissue', signature, mounted: mountedSig.current, tileSource,
-      // Layer opacity, not a tile parameter: dragging the slider must not refetch a single tile.
-      opacity, ajaxHeaders: tileAjaxHeaders(),
-    });
-    setBasePreference(viewer, 'tissue', heFade >= 1 ? null : { opacity: heFade });
-  }, [viewer, visible, signature, itemId, artHash, layer, meta, params, opacity, heFade]);
-
-  // Leaving the panel (or the slide) must not leave a map stranded on the viewer.
-  useEffect(() => () => {
-    if (!viewer) return;
-    removeLayer(viewer, 'tissue');
-    setBasePreference(viewer, 'tissue', null);
-  }, [viewer]);
+  // Mounting the pyramid is not this panel's job any more (Inc 5 · 03a). The Workspace's eye says
+  // whether the map is on screen and ArtifactLayers draws it, because this panel unmounts the
+  // moment you switch tabs and used to take the map down with it. What is left here is the
+  // parameters, which are written to the store so the layer keeps honouring them while the panel
+  // is closed.
 
   // ── actions ───────────────────────────────────────────────────────────────────
   const run = async (whole) => {
@@ -301,13 +271,15 @@ export default function TissuePanel() {
         )}
       </div>
 
-      {/* ── the overlay ──────────────────────────────────────────────────── */}
+      {/* ── how it is drawn ──────────────────────────────────────────────── */}
       {artHash && (
         <div className="mk-section">
-          <label className="mk-check">
-            <input type="checkbox" checked={on} onChange={() => setOn((v) => !v)} />
-            Show tissue overlay
-          </label>
+          <div className="mk-row">
+            <span className="mk-label">Appearance</span>
+            <span className="mk-dim">
+              {shownFromWorkspace ? 'On the slide' : 'Switch it on in Workspace'}
+            </span>
+          </div>
 
           <div className="mk-modes">
             {RENDERS.map((r) => (
@@ -315,7 +287,6 @@ export default function TissuePanel() {
                 key={r}
                 type="button"
                 className={`mk-mode ${render === r ? 'active' : ''}`}
-                disabled={!on}
                 onClick={() => setRender(r)}
               >
                 {RENDER_LABEL[r]}
@@ -323,23 +294,20 @@ export default function TissuePanel() {
             ))}
           </div>
 
-          <Slider label="Opacity" value={opacity} min={0} max={1} disabled={!on}
-                  onChange={setOpacity} />
+          <Slider label="Opacity" value={opacity} min={0} max={1} onChange={setOpacity} />
           {render === 'classes' && (
             <>
               <label className="mk-check">
-                <input type="checkbox" checked={conf} disabled={!on}
-                       onChange={() => setConf((v) => !v)} />
+                <input type="checkbox" checked={conf} onChange={() => setConf(!conf)} />
                 Alpha follows confidence
               </label>
               {conf && (
-                <Slider label="Faintest" value={confFloor} min={0} max={1} disabled={!on}
+                <Slider label="Faintest" value={confFloor} min={0} max={1}
                         onChange={setConfFloor} />
               )}
             </>
           )}
-          <Slider label="H&amp;E under" value={heFade} min={0} max={1} disabled={!on}
-                  onChange={setHeFade} />
+          <Slider label="H&amp;E under" value={heFade} min={0} max={1} onChange={setHeFade} />
         </div>
       )}
 
@@ -355,8 +323,7 @@ export default function TissuePanel() {
               <input
                 type="checkbox"
                 checked={!hidden[c.name]}
-                disabled={!on}
-                onChange={() => setHidden((h) => ({ ...h, [c.name]: !h[c.name] }))}
+                onChange={() => toggleHidden(c.name)}
               />
               <span className="mk-swatch" style={{ background: c.color }} />
               {c.name}

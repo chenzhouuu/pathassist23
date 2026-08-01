@@ -83,7 +83,8 @@ export const useStore = create((set, get) => ({
     set({ activeCollection: null, activeFolder: null, activeItem: null, breadcrumb: [],
           copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null,
           copilotPhenotypes: null,
-          copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null }),
+          copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,
+          visibleArtifacts: {}, tissueLayerParams: {} }),
   setActiveItem: (item) => {
     const { breadcrumb, autoCollapseViewerPanels } = get();
     const filtered = breadcrumb.filter((b) => b._type !== 'item');
@@ -97,6 +98,8 @@ export const useStore = create((set, get) => ({
       chatPendingAttachment: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
+      visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
+      tissueLayerParams: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: null,        // clear case context when opening a slide outside a case
@@ -124,6 +127,8 @@ export const useStore = create((set, get) => ({
       drawingMode: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: null, showTissueOverlay: false, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
+      visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
+      tissueLayerParams: {},
       breadcrumb: [...filtered, { ...item, _type: 'item' }],
       currentPage: 'viewer',
       caseContext: ctx,
@@ -268,6 +273,43 @@ export const useStore = create((set, get) => ({
   setTissueContours: (gj) => set({ tissueContours: gj, showTissueOverlay: !!gj }),
   clearTissueContours: () => set({ tissueContours: null, showTissueOverlay: false }),
   toggleTissueOverlay: () => set((s) => ({ showTissueOverlay: !s.showTissueOverlay })),
+
+  // ── Artifact visibility (Inc 5 · D7) ──────────────────────────────────────
+  // Which of the slide's artifacts are on the viewer, keyed by artifact hash. The Workspace's eye
+  // is the only thing that writes here, and ArtifactLayers is the only thing that reads it to
+  // mount a layer, so "what is on screen" has exactly one answer.
+  //
+  // The value is `{ kind }` rather than D7's bare boolean: the reader needs to know what to mount
+  // and the writer is the only place that knows, so carrying it avoids a second lookup of the
+  // artifact list from inside the viewer.
+  //
+  // Absent = not shown. Nothing defaults to visible — a slide with a tissue map opens without it
+  // until its eye is clicked, which is the whole point of the workspace.
+  visibleArtifacts: {},                              // { [art_hash]: { kind } }
+  setArtifactVisible: (hash, kind, visible) => {
+    if (!hash) return;
+    const next = { ...get().visibleArtifacts };
+    if (!visible) {
+      delete next[hash];
+    } else {
+      // One layer slot per kind, so switching on a second tissue map has to switch off the first.
+      // Without this the second row's eye would be open over a map that is not drawn.
+      for (const [h, v] of Object.entries(next)) if (v?.kind === kind) delete next[h];
+      next[hash] = { kind };
+    }
+    set({ visibleArtifacts: next });
+  },
+  toggleArtifactVisible: (hash, kind) => {
+    const on = !!get().visibleArtifacts[hash];
+    get().setArtifactVisible(hash, kind, !on);
+  },
+
+  // The tissue layer's render parameters, held here rather than in TissuePanel because the layer
+  // keeps rendering while that panel is closed — the right panel unmounts a panel on every tab
+  // switch. A patch over tissueUtils' defaults, not a full object, so the defaults have one home.
+  tissueLayerParams: {},
+  setTissueLayerParams: (patch) =>
+    set((s) => ({ tissueLayerParams: { ...s.tissueLayerParams, ...patch } })),
 
   // ── Task evidence map (Inc 2c) ────────────────────────────────────────────
   // The per-patch signed class evidence a downstream task produced, plus how the viewer shows it.

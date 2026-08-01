@@ -5,8 +5,8 @@ colour, aligned with the H&E at every zoom, stacking with the tissue and marker 
 is rasterised server-side from the polygons stored in 05 and served as pyramid tiles through the
 authenticated proxy, the same way the tissue map already works (decision D5).
 
-**Blocked by:** 05 — Nuclei as a stored artifact (region); 03 — The eye is the only visibility
-switch.
+**Blocked by:** 05 — Nuclei as a stored artifact (region); 03a — The eye switches the tissue map
+(the always-mounted layer owner and the visibility map; 03b is not needed).
 
 **Status:** ready-for-agent
 

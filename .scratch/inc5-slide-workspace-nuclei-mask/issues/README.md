@@ -9,13 +9,15 @@ Workspace surface is taken first, and each backend increment afterwards shows up
 ```
 01 toolchain + tab shell
      └── 02 lists real artifacts
-           ├── 03 the eye owns visibility ──┐
-           └── 04 delete ──────────┐        │
+           ├── 03a the eye switches the tissue map ── 03b the eye owns every overlay
+           └── 04 delete ──────────┐                        │
                                    └── 05 nuclei artifact (region, counts)
                                          ├── 06 the mask ──┬── 07 whole-slide: coverage/stop/resume
                                          │                 └── 08 instance-id raster
                                          └── 09 biomarker consumes nuclei
 ```
+
+06 needs 03a (the eye machinery), not 03b.
 
 Decided while breaking this down, and not in the plan:
 
@@ -26,4 +28,8 @@ Decided while breaking this down, and not in the plan:
   artifacts and there must be a way to delete them from the UI. Drop the edge to run them in
   parallel.
 - Plan Phase 0 (dashboard WIP) is already done — commit `5d218a4`.
+- **03 was split into 03a/03b while working it.** The tissue and marker tile layers are mounted by
+  panels that unmount on a tab switch, so an eye in the Workspace requires moving them to an
+  always-mounted owner first — the shape the canvas overlays already use. 03a does that for tissue;
+  03b brings the rest across and deletes the old switches.
 - The uncommitted tissue/biomarker delete endpoints in the working tree belong to ticket 04.

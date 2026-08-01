@@ -12,6 +12,7 @@ import NucleiOverlay from './NucleiOverlay.jsx';
 import PhenotypeOverlay from './PhenotypeOverlay.jsx';
 import RegionOverlay from './RegionOverlay.jsx';
 import TissueOverlay from './TissueOverlay.jsx';
+import ArtifactLayers from './ArtifactLayers.jsx';
 import HeatmapOverlay from './HeatmapOverlay.jsx';
 import EvidencePane from './EvidencePane.jsx';
 import useViewportSync from './useViewportSync.js';
@@ -489,6 +490,10 @@ export default function ViewerPanel() {
 
             {/* Tissue segmentation overlay — Preprocess contours (Inc 2b-3) */}
             {activeItem && status.state === 'ok' && <TissueOverlay viewer={osdRef}/>}
+
+            {/* Artifact tile layers the Workspace's eye switched on (Inc 5 · 03a). Renders
+                nothing; it owns the pyramids so they outlive the panel that tunes them. */}
+            {activeItem && status.state === 'ok' && <ArtifactLayers/>}
 
             {/* Task evidence map, blended into this pane in Overlay mode (Inc 2c) */}
             {activeItem && status.state === 'ok' && taskHeatmap && taskViewMode === 'overlay'

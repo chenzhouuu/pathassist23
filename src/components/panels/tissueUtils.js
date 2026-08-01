@@ -25,6 +25,23 @@ export const FALLBACK_CLASSES = ['Tumour', 'Stroma', 'Inflammatory', 'Necrosis',
 // number is always shown, because hiding a class from the picture must not hide it from the maths.
 export const DEFAULT_HIDDEN = ['Others'];
 
+// How the tissue layer is drawn, when nothing has said otherwise. Inc 5 · 03a moved these out of
+// TissuePanel into the store, because the layer goes on rendering while that panel is closed — the
+// right panel unmounts a panel on every tab switch. The store holds a patch; this is what it
+// patches, so the defaults still have exactly one home.
+export const TISSUE_LAYER_DEFAULTS = Object.freeze({
+  render: 'classes',
+  opacity: DEFAULT_OPACITY,
+  conf: true,
+  confFloor: DEFAULT_CONF_FLOOR,
+  hidden: Object.freeze(Object.fromEntries(DEFAULT_HIDDEN.map((n) => [n, true]))),
+  heFade: 1,                           // tissue is translucent, so the H&E stays by default
+});
+
+export function withTissueDefaults(patch) {
+  return { ...TISSUE_LAYER_DEFAULTS, ...(patch || {}) };
+}
+
 /** Query params for a tile URL. Fixed key order: OSD caches by URL string. */
 export function tileParams(render, { show, opacity, conf = true, confFloor, classes } = {}) {
   const params = {};

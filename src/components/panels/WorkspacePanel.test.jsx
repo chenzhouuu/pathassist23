@@ -3,6 +3,7 @@
 // at ready on its own.
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../api/preprocessApi.js', () => ({ listArtifacts: vi.fn() }));
@@ -33,7 +34,7 @@ const ROWS = [
 
 describe('WorkspacePanel', () => {
   beforeEach(() => {
-    useStore.setState({ activeItem: SLIDE });
+    useStore.setState({ activeItem: SLIDE, visibleArtifacts: {} });
     listArtifacts.mockResolvedValue([]);
   });
   afterEach(() => vi.useRealTimers());
@@ -75,12 +76,34 @@ describe('WorkspacePanel', () => {
     expect(titles).toEqual(['Tissue map', 'Features', 'Segmentation']);
   });
 
-  it('shows no eye on any row — visibility is ticket 03', async () => {
+  it('offers an eye only for kinds the viewer can actually switch', async () => {
     listArtifacts.mockResolvedValue(ROWS);
     render(<WorkspacePanel />);
     await screen.findByText('Tissue map');
-    expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument();
+    // One eye, for the tissue row. Features cannot be drawn at all; segmentation and biomarker can,
+    // but their layer owners move across in 03b, and an eye that did nothing would be a lie.
+    expect(screen.getAllByRole('button', { name: /^(Show|Hide)$/ })).toHaveLength(1);
+  });
+
+  it('records the artifact as visible when its eye is clicked, and clears it when clicked again',
+    async () => {
+      listArtifacts.mockResolvedValue(ROWS);
+      render(<WorkspacePanel />);
+      await screen.findByText('Tissue map');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Show' }));
+      expect(useStore.getState().visibleArtifacts).toEqual({ tis1: { kind: 'tissue' } });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
+      expect(useStore.getState().visibleArtifacts).toEqual({});
+    });
+
+  it('nothing is on the slide until an eye is clicked', async () => {
+    listArtifacts.mockResolvedValue(ROWS);
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+    expect(useStore.getState().visibleArtifacts).toEqual({});
+    expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument();
   });
 
   it('carries a running build to ready without a manual refresh', async () => {
