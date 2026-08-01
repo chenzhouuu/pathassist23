@@ -7,6 +7,7 @@ pydantic-free (plain os.getenv) and can host cellvit in-process.
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 # Neutral local fallback only — deployment sets CELLVIT_GIRDER_BASE (compose injects
 # http://host.docker.internal:9080/api/v1). Keep the default on port 9080.
@@ -22,6 +23,10 @@ class Settings:
     # Real-model (model == "cellvit") runtime settings; ignored by the stub.
     gpu_index: int = 0
     batch_size: int = 8
+    # Where nuclei artifacts live (Inc 5). Its own volume, like every other service's — named
+    # CELLVIT_ARTIFACT_CACHE to match its siblings and, more to the point, to stay clearly
+    # distinct from CELLVIT_CACHE, which is where the 2.7 GB SAM-H checkpoint lives.
+    artifact_cache: Path = Path("/cache")
 
 
 @lru_cache
@@ -31,4 +36,5 @@ def get_settings() -> Settings:
         model=os.getenv("CELLVIT_MODEL", "stub"),
         gpu_index=int(os.getenv("CELLVIT_GPU_INDEX", "0")),
         batch_size=int(os.getenv("CELLVIT_BATCH_SIZE", "8")),
+        artifact_cache=Path(os.getenv("CELLVIT_ARTIFACT_CACHE", "/cache")),
     )

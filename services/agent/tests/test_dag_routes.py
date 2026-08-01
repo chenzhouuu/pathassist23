@@ -270,3 +270,89 @@ async def test_a_size_the_worker_cannot_give_is_not_a_refusal(client, art_store,
 
     r = client.get(f"{_BASE}/item9/artifacts/t1/usage")
     assert r.status_code == 200 and r.json()["bytes"] == 0
+
+
+# ── nuclei (Inc 5, ticket 05) ──────────────────────────────────────────────────────
+
+
+def _with_cellvit(client):
+    from agent.gateway.routes import get_cellvit_url
+    client.app.dependency_overrides[get_cellvit_url] = lambda: "http://cellvit:8020"
+    return client
+
+
+def _fake_enqueue(**ack):
+    async def enqueue(*, base_url, item, bbox, token, client=None):
+        return ack
+    return enqueue
+
+
+@pytest.mark.anyio
+async def test_nuclei_records_a_row_with_no_parent(client, art_store, monkeypatch):
+    monkeypatch.setattr(routes_mod, "enqueue_nuclei", _fake_enqueue(
+        art_hash="n1", job_id="j9", status="queued", backend="cellvit-sam-h", scope="region",
+    ))
+    _with_cellvit(client)
+
+    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": {"x": 0, "y": 0,
+                                                            "width": 512, "height": 512}})
+    assert r.status_code == 200
+    row = r.json()
+    assert row["kind"] == "nuclei" and row["art_hash"] == "n1"
+    # A nucleus outline does not depend on a segmentation — a tissue mask is coverage, not identity.
+    assert row["parent_hash"] is None
+    assert row["params"]["backend"] == "cellvit-sam-h"
+    assert row["params"]["scope"] == "region"
+
+
+def test_nuclei_without_a_configured_worker_is_503(client):
+    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": {"x": 0, "y": 0, "w": 1, "h": 1}})
+    assert r.status_code == 503
+
+
+def test_the_workers_own_refusal_is_forwarded(client, monkeypatch):
+    req = httpx.Request("POST", "http://cellvit:8020/nuclei")
+    resp = httpx.Response(400, json={"detail": "whole-slide is not yet built"}, request=req)
+
+    async def refuse(*, base_url, item, bbox, token, client=None):
+        raise httpx.HTTPStatusError("bad request", request=req, response=resp)
+    monkeypatch.setattr(routes_mod, "enqueue_nuclei", refuse)
+    _with_cellvit(client)
+
+    r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": None})
+    assert r.status_code == 400
+    assert "whole-slide" in r.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_a_finished_nuclei_build_puts_its_counts_on_the_row(client, art_store, monkeypatch):
+    # Queued with a job id, which is what makes the list route poll the worker for it.
+    await art_store.upsert_artifact(
+        item="item9", kind="nuclei", art_hash="n1", parent_hash=None, params={}, job_id="j9",
+    )
+
+    async def status(*, base_url, job_id, client=None):
+        return {"status": "ready", "result": {
+            "art_hash": "n1", "n_nuclei": 1234, "n_tiles": 3, "area_mm2": 0.75,
+            "counts_by_class": {"Neoplastic": 1000, "Inflammatory": 234},
+        }}
+    monkeypatch.setattr(routes_mod, "nuclei_job_status", status)
+    _with_cellvit(client)
+
+    rows = client.get(f"{_BASE}/item9/artifacts").json()["artifacts"]
+    row = next(r for r in rows if r["art_hash"] == "n1")
+    assert row["status"] == "ready"
+    assert row["n_items"] == 1234                       # what the Workspace counts
+    assert row["result"]["counts_by_class"]["Neoplastic"] == 1000
+    assert row["result"]["n_tiles"] == 3
+
+
+@pytest.mark.anyio
+async def test_deleting_a_nuclei_artifact_reaches_the_cellvit_worker(client, art_store, monkeypatch):
+    await _seed(art_store, "item9", "nuclei", "n1")
+    calls = []
+    monkeypatch.setattr(routes_mod, "delete_artifact", _deleted(calls))
+    _with_cellvit(client)
+
+    assert client.delete(f"{_BASE}/item9/artifacts/n1").status_code == 204
+    assert calls[0] == ("http://cellvit:8020", "nuclei", "item9", "n1")

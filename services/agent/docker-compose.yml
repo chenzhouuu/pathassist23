@@ -79,9 +79,13 @@ services:
       # Same Girder as the gateway — the service reads region pixels with the user's token.
       CELLVIT_GIRDER_BASE: ${AGENT_GIRDER_BASE:-http://host.docker.internal:9080/api/v1}
       CELLVIT_CACHE: /weights-cache
+      # Where nuclei artifacts are stored (Inc 5). Distinct from CELLVIT_CACHE above, which is
+      # the model checkpoint — one is 2.7 GB of weights, the other grows with every slide.
+      CELLVIT_ARTIFACT_CACHE: /cache
     volumes:
       # Reuse the already-downloaded 2.7 GB SAM-H checkpoint instead of re-downloading.
       - ${CELLVIT_WEIGHTS_DIR:-/home/chen/.cache/cellvit}:/weights-cache
+      - cellvit_cache:/cache
     deploy:
       resources:
         reservations:
@@ -210,6 +214,7 @@ services:
 
 volumes:
   copilot_pgdata:
+  cellvit_cache:
   preprocess_cache:
   biomarker_cache:
   tissue_cache:

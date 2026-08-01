@@ -17,6 +17,7 @@ export const KIND_LABEL = Object.freeze({
   prediction: 'Prediction',
   tissue: 'Tissue map',
   biomarker: 'Biomarker map',
+  nuclei: 'Nuclei',
 });
 
 // Kinds with something to put on the slide. The rest are still listed — they answer "what has this
@@ -72,6 +73,10 @@ export function describeParams(row) {
     case 'biomarker':
       if (p.scope) bits.push(p.scope);
       break;
+    case 'nuclei':
+      if (p.backend) bits.push(p.backend);
+      if (p.scope) bits.push(p.scope);
+      break;
     default:
       break;
   }
@@ -111,6 +116,16 @@ export function describeScale(row) {
       const bits = [];
       if (Number.isFinite(r.n_cells)) bits.push(plural(r.n_cells, 'cell', 'cells'));
       if (Number.isFinite(r.n_tiles)) bits.push(plural(r.n_tiles, 'tile', 'tiles'));
+      return bits.join(' · ');
+    }
+    case 'nuclei': {
+      const bits = [];
+      if (Number.isFinite(r.n_nuclei)) bits.push(plural(r.n_nuclei, 'nucleus', 'nuclei'));
+      if (Number.isFinite(Number(r.area_mm2))) bits.push(`${Number(r.area_mm2).toFixed(2)} mm²`);
+      // The class mix, biggest first — the row says what this slide is made of, not just how much.
+      const mix = Object.entries(r.counts_by_class || {})
+        .sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => k);
+      if (mix.length) bits.push(mix.join('/'));
       return bits.join(' · ');
     }
     default:

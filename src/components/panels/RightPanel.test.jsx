@@ -23,7 +23,7 @@ const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [
 
 const EXPECTED_TABS = [
   'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess',
-  'Markers', 'Tissue', 'Task', 'Panels',
+  'Markers', 'Tissue', 'Nuclei', 'Task', 'Panels',
 ];
 
 describe('RightPanel tab bar', () => {

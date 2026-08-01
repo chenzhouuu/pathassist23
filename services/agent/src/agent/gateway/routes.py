@@ -16,6 +16,7 @@ from ..loop.biomarker_map_client import (
     map_job_status,
 )
 from ..loop.events import RunFinished
+from ..loop.nuclei_client import enqueue_nuclei, get_nuclei_meta, nuclei_job_status
 from ..loop.preprocess_client import (
     get_contours,
     get_job_status,
@@ -459,6 +460,12 @@ _RESULT_KEYS = (
 
 # The tissue map's composition, carried on the artifact row for both a finished and a stopped
 # build. `stopped`/`remaining` ride along so the panel can offer Resume and say how much is left.
+# What a finished nuclei build has to say. `stopped`/`remaining` ride along for ticket 07's
+# Resume, the same way the tissue map's do.
+_NUCLEI_RESULT_KEYS = (
+    "art_hash", "n_nuclei", "counts_by_class", "n_tiles", "area_mm2", "stopped", "remaining",
+)
+
 _TISSUE_RESULT_KEYS = (
     "art_hash", "n_tiles", "n_core_tiles", "fraction", "fraction_soft", "tsr", "covered_mm2",
     "stopped", "remaining",
@@ -494,6 +501,13 @@ async def _reconcile_artifact(
             result = {k: res[k] for k in ("art_hash", "n_tiles", "n_new_tiles", "n_cells",
                                           "seconds") if k in res}
             n_items = res.get("n_cells", n_items)
+        elif kind == "nuclei":
+            # The nuclei worker reports through a JobQueue like the map workers, so its payload
+            # sits under "result". The counts ride on the row so the Workspace can render them
+            # straight from /artifacts, without a second call per row.
+            res = js.get("result") or {}
+            result = {k: res[k] for k in _NUCLEI_RESULT_KEYS if k in res}
+            n_items = res.get("n_nuclei", n_items)
         elif kind == "tissue":
             # Same JobQueue shape as the biomarker worker: the payload sits under "result".
             # The composition is carried on the row so the panel can render numbers straight from
@@ -633,6 +647,7 @@ async def list_slide_artifacts(
     preprocess_url: str | None = Depends(get_preprocess_url),
     biomarker_url: str | None = Depends(get_biomarker_url),
     tissue_url: str | None = Depends(get_tissue_url),
+    cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> dict:
     """List a slide's DAG artifacts, reconciling in-flight builds against the worker."""
     rows = await artifacts.list_artifacts(item=item)
@@ -643,10 +658,15 @@ async def list_slide_artifacts(
         # Map builds run in DIFFERENT workers, so each kind is polled at its own base URL;
         # everything else about the row is identical.
         kind = row["kind"]
-        base = {"biomarker": biomarker_url, "tissue": tissue_url}.get(kind, preprocess_url)
+        base = _service_for(
+            kind, preprocess_url=preprocess_url, biomarker_url=biomarker_url,
+            tissue_url=tissue_url, cellvit_url=cellvit_url,
+        )
         if not base:
             continue
-        poll = {"biomarker": map_job_status, "tissue": tissue_job_status}.get(kind, get_job_status)
+        poll = {
+            "biomarker": map_job_status, "tissue": tissue_job_status, "nuclei": nuclei_job_status,
+        }.get(kind, get_job_status)
         try:
             js = await poll(base_url=base, job_id=row["job_id"])
         except httpx.HTTPError:
@@ -658,9 +678,13 @@ async def list_slide_artifacts(
     return {"artifacts": rows}
 
 
-def _service_for(kind: str, *, preprocess_url, biomarker_url, tissue_url) -> str | None:
-    """Which worker owns this kind's bytes. Same table the list route polls status against."""
-    return {"biomarker": biomarker_url, "tissue": tissue_url}.get(kind, preprocess_url)
+def _service_for(
+    kind: str, *, preprocess_url, biomarker_url, tissue_url, cellvit_url=None,
+) -> str | None:
+    """Which worker owns this kind — its bytes, and its job status. One table, both uses."""
+    return {
+        "biomarker": biomarker_url, "tissue": tissue_url, "nuclei": cellvit_url,
+    }.get(kind, preprocess_url)
 
 
 def _dependants(rows: list[dict], art_hash: str) -> list[dict]:
@@ -680,6 +704,7 @@ async def artifact_usage_and_dependants(
     preprocess_url: str | None = Depends(get_preprocess_url),
     biomarker_url: str | None = Depends(get_biomarker_url),
     tissue_url: str | None = Depends(get_tissue_url),
+    cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> dict:
     """The two things a delete dialog has to say before it offers the button: how much this frees,
     and what is holding it. Answered together because asking them separately invites a UI that
@@ -690,7 +715,7 @@ async def artifact_usage_and_dependants(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such artifact on this slide")
     base = _service_for(
         row["kind"], preprocess_url=preprocess_url, biomarker_url=biomarker_url,
-        tissue_url=tissue_url,
+        tissue_url=tissue_url, cellvit_url=cellvit_url,
     )
     used = await artifact_usage(
         base_url=base, kind=row["kind"], item=item, art_hash=art_hash,
@@ -707,6 +732,7 @@ async def delete_slide_artifact(
     preprocess_url: str | None = Depends(get_preprocess_url),
     biomarker_url: str | None = Depends(get_biomarker_url),
     tissue_url: str | None = Depends(get_tissue_url),
+    cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> Response:
     """Remove an artifact: the row first, then its bytes.
 
@@ -733,7 +759,7 @@ async def delete_slide_artifact(
     await artifacts.delete_artifact(item=item, art_hash=art_hash)
     base = _service_for(
         row["kind"], preprocess_url=preprocess_url, biomarker_url=biomarker_url,
-        tissue_url=tissue_url,
+        tissue_url=tissue_url, cellvit_url=cellvit_url,
     )
     if base:
         try:
@@ -1044,6 +1070,85 @@ def _tissue_error(exc: httpx.HTTPError) -> HTTPException:
                 detail = _TISSUE_REFUSALS[code]
             return HTTPException(code, detail)
     return HTTPException(status.HTTP_502_BAD_GATEWAY, f"could not reach the tissue service: {exc}")
+
+
+# ── Nuclei (Inc 5) ───────────────────────────────────────────────────────────────
+
+
+class NucleiRequest(BaseModel):
+    bbox: dict | None = None
+
+
+_NUCLEI_REFUSALS = {
+    status.HTTP_400_BAD_REQUEST: "the nuclei worker rejected those parameters",
+    status.HTTP_404_NOT_FOUND: "the nuclei worker does not know that artifact",
+    status.HTTP_503_SERVICE_UNAVAILABLE: "the nuclei worker has no segmentation weights",
+}
+
+
+def _nuclei_error(exc: httpx.HTTPError) -> HTTPException:
+    """Forward the worker's own refusals; anything else is a genuine gateway-side failure."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in _NUCLEI_REFUSALS:
+            try:
+                detail = exc.response.json().get("detail", _NUCLEI_REFUSALS[code])
+            except ValueError:
+                detail = _NUCLEI_REFUSALS[code]
+            return HTTPException(code, detail)
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, f"could not reach the cellvit service: {exc}")
+
+
+def _need_cellvit(url: str | None) -> str:
+    if not url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The cellvit service is not configured"
+        )
+    return url
+
+
+@router.post("/slides/{item}/nuclei")
+async def start_nuclei(
+    item: str,
+    body: NucleiRequest,
+    user: dict = Depends(require_user),
+    token: str | None = Depends(get_girder_token),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    cellvit_url: str | None = Depends(get_cellvit_url),
+) -> dict:
+    """Enqueue a nuclei build and record its durable row.
+
+    No `parent_hash`: unlike the tissue and biomarker maps, a nucleus outline does not depend on a
+    segmentation — a tissue mask only decides which tiles are worth running, which is coverage.
+    The row is the same shape as every other kind's, so the Workspace lists it without knowing
+    anything about nuclei.
+    """
+    try:
+        run = await enqueue_nuclei(
+            base_url=_need_cellvit(cellvit_url), item=item, bbox=body.bbox, token=token,
+        )
+    except httpx.HTTPError as exc:
+        raise _nuclei_error(exc) from exc
+    return await artifacts.upsert_artifact(
+        item=item, kind="nuclei", art_hash=run["art_hash"], parent_hash=None,
+        params={"scope": run.get("scope"), "bbox": body.bbox, "backend": run.get("backend")},
+        status="queued", job_id=run.get("job_id"),
+    )
+
+
+@router.get("/slides/{item}/nuclei/{art_hash}/meta")
+async def nuclei_meta(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    cellvit_url: str | None = Depends(get_cellvit_url),
+) -> dict:
+    try:
+        return await get_nuclei_meta(
+            base_url=_need_cellvit(cellvit_url), item=item, art_hash=art_hash,
+        )
+    except httpx.HTTPError as exc:
+        raise _nuclei_error(exc) from exc
 
 
 @router.get("/tissue/catalog")

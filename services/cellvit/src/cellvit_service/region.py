@@ -40,6 +40,30 @@ def _fetch_mpp(client: httpx.Client, slide_ref: str, headers: dict) -> float | N
     return float(mm_x) * 1000.0 if mm_x else None
 
 
+def fetch_slide_info(
+    *, girder_base: str, slide_ref: str, token: str | None,
+    client: httpx.Client | None = None,
+) -> tuple[int, int, float | None]:
+    """The slide's level-0 size and native µm/px, from large_image tile metadata.
+
+    A nuclei job tiles the slide, so it needs the dimensions before it reads a single pixel — the
+    read windows are clamped to them, and a window clamped to the wrong size either reads past the
+    edge or silently leaves a strip uncomputed.
+    """
+    headers = {"Girder-Token": token} if token else {}
+    owns = client is None
+    client = client or httpx.Client(base_url=girder_base, timeout=60)
+    try:
+        resp = client.get(f"/item/{slide_ref}/tiles", headers=headers)
+        resp.raise_for_status()
+        doc = resp.json()
+    finally:
+        if owns:
+            client.close()
+    mm_x = doc.get("mm_x")
+    return int(doc["sizeX"]), int(doc["sizeY"]), (float(mm_x) * 1000.0 if mm_x else None)
+
+
 def fetch_region(
     *,
     girder_base: str,

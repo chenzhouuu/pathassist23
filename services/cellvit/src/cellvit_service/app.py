@@ -12,14 +12,20 @@ from flask import Flask, jsonify, request
 from .config import get_settings
 from .geometry import offset_points, offset_rings
 from .infer import segment_array, warm_up
+from .jobs import JobQueue
 from .pannuke import TYPE_NAMES, name_for
-from .region import fetch_region
+from .region import fetch_region, fetch_slide_info
+from .routes import register as register_nuclei
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["READ_REGION"] = fetch_region   # injectable seams (tests override these)
     app.config["SEGMENT"] = segment_array
+    app.config["SLIDE_INFO"] = fetch_slide_info
+    # Nuclei builds are minutes of GPU work, so they queue on one worker thread rather than
+    # occupying a request (Inc 5, ticket 05). /segment stays synchronous: it is one small box.
+    app.config["JOBS"] = JobQueue()
 
     # Preload the GPU model synchronously, ON THE WORKER'S MAIN THREAD. This must NOT run in a
     # background thread: building the model starts ray, and ray initialized on a thread that
@@ -77,5 +83,7 @@ def create_app() -> Flask:
             "bbox": bbox,
             "mpp": region.mpp,
         })
+
+    register_nuclei(app)
 
     return app

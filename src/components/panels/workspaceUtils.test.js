@@ -31,7 +31,7 @@ describe('describeParams', () => {
 
   it('says nothing rather than something empty', () => {
     expect(describeParams(row({ kind: 'features', params: {} }))).toBe('');
-    expect(describeParams(row({ kind: 'nuclei', params: { backend: 'cellvit' } }))).toBe('');
+    expect(describeParams(row({ kind: 'mystery', params: { backend: 'cellvit' } }))).toBe('');
     expect(describeParams(null)).toBe('');
   });
 });
@@ -140,8 +140,25 @@ describe('describeArtifact', () => {
   });
 
   it('falls back to the raw kind rather than hiding an unknown one', () => {
-    expect(kindLabel('nuclei')).toBe('nuclei');
-    expect(describeArtifact(row({ kind: 'nuclei' }), NOW).title).toBe('nuclei');
+    expect(kindLabel('mystery')).toBe('mystery');
+    expect(describeArtifact(row({ kind: 'mystery' }), NOW).title).toBe('mystery');
+  });
+
+  it('reads a nuclei row as its count, area and dominant classes', () => {
+    const r = row({
+      kind: 'nuclei',
+      params: { backend: 'cellvit-sam-h', scope: 'region' },
+      result: {
+        n_nuclei: 12_403, area_mm2: 4.194,
+        counts_by_class: { Neoplastic: 9000, Connective: 3000, Dead: 403 },
+      },
+    });
+    expect(describeParams(r)).toBe('cellvit-sam-h · region');
+    expect(describeScale(r)).toBe('12,403 nuclei · 4.19 mm² · Neoplastic/Connective');
+  });
+
+  it('has no eye yet — the picture is ticket 06', () => {
+    expect(canDraw(row({ kind: 'nuclei' }))).toBe(false);
   });
 });
 
