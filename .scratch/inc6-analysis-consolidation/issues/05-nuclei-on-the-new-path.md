@@ -114,14 +114,41 @@ Migration, before any of this: 2 nuclei rows, both with bytes behind them, 0 del
 
 ## Two things the deployment turned up, neither of them this ticket's code
 
-- **This box's preprocess image has no torch**, so `POST /segment` returns the stub — a synthetic
+- **This box's preprocess image had no torch**, so `POST /segment` returned the stub — a synthetic
   4096 × 4096 tissue square at the slide's origin (`stages.py:36`). A *seg-driven* whole-slide
-  nuclei run therefore selects four cores of glass and finds nothing, which is what the first
+  nuclei run therefore selected four cores of glass and found nothing, which is what the first
   attempt did before the cause was found. The dispatch, the tile selection and the report were all
-  correct; the segmentation was a placeholder. The run above uses a slide-sized region instead,
-  which is the same `run_region` path with the tile list coming from the bbox rather than from
-  contours. A seg-driven whole-slide run stays unverified on this box until the preprocess image
-  carries a real segmenter.
+  correct; the segmentation was a placeholder.
+
+  **Fixed the same day** — see "The stub's address", below. The preprocess service now runs the
+  Trident image, and the seg-driven whole-slide path is verified: the DEMO slide's real
+  segmentation is 3 contours over 4,987 points spanning 6580–18185 × 3795–16706, and it selects
+  **43 of 121 core tiles**, against 4 under the stub. The run itself found coverage already
+  complete and only re-rasterised, with none of the "no patches sampled" warnings that gave the
+  stub away.
+
+## The stub's address
+
+The two pipelines shared a content address: `seg_hash` was params-only, so a stub segmentation and
+a real one were the same string. Measured on this deployment, `2cd90fdd354fdeb3` held **real
+contours on five slides and a 5-point 4096 px box on DEMO** — one address, two things, and nothing
+on the row to say which. `conch_v1` again.
+
+`impl` — `"trident"` or `"stub"`, from `Settings.impl` — is now in `seg_hash`, `patch_hash`,
+`feat_hash` and the legacy `params_hash`. On **each** stage rather than only the root, because
+flipping the env between two runs makes a stub tiling of a real segmentation and the parent hash
+alone would not show it. It rides on the row too, and the Workspace prints it only when it is
+*not* the real pipeline: a row whose numbers describe a placeholder has to say so, and a real one
+needs no badge.
+
+Consequences, all measured rather than assumed:
+
+- Real segmentations re-run on all 7 slides at the new address `b7123a791abbbda1`. Nothing was
+  overwritten — the two address spaces are disjoint, so the old rows and their bytes are intact.
+- The five older `2cd90fdd354fdeb3` rows turned out to hold **real** contours (34,773 points, real
+  extent) from a time when the Trident image was up. They stay: 7 artifacts descend from them, and
+  the duplicate row is the honest record of work done before the address said what made it.
+- DEMO's `2cd90fdd354fdeb3` was the stub, had no dependants and 202 bytes, and was deleted.
 - **A stopped run's `params` stay the ones that created the row.** A nuclei artifact is extended by
   however many runs it takes, so the row's `scope` is a fact about one of them. It is still stored —
   `girder_job_id` says which run — but the Workspace no longer displays it, because "region" on a

@@ -613,8 +613,12 @@ async def _trigger_dag_stage(
         ) from exc
 
 
+# `impl` among them: the preprocess service runs either the real Trident pipeline or a GPU-free
+# stub, the two produce different bytes for the same request, and since that fact is in the content
+# address it has to be on the row as well. Two segmentations of one slide otherwise sit in the
+# Workspace with the same title and the same "hest · conf 0.5" and nothing to tell them apart.
 _SEG_PARAM_KEYS = (
-    "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks",
+    "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks", "impl",
 )
 
 
@@ -771,7 +775,7 @@ async def start_patch(
     )
     return await artifacts.upsert_artifact(
         item=item, kind="patching", art_hash=run["patch_hash"], parent_hash=run["seg_hash"],
-        params={k: run[k] for k in ("mag", "patch_size", "overlap") if k in run},
+        params={k: run[k] for k in ("mag", "patch_size", "overlap", "impl") if k in run},
         status="queued", job_id=run.get("job_id"),
     )
 
@@ -792,7 +796,8 @@ async def start_features(
     )
     return await artifacts.upsert_artifact(
         item=item, kind="features", art_hash=run["feat_hash"], parent_hash=run["patch_hash"],
-        params={"encoder": run.get("encoder")}, status="queued", job_id=run.get("job_id"),
+        params={"encoder": run.get("encoder"), "impl": run.get("impl")},
+        status="queued", job_id=run.get("job_id"),
     )
 
 

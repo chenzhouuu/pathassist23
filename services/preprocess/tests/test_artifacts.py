@@ -10,18 +10,18 @@ from preprocess_service.artifacts import (
 
 
 def test_params_hash_is_deterministic_and_order_stable():
-    a = params_hash("conch_v1", 20, 256, "hest", "v1")
-    b = params_hash("conch_v1", 20, 256, "hest", "v1")
+    a = params_hash("conch_v1", 20, 256, "hest", "v1", "stub")
+    b = params_hash("conch_v1", 20, 256, "hest", "v1", "stub")
     assert a == b and len(a) == 16
 
 
 def test_params_hash_varies_with_every_param():
-    base = params_hash("conch_v1", 20, 256, "hest", "v1")
-    assert base != params_hash("conch_v15", 20, 256, "hest", "v1")  # encoder
-    assert base != params_hash("conch_v1", 40, 256, "hest", "v1")   # mag
-    assert base != params_hash("conch_v1", 20, 512, "hest", "v1")   # patch_size
-    assert base != params_hash("conch_v1", 20, 256, "otsu", "v1")   # segmenter
-    assert base != params_hash("conch_v1", 20, 256, "hest", "v2")   # version
+    base = params_hash("conch_v1", 20, 256, "hest", "v1", "stub")
+    assert base != params_hash("conch_v15", 20, 256, "hest", "v1", "stub")  # encoder
+    assert base != params_hash("conch_v1", 40, 256, "hest", "v1", "stub")   # mag
+    assert base != params_hash("conch_v1", 20, 512, "hest", "v1", "stub")   # patch_size
+    assert base != params_hash("conch_v1", 20, 256, "otsu", "v1", "stub")   # segmenter
+    assert base != params_hash("conch_v1", 20, 256, "hest", "v2", "stub")   # version
 
 
 def test_cache_paths_layout(tmp_path):

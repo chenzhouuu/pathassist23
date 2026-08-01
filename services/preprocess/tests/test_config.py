@@ -119,7 +119,8 @@ def test_unknown_encoders_take_trident_defaults():
 def test_the_two_variants_cannot_share_a_feat_hash():
     from preprocess_service.artifacts import feat_hash
 
-    assert feat_hash("p1", "conch_v1", "v2") != feat_hash("p1", "conch_v1_text", "v2")
+    assert (feat_hash("p1", "conch_v1", "v2", "stub")
+            != feat_hash("p1", "conch_v1_text", "v2", "stub"))
 
 
 def test_feat_version_is_independent_of_index_version():
@@ -130,4 +131,4 @@ def test_feat_version_is_independent_of_index_version():
 
     s = get_settings.__wrapped__()
     assert s.feat_version == "v2" and s.index_version == "v1"
-    assert feat_hash("p1", "conch_v1", "v1") != feat_hash("p1", "conch_v1", "v2")
+    assert feat_hash("p1", "conch_v1", "v1", "stub") != feat_hash("p1", "conch_v1", "v2", "stub")

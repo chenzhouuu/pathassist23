@@ -18,10 +18,12 @@ from .girder_download import _validate_segment
 
 
 def params_hash(
-    encoder: str, mag: int, patch_size: int, segmenter: str, version: str
+    encoder: str, mag: int, patch_size: int, segmenter: str, version: str, impl: str
 ) -> str:
     """Deterministic, order-stable id for an index build's parameters (legacy flat model)."""
-    canonical = f"enc={encoder}|mag={mag}|ps={patch_size}|seg={segmenter}|ver={version}"
+    canonical = (
+        f"enc={encoder}|mag={mag}|ps={patch_size}|seg={segmenter}|ver={version}|impl={impl}"
+    )
     return hashlib.sha1(canonical.encode()).hexdigest()[:16]
 
 
@@ -48,25 +50,41 @@ def _sha16(canonical: str) -> str:
     return hashlib.sha1(canonical.encode()).hexdigest()[:16]
 
 
+# Every stage hash carries `impl` — "trident" or "stub", from `Settings.impl`.
+#
+# It is not a parameter of the request; it is a property of the image the request ran in, and it
+# belongs in the address because the two produce **different bytes for the same request**. The stub
+# segmenter emits a 4096 px square at the slide's origin whatever `segmenter=` said, so a stub
+# artifact already wears a `segmenter="hest"` label it did not earn. Without `impl` the real run
+# lands on that same address, and nothing on disk or in the row says which of the two is there.
+#
+# This is `conch_v1` again (one name, two embeddings), and the fix is the same one: split the
+# address so both can exist and be told apart. It is on **each** stage rather than only on the
+# root, because a stub tiling of a real segmentation is a real thing to produce by flipping one env
+# var between two runs, and its parent hash alone would not show it.
 def seg_hash(
     segmenter: str, seg_conf_thresh: float, remove_artifacts: bool,
-    remove_holes: bool, remove_penmarks: bool, version: str,
+    remove_holes: bool, remove_penmarks: bool, version: str, impl: str,
 ) -> str:
-    """Id for a tissue segmentation — depends only on the slide + segmenter params."""
+    """Id for a tissue segmentation — the slide's segmenter params, and what ran them."""
     return _sha16(
         f"seg|s={segmenter}|conf={seg_conf_thresh:g}|art={int(remove_artifacts)}"
-        f"|holes={int(remove_holes)}|pen={int(remove_penmarks)}|ver={version}"
+        f"|holes={int(remove_holes)}|pen={int(remove_penmarks)}|ver={version}|impl={impl}"
     )
 
 
-def patch_hash(parent: str, mag: int, patch_size: int, overlap: int, version: str) -> str:
-    """Id for a patch grid — depends on its parent segmentation + tiling params."""
-    return _sha16(f"patch|p={parent}|mag={mag}|ps={patch_size}|ov={overlap}|ver={version}")
+def patch_hash(
+    parent: str, mag: int, patch_size: int, overlap: int, version: str, impl: str
+) -> str:
+    """Id for a patch grid — its parent segmentation, its tiling params, and what ran them."""
+    return _sha16(
+        f"patch|p={parent}|mag={mag}|ps={patch_size}|ov={overlap}|ver={version}|impl={impl}"
+    )
 
 
-def feat_hash(parent: str, encoder: str, version: str) -> str:
-    """Id for a feature index — depends on its parent patch grid + encoder."""
-    return _sha16(f"feat|p={parent}|enc={encoder}|ver={version}")
+def feat_hash(parent: str, encoder: str, version: str, impl: str) -> str:
+    """Id for a feature index — its parent patch grid, its encoder, and what ran it."""
+    return _sha16(f"feat|p={parent}|enc={encoder}|ver={version}|impl={impl}")
 
 
 def seg_paths(cache_root: Path, item: str, sh: str) -> dict[str, Path]:

@@ -45,6 +45,17 @@ export function canSwitch(row) {
 
 const plural = (n, one, many) => `${fmtInt(n)} ${n === 1 ? one : many}`;
 
+/**
+ * Which pipeline produced this artifact, when that is worth saying.
+ *
+ * Only the stub. The preprocess service ships a GPU-free stub — a synthetic 4096 px tissue square,
+ * the same coords for every slide — beside the real Trident path, and since Inc 6 · 05 the two have
+ * separate content addresses, so both can be on one slide at once. A row built by the stub has to
+ * say so: its numbers are about a placeholder. A row built by the real thing needs no badge,
+ * because that is what a row is expected to be.
+ */
+const implNote = (p) => (p?.impl && p.impl !== 'trident' ? p.impl : '');
+
 /** Segment 2 — what it was built with. '' when the row records nothing worth naming. */
 export function describeParams(row) {
   const p = row?.params || {};
@@ -53,14 +64,17 @@ export function describeParams(row) {
     case 'segmentation':
       if (p.segmenter) bits.push(p.segmenter);
       if (Number.isFinite(Number(p.seg_conf_thresh))) bits.push(`conf ${p.seg_conf_thresh}`);
+      if (implNote(p)) bits.push(implNote(p));
       break;
     case 'patching':
       if (p.patch_size) bits.push(`${p.patch_size} px`);
       if (p.mag) bits.push(`${p.mag}×`);
       if (Number(p.overlap) > 0) bits.push(`overlap ${p.overlap}`);
+      if (implNote(p)) bits.push(implNote(p));
       break;
     case 'features':
       if (p.encoder) bits.push(p.encoder);
+      if (implNote(p)) bits.push(implNote(p));
       break;
     case 'prediction':
       if (p.task_id) bits.push(p.task_id);

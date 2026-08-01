@@ -20,7 +20,7 @@ from preprocess_service.stages import run_features, run_patching, run_segmentati
 
 
 def _seg_h():
-    return seg_hash("hest", 0.5, False, False, False, "v1")
+    return seg_hash("hest", 0.5, False, False, False, "v1", "stub")
 
 
 def test_seg_hash_deterministic_and_16_chars():
@@ -29,35 +29,58 @@ def test_seg_hash_deterministic_and_16_chars():
 
 def test_seg_hash_varies_with_every_seg_param():
     base = _seg_h()
-    assert base != seg_hash("otsu", 0.5, False, False, False, "v1")   # segmenter
-    assert base != seg_hash("hest", 0.4, False, False, False, "v1")   # conf
-    assert base != seg_hash("hest", 0.5, True, False, False, "v1")    # remove_artifacts
-    assert base != seg_hash("hest", 0.5, False, True, False, "v1")    # remove_holes
-    assert base != seg_hash("hest", 0.5, False, False, True, "v1")    # remove_penmarks
-    assert base != seg_hash("hest", 0.5, False, False, False, "v2")   # version
+    assert base != seg_hash("otsu", 0.5, False, False, False, "v1", "stub")   # segmenter
+    assert base != seg_hash("hest", 0.4, False, False, False, "v1", "stub")   # conf
+    assert base != seg_hash("hest", 0.5, True, False, False, "v1", "stub")    # remove_artifacts
+    assert base != seg_hash("hest", 0.5, False, True, False, "v1", "stub")    # remove_holes
+    assert base != seg_hash("hest", 0.5, False, False, True, "v1", "stub")    # remove_penmarks
+    assert base != seg_hash("hest", 0.5, False, False, False, "v2", "stub")   # version
+
+
+def test_the_stub_and_the_real_pipeline_cannot_share_an_address():
+    """The bug this was found by: a stub segmentation is a 4096 px square at the slide's origin
+    whatever `segmenter=` asked for, and before `impl` the real run landed on exactly that address.
+    Nothing on disk said which of the two was there — `conch_v1` again, one name and two things.
+
+    On every stage, not only the root: flipping the env between two runs makes a stub tiling of a
+    real segmentation, and the parent hash alone would not show it."""
+    assert seg_hash("hest", 0.5, False, False, False, "v1", "stub") \
+        != seg_hash("hest", 0.5, False, False, False, "v1", "trident")
+    assert (patch_hash("p1", 20, 256, 0, "v1", "stub")
+            != patch_hash("p1", 20, 256, 0, "v1", "trident"))
+    assert feat_hash("p1", "conch_v1", "v1", "stub") != feat_hash("p1", "conch_v1", "v1", "trident")
+
+
+def test_the_settings_spell_the_implementation_once():
+    """One spelling, derived from the one flag — a second `"trident" if ... else "stub"` at a call
+    site is how the two halves of a hash drift apart."""
+    from preprocess_service.config import Settings
+
+    assert Settings(trident_enabled=True).impl == "trident"
+    assert Settings(trident_enabled=False).impl == "stub"
 
 
 def test_patch_hash_composes_over_parent_and_tile_params():
     sh = _seg_h()
-    base = patch_hash(sh, 20, 256, 0, "v1")
-    assert base == patch_hash(sh, 20, 256, 0, "v1")
-    assert base != patch_hash("otherseg", 20, 256, 0, "v1")  # parent seg
-    assert base != patch_hash(sh, 40, 256, 0, "v1")          # mag
-    assert base != patch_hash(sh, 20, 512, 0, "v1")          # patch_size
-    assert base != patch_hash(sh, 20, 256, 128, "v1")        # overlap
+    base = patch_hash(sh, 20, 256, 0, "v1", "stub")
+    assert base == patch_hash(sh, 20, 256, 0, "v1", "stub")
+    assert base != patch_hash("otherseg", 20, 256, 0, "v1", "stub")  # parent seg
+    assert base != patch_hash(sh, 40, 256, 0, "v1", "stub")          # mag
+    assert base != patch_hash(sh, 20, 512, 0, "v1", "stub")          # patch_size
+    assert base != patch_hash(sh, 20, 256, 128, "v1", "stub")        # overlap
 
 
 def test_feat_hash_composes_over_parent_and_encoder():
-    ph = patch_hash(_seg_h(), 20, 256, 0, "v1")
-    base = feat_hash(ph, "conch_v1", "v1")
-    assert base != feat_hash(ph, "uni_v2", "v1")          # encoder
-    assert base != feat_hash("otherpatch", "conch_v1", "v1")  # parent patch
+    ph = patch_hash(_seg_h(), 20, 256, 0, "v1", "stub")
+    base = feat_hash(ph, "conch_v1", "v1", "stub")
+    assert base != feat_hash(ph, "uni_v2", "v1", "stub")          # encoder
+    assert base != feat_hash("otherpatch", "conch_v1", "v1", "stub")  # parent patch
 
 
 def test_reuse_one_patch_grid_feeds_many_encoders():
     # Same tissue + same tiling → same patch_hash → two encoders differ only at the feat layer.
-    ph = patch_hash(_seg_h(), 20, 256, 0, "v1")
-    assert feat_hash(ph, "conch_v1", "v1") != feat_hash(ph, "uni_v2", "v1")
+    ph = patch_hash(_seg_h(), 20, 256, 0, "v1", "stub")
+    assert feat_hash(ph, "conch_v1", "v1", "stub") != feat_hash(ph, "uni_v2", "v1", "stub")
 
 
 def test_dag_cache_paths_layout(tmp_path):

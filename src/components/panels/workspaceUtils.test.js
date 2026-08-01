@@ -29,6 +29,20 @@ describe('describeParams', () => {
       .toBe('256 px · overlap 64');
   });
 
+  it('says when an artifact came out of the stub pipeline, and stays quiet when it did not', () => {
+    // Two segmentations of one slide can coexist since Inc 6 · 05 split their addresses. The stub's
+    // is a synthetic 4096 px square with a `segmenter: hest` label it did not earn, so the row has
+    // to carry the one word that tells them apart.
+    const stub = row({ kind: 'segmentation', params: { segmenter: 'hest', seg_conf_thresh: 0.5, impl: 'stub' } });
+    const real = row({ kind: 'segmentation', params: { segmenter: 'hest', seg_conf_thresh: 0.5, impl: 'trident' } });
+    expect(describeParams(stub)).toBe('hest · conf 0.5 · stub');
+    expect(describeParams(real)).toBe('hest · conf 0.5');
+    // Rows written before the split say nothing either — an absent `impl` is not a claim.
+    expect(describeParams(row({ kind: 'segmentation', params: { segmenter: 'hest' } }))).toBe('hest');
+    expect(describeParams(row({ kind: 'features', params: { encoder: 'conch_v1', impl: 'stub' } })))
+      .toBe('conch_v1 · stub');
+  });
+
   it('says nothing rather than something empty', () => {
     expect(describeParams(row({ kind: 'features', params: {} }))).toBe('');
     expect(describeParams(row({ kind: 'mystery', params: { backend: 'cellvit' } }))).toBe('');

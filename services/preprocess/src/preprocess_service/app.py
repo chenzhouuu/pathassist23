@@ -81,7 +81,7 @@ def _patch_params(body: dict, settings) -> dict:
 def _seg_h(sp: dict, settings) -> str:
     return seg_hash(
         sp["segmenter"], sp["seg_conf_thresh"], sp["remove_artifacts"],
-        sp["remove_holes"], sp["remove_penmarks"], settings.index_version,
+        sp["remove_holes"], sp["remove_penmarks"], settings.index_version, settings.impl,
     )
 
 
@@ -139,16 +139,21 @@ def create_app() -> Flask:
         try:
             if kind == "segmentation":
                 sp = _seg_params(body, settings)
-                return jsonify({"kind": kind, "art_hash": _seg_h(sp, settings), "params": sp})
+                # `impl` rides with the params, not because a caller sets it — nobody can — but
+                # because it is in the hash, and a row that records the address without recording
+                # what produced it leaves two identical-looking artifacts on the same slide.
+                return jsonify({"kind": kind, "art_hash": _seg_h(sp, settings),
+                                "params": {**sp, "impl": settings.impl}})
             if kind == "patching":
                 parent = body.get("seg_hash")
                 if not parent:
                     return jsonify({"detail": "patching needs seg_hash"}), 400
                 pp = _patch_params(body, settings)
                 return jsonify({
-                    "kind": kind, "params": pp, "parent_hash": parent,
+                    "kind": kind, "params": {**pp, "impl": settings.impl},
+                    "parent_hash": parent,
                     "art_hash": patch_hash(parent, pp["mag"], pp["patch_size"], pp["overlap"],
-                                           settings.index_version),
+                                           settings.index_version, settings.impl),
                 })
             if kind == "features":
                 parent = body.get("patch_hash")
@@ -156,8 +161,10 @@ def create_app() -> Flask:
                     return jsonify({"detail": "features needs patch_hash"}), 400
                 encoder = body.get("encoder") or settings.image_encoder
                 return jsonify({
-                    "kind": kind, "params": {"encoder": encoder}, "parent_hash": parent,
-                    "art_hash": feat_hash(parent, encoder, settings.index_version),
+                    "kind": kind, "params": {"encoder": encoder, "impl": settings.impl},
+                    "parent_hash": parent,
+                    "art_hash": feat_hash(parent, encoder, settings.index_version,
+                                          settings.impl),
                 })
         except (TypeError, ValueError) as exc:
             return jsonify({"detail": f"bad params for {kind}: {exc}"}), 400
@@ -226,7 +233,8 @@ def create_app() -> Flask:
 
         job_id = app.config["QUEUE"].submit(job)
         return jsonify({
-            "job_id": job_id, "seg_hash": sh, "kind": "segmentation", "status": "queued", **sp,
+            "job_id": job_id, "seg_hash": sh, "kind": "segmentation", "status": "queued",
+            "impl": settings.impl, **sp,
         }), 202
 
     # ── Stage 2: tiling (needs a ready segmentation) ────────────────────────────────
@@ -244,7 +252,8 @@ def create_app() -> Flask:
                 "seg_hash": sh,
             }), 409
         pp = _patch_params(body, settings)
-        ph = patch_hash(sh, pp["mag"], pp["patch_size"], pp["overlap"], settings.index_version)
+        ph = patch_hash(sh, pp["mag"], pp["patch_size"], pp["overlap"], settings.index_version,
+                        settings.impl)
         patch_sink = patch_paths(settings.artifact_cache, item, ph)
         token = body.get("girder_token")
 
@@ -262,7 +271,7 @@ def create_app() -> Flask:
         job_id = app.config["QUEUE"].submit(job)
         return jsonify({
             "job_id": job_id, "patch_hash": ph, "seg_hash": sh, "kind": "patching",
-            "status": "queued", **pp,
+            "status": "queued", "impl": settings.impl, **pp,
         }), 202
 
     # ── Stage 3: feature extraction (needs a ready patch grid) ──────────────────────
@@ -280,7 +289,7 @@ def create_app() -> Flask:
                 "patch_hash": ph,
             }), 409
         encoder = body.get("encoder") or settings.image_encoder
-        fh = feat_hash(ph, encoder, settings.feat_version)
+        fh = feat_hash(ph, encoder, settings.feat_version, settings.impl)
         feat_sink = feat_paths(settings.artifact_cache, item, fh)
         token = body.get("girder_token")
 
@@ -298,7 +307,7 @@ def create_app() -> Flask:
         job_id = app.config["QUEUE"].submit(job)
         return jsonify({
             "job_id": job_id, "feat_hash": fh, "patch_hash": ph, "kind": "features",
-            "encoder": encoder, "status": "queued",
+            "encoder": encoder, "status": "queued", "impl": settings.impl,
         }), 202
 
     # ── One-click: run the whole DAG in one job, reusing any cached stage ───────────
@@ -312,8 +321,9 @@ def create_app() -> Flask:
         sp, pp = _seg_params(body, settings), _patch_params(body, settings)
         encoder = body.get("encoder") or settings.image_encoder
         sh = _seg_h(sp, settings)
-        ph = patch_hash(sh, pp["mag"], pp["patch_size"], pp["overlap"], settings.index_version)
-        fh = feat_hash(ph, encoder, settings.feat_version)
+        ph = patch_hash(sh, pp["mag"], pp["patch_size"], pp["overlap"], settings.index_version,
+                        settings.impl)
+        fh = feat_hash(ph, encoder, settings.feat_version, settings.impl)
         seg_sink = seg_paths(settings.artifact_cache, item, sh)
         patch_sink = patch_paths(settings.artifact_cache, item, ph)
         feat_sink = feat_paths(settings.artifact_cache, item, fh)
@@ -433,7 +443,7 @@ def create_app() -> Flask:
         params = _build_params(body, settings)
         phash = params_hash(
             params["encoder"], params["mag"], params["patch_size"],
-            params["segmenter"], settings.index_version,
+            params["segmenter"], settings.index_version, settings.impl,
         )
         sink = cache_paths(settings.artifact_cache, item, phash)
         token = body.get("girder_token")
@@ -500,7 +510,8 @@ def create_app() -> Flask:
             mag = int(body.get("mag") or settings.default_mag)
             patch_size = int(body.get("patch_size") or settings.default_patch_size)
             segmenter = body.get("segmenter") or settings.default_segmenter
-            phash = params_hash(encoder, mag, patch_size, segmenter, settings.index_version)
+            phash = params_hash(encoder, mag, patch_size, segmenter, settings.index_version,
+                                settings.impl)
             features_path = cache_paths(settings.artifact_cache, item, phash)["features"]
         if not features_path.exists():
             return jsonify({

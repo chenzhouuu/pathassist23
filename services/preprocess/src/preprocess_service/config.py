@@ -108,6 +108,16 @@ class Settings:
         return self.trident_enabled
 
     @property
+    def impl(self) -> str:
+        """Which pipeline produced an artifact — part of its content address (see `artifacts`).
+
+        Derived here rather than at each call site so the string has one spelling. A deployment
+        that flips `PREPROCESS_USE_TRIDENT` does not overwrite what the other pipeline built: the
+        two address spaces are disjoint, and both remain readable.
+        """
+        return "trident" if self.use_trident else "stub"
+
+    @property
     def download_dir(self) -> Path:
         """Scratch dir for the resolver's download tier (§3.3)."""
         return self.artifact_cache / "_download"
