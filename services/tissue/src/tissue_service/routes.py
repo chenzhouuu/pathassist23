@@ -10,6 +10,7 @@ a Flask test client and no GPU, no weights and no slide:
 """
 
 import logging
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -215,6 +216,34 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
 
         return jsonify({"detail": f"unknown layer {layer!r}"}), 400
 
+    @app.delete("/tissue/<item>/<ahash>")
+    def delete_artifact(item: str, ahash: str):
+        """Remove an artifact's whole directory (Inc 5, Phase 1).
+
+        **Idempotent**: a directory that is already gone is a 204, not a 404. The gateway deletes
+        the durable row first and this second, so a retry after a crash between the two must be
+        able to finish the job rather than report a failure that has already happened.
+
+        Only the gateway ever calls this, and only after it has established that nothing's
+        ``parent_hash`` points here — this service has no view of the DAG and does not check.
+        """
+        try:
+            root = _root(item, ahash)
+        except ValueError as exc:                # a path segment that could escape the cache root
+            return jsonify({"detail": str(exc)}), 400
+        if root.is_dir():
+            shutil.rmtree(root)
+        return "", 204
+
+    @app.get("/tissue/<item>/<ahash>/usage")
+    def usage(item: str, ahash: str):
+        """What this artifact costs on disk, for the confirm dialog. 0 for one already gone."""
+        try:
+            root = _root(item, ahash)
+        except ValueError as exc:
+            return jsonify({"detail": str(exc)}), 400
+        return jsonify({"bytes": _dir_bytes(root)})
+
     @app.get("/tissue/<item>/<ahash>/stats")
     def stats(item: str, ahash: str):
         """Class composition for a sub-rectangle, or the whole artifact when no bbox is given."""
@@ -265,8 +294,6 @@ def _count_region(root: Path, backend, sx: int, sy: int, sw: int, sh: int) -> di
 
 def _free_gb(path: str) -> float | None:
     """Free space on the cache volume, or None when it cannot be determined (never a refusal)."""
-    import shutil
-
     try:
         Path(path).mkdir(parents=True, exist_ok=True)
         return shutil.disk_usage(path).free / (1024 ** 3)
@@ -276,6 +303,14 @@ def _free_gb(path: str) -> float | None:
 
 def _root(item: str, ahash: str) -> Path:
     return artifact_dir(get_settings().cache_root, item, ahash)
+
+
+def _dir_bytes(root: Path) -> int:
+    """Bytes on disk under `root`, or 0 if it is not there. Walked rather than cached: an artifact
+    grows while it builds, and a stale number in a delete dialog is worse than a slow one."""
+    if not root.is_dir():
+        return 0
+    return sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
 
 
 def _f(v: str | None, default: float) -> float:

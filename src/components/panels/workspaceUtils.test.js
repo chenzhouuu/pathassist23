@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canDraw, describeArtifact, describeParams, describeScale, describeState, formatAge, kindLabel,
-  sortArtifacts,
+  canDraw, describeArtifact, describeDependant, describeParams, describeScale, describeState,
+  formatAge, formatBytes, kindLabel, sortArtifacts,
 } from './workspaceUtils.js';
 
 const NOW = Date.parse('2026-08-01T12:00:00Z');
@@ -160,5 +160,34 @@ describe('sortArtifacts', () => {
   it('survives an empty or missing list', () => {
     expect(sortArtifacts([])).toEqual([]);
     expect(sortArtifacts(undefined)).toEqual([]);
+  });
+});
+
+describe('formatBytes', () => {
+  it('says the size the way a person would', () => {
+    expect(formatBytes(304_087_040)).toBe('290 MB');
+    expect(formatBytes(1_363_148)).toBe('1.3 MB');
+    expect(formatBytes(2048)).toBe('2.0 KB');
+    expect(formatBytes(900)).toBe('900 B');
+    expect(formatBytes(253_403_070_464)).toBe('236 GB');
+  });
+
+  it('says nothing rather than "0 B" when there is no number', () => {
+    expect(formatBytes(0)).toBe('');
+    expect(formatBytes(undefined)).toBe('');
+    expect(formatBytes(-1)).toBe('');
+  });
+});
+
+describe('describeDependant', () => {
+  it('names a dependant the way its row names itself', () => {
+    expect(describeDependant({ kind: 'tissue', params: { backend: 'hover-next' } }))
+      .toBe('Tissue map (hover-next)');
+    expect(describeDependant({ kind: 'patching', params: { patch_size: 256, mag: 20 } }))
+      .toBe('Patching (256 px · 20×)');
+  });
+
+  it('falls back to the kind rather than to a hash', () => {
+    expect(describeDependant({ kind: 'features', params: {} })).toBe('Features');
   });
 });

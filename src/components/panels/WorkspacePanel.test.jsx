@@ -6,10 +6,14 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../api/preprocessApi.js', () => ({ listArtifacts: vi.fn() }));
+vi.mock('../../api/preprocessApi.js', () => ({
+  listArtifacts: vi.fn(),
+  getArtifactUsage: vi.fn(),
+  deleteArtifact: vi.fn(),
+}));
 
 import WorkspacePanel from './WorkspacePanel.jsx';
-import { listArtifacts } from '../../api/preprocessApi.js';
+import { deleteArtifact, getArtifactUsage, listArtifacts } from '../../api/preprocessApi.js';
 import { useStore } from '../../store/index.js';
 
 const SLIDE = { _id: 'item-1', name: 'slide.svs' };
@@ -39,6 +43,9 @@ describe('WorkspacePanel', () => {
   beforeEach(() => {
     useStore.setState({ activeItem: SLIDE, visibleArtifacts: {} });
     listArtifacts.mockResolvedValue([]);
+    getArtifactUsage.mockResolvedValue({ bytes: 0, dependants: [] });
+    deleteArtifact.mockResolvedValue({ deleted: true, dependants: [] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
   afterEach(() => vi.useRealTimers());
 
@@ -151,6 +158,98 @@ describe('WorkspacePanel', () => {
   it('shows the reason when the list cannot be fetched', async () => {
     listArtifacts.mockRejectedValue(new Error('gateway unreachable'));
     render(<WorkspacePanel />);
+    expect(await screen.findByText('gateway unreachable')).toBeInTheDocument();
+  });
+});
+
+describe('deleting an artifact', () => {
+  const openMenu = async (title) => {
+    await userEvent.click(within(rowFor(title)).getByRole('button', { name: 'Actions' }));
+    return screen.getByRole('menuitem', { name: /delete/i });
+  };
+
+  beforeEach(() => {
+    useStore.setState({ activeItem: SLIDE, visibleArtifacts: {} });
+    listArtifacts.mockResolvedValue(ROWS);
+    getArtifactUsage.mockResolvedValue({ bytes: 0, dependants: [] });
+    deleteArtifact.mockResolvedValue({ deleted: true, dependants: [] });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('names the artifact and what it frees before deleting anything', async () => {
+    getArtifactUsage.mockResolvedValue({ bytes: 304_087_040, dependants: [] });
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+
+    await userEvent.click(await openMenu('Tissue map'));
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    const asked = window.confirm.mock.calls[0][0];
+    expect(asked).toContain('Tissue map (hover-next)');
+    expect(asked).toContain('290 MB');
+    expect(asked).toMatch(/cannot be undone/i);
+    expect(deleteArtifact).toHaveBeenCalledWith('item-1', 'tis1');
+  });
+
+  it('deletes nothing when the confirm is declined', async () => {
+    window.confirm.mockReturnValue(false);
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+
+    await userEvent.click(await openMenu('Tissue map'));
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    expect(deleteArtifact).not.toHaveBeenCalled();
+  });
+
+  it('refuses without asking when something was built from it, and names what', async () => {
+    getArtifactUsage.mockResolvedValue({
+      bytes: 1024,
+      dependants: [
+        { kind: 'tissue', art_hash: 't1', params: { backend: 'hover-next' } },
+        { kind: 'patching', art_hash: 'p1', params: { patch_size: 256, mag: 20 } },
+      ],
+    });
+    render(<WorkspacePanel />);
+    await screen.findByText('Segmentation');
+
+    await userEvent.click(await openMenu('Segmentation'));
+
+    expect(await screen.findByText(/was used to build 2 other artifacts/)).toBeInTheDocument();
+    expect(screen.getByText('Tissue map (hover-next)')).toBeInTheDocument();
+    expect(screen.getByText('Patching (256 px · 20×)')).toBeInTheDocument();
+    // Not a question — there is nothing for the user to agree to.
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(deleteArtifact).not.toHaveBeenCalled();
+  });
+
+  it('takes the gateway as the authority when the list has gone stale', async () => {
+    deleteArtifact.mockResolvedValue({
+      deleted: false,
+      dependants: [{ kind: 'tissue', art_hash: 't1', params: {} }],
+    });
+    render(<WorkspacePanel />);
+    await screen.findByText('Segmentation');
+
+    await userEvent.click(await openMenu('Segmentation'));
+    expect(await screen.findByText(/was used to build another artifact/)).toBeInTheDocument();
+  });
+
+  it('reloads the list once the artifact is gone', async () => {
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+    listArtifacts.mockResolvedValue(ROWS.filter((r) => r.art_hash !== 'tis1'));
+
+    await userEvent.click(await openMenu('Tissue map'));
+    await waitFor(() => expect(screen.queryByText('Tissue map')).not.toBeInTheDocument());
+    expect(screen.getByText('Artifacts (2)')).toBeInTheDocument();
+  });
+
+  it('shows the reason when the delete itself fails', async () => {
+    deleteArtifact.mockRejectedValue(new Error('gateway unreachable'));
+    render(<WorkspacePanel />);
+    await screen.findByText('Tissue map');
+
+    await userEvent.click(await openMenu('Tissue map'));
     expect(await screen.findByText('gateway unreachable')).toBeInTheDocument();
   });
 });

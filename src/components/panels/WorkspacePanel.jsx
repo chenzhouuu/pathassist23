@@ -14,11 +14,13 @@
 // binds them to this repo's data stays ours.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
-import { listArtifacts } from '../../api/preprocessApi.js';
+import { deleteArtifact, getArtifactUsage, listArtifacts } from '../../api/preprocessApi.js';
 import { TooltipProvider } from '../ui/tooltip.tsx';
 import { PanelSection } from '../workspace/vendor/ohif/PanelSection.tsx';
 import { DataRow } from '../workspace/vendor/ohif/DataRow.tsx';
-import { describeArtifact, isInFlight, sortArtifacts } from './workspaceUtils.js';
+import {
+  describeArtifact, describeDependant, formatBytes, isInFlight, sortArtifacts,
+} from './workspaceUtils.js';
 
 const POLL_MS = 2500;
 
@@ -31,6 +33,8 @@ export default function WorkspacePanel() {
   const [rows, setRows] = useState([]);
   const [error, setError] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [blocked, setBlocked] = useState(null);   // { title, dependants } — a refused delete
+  const [deleting, setDeleting] = useState(null); // the hash currently being removed
   const pollRef = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -61,6 +65,37 @@ export default function WorkspacePanel() {
 
   const described = useMemo(() => sortArtifacts(rows).map((row) => describeArtifact(row)), [rows]);
 
+  // Delete asks the gateway what this would free and what is holding it, before offering the
+  // button. A refusal is shown in the panel rather than in the confirm, because it is not a
+  // question — there is nothing for the user to agree to.
+  const onDelete = useCallback(async (view) => {
+    setBlocked(null);
+    setError(null);
+    setDeleting(view.key);
+    try {
+      const { bytes, dependants } = await getArtifactUsage(itemId, view.key);
+      if (dependants.length) { setBlocked({ title: view.title, dependants }); return; }
+
+      const what = view.primary[0] ? `${view.title} (${view.primary[0]})` : view.title;
+      const frees = formatBytes(bytes);
+      const ok = window.confirm(
+        `Delete ${what}?\n\n`
+        + (frees ? `This frees ${frees} on disk. ` : '')
+        + 'It cannot be undone — rebuilding it means running the job again.',
+      );
+      if (!ok) return;
+
+      const res = await deleteArtifact(itemId, view.key);
+      // The list can go stale between the check and the click; the gateway is the authority.
+      if (!res.deleted) { setBlocked({ title: view.title, dependants: res.dependants }); return; }
+      await refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDeleting(null);
+    }
+  }, [itemId, refresh]);
+
   if (!activeItem) {
     return (
       <div
@@ -90,6 +125,23 @@ export default function WorkspacePanel() {
                 {error}
               </div>
             )}
+            {blocked && (
+              <div className="px-2.5 py-3 text-xs" style={{ color: 'var(--muted-hex)' }}>
+                <div style={{ color: 'var(--danger)' }}>
+                  {blocked.title} was used to build {blocked.dependants.length === 1
+                    ? 'another artifact' : `${blocked.dependants.length} other artifacts`}.
+                </div>
+                <ul className="mt-1 ml-4 list-disc">
+                  {blocked.dependants.map((d) => (
+                    <li key={d.art_hash}>{describeDependant(d)}</li>
+                  ))}
+                </ul>
+                <div className="mt-1">Delete {blocked.dependants.length === 1 ? 'it' : 'those'} first.</div>
+                <button type="button" className="mk-btn mt-2" onClick={() => setBlocked(null)}>
+                  Dismiss
+                </button>
+              </div>
+            )}
             {!error && loaded && described.length === 0 && (
               <div className="px-2.5 py-6 text-center text-xs" style={{ color: 'var(--muted-hex)' }}>
                 Nothing has been built for this slide yet.
@@ -109,8 +161,12 @@ export default function WorkspacePanel() {
                   onToggleVisibility={
                     view.canSwitch ? () => toggleArtifactVisible(view.key, view.kind) : undefined
                   }
-                  disableEditing              /* the menu is empty until delete lands in 04 */
-                  className={view.failed ? 'opacity-70' : undefined}
+                  disableEditing={false}
+                  onDelete={() => onDelete(view)}
+                  className={[
+                    view.failed ? 'opacity-70' : '',
+                    deleting === view.key ? 'opacity-40 pointer-events-none' : '',
+                  ].filter(Boolean).join(' ') || undefined}
                 />
               ))}
             </div>

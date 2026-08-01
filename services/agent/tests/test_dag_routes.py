@@ -5,7 +5,12 @@ from starlette.testclient import TestClient
 from agent.gateway import routes as routes_mod
 from agent.gateway.app import create_app
 from agent.gateway.auth import require_user
-from agent.gateway.routes import get_preprocess_artifact_store, get_preprocess_url
+from agent.gateway.routes import (
+    get_biomarker_url,
+    get_preprocess_artifact_store,
+    get_preprocess_url,
+    get_tissue_url,
+)
 from agent.store import MemoryPreprocessArtifactStore
 
 _USER = {"_id": "u1", "login": "tester"}
@@ -149,3 +154,119 @@ def test_segmentation_contours_404_when_absent(client, monkeypatch):
         return None
     monkeypatch.setattr(routes_mod, "get_contours", none_contours)
     assert client.get(f"{_BASE}/item9/segmentation/nope/contours").status_code == 404
+
+
+# ── delete (Inc 5, ticket 04) ──────────────────────────────────────────────────────
+
+
+async def _seed(store, item, kind, art_hash, parent=None, params=None):
+    return await store.upsert_artifact(
+        item=item, kind=kind, art_hash=art_hash, parent_hash=parent, params=params or {},
+    )
+
+
+def _with_map_workers(client):
+    """The tissue and biomarker workers own their own kinds' bytes, so a delete of one of those
+    rows only reaches a service when their URLs are configured."""
+    client.app.dependency_overrides[get_tissue_url] = lambda: "http://tissue:8021"
+    client.app.dependency_overrides[get_biomarker_url] = lambda: "http://biomarker:8022"
+    return client
+
+
+def _deleted(calls):
+    """A delete_artifact double that records what it was asked to remove."""
+    async def delete(*, base_url, kind, item, art_hash, client=None):
+        calls.append((base_url, kind, item, art_hash))
+    return delete
+
+
+def _sized(n):
+    async def usage(*, base_url, kind, item, art_hash, client=None):
+        return n
+    return usage
+
+
+@pytest.mark.anyio
+async def test_delete_removes_the_row_and_asks_the_owning_service_for_the_bytes(
+    client, art_store, monkeypatch,
+):
+    await _seed(art_store, "item9", "tissue", "t1")
+    calls = []
+    monkeypatch.setattr(routes_mod, "delete_artifact", _deleted(calls))
+    _with_map_workers(client)
+
+    r = client.delete(f"{_BASE}/item9/artifacts/t1")
+    assert r.status_code == 204
+    assert await art_store.get_artifact(item="item9", art_hash="t1") is None
+    assert calls and calls[0][1:] == ("tissue", "item9", "t1")
+
+
+@pytest.mark.anyio
+async def test_delete_is_refused_while_something_was_built_from_it(client, art_store, monkeypatch):
+    await _seed(art_store, "item9", "segmentation", "s1")
+    await _seed(art_store, "item9", "patching", "p1", parent="s1", params={"mag": 20})
+    calls = []
+    monkeypatch.setattr(routes_mod, "delete_artifact", _deleted(calls))
+
+    r = client.delete(f"{_BASE}/item9/artifacts/s1")
+    assert r.status_code == 409
+    body = r.json()["detail"]
+    # Named, not counted — the dialog has to say what is holding it.
+    assert body["dependants"] == [{"kind": "patching", "art_hash": "p1", "params": {"mag": 20}}]
+    # And nothing was touched: refusing must not have removed the row or the bytes.
+    assert await art_store.get_artifact(item="item9", art_hash="s1") is not None
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_deleting_a_leaf_leaves_its_parent_alone(client, art_store, monkeypatch):
+    await _seed(art_store, "item9", "segmentation", "s1")
+    await _seed(art_store, "item9", "patching", "p1", parent="s1")
+    monkeypatch.setattr(routes_mod, "delete_artifact", _deleted([]))
+
+    assert client.delete(f"{_BASE}/item9/artifacts/p1").status_code == 204
+    assert await art_store.get_artifact(item="item9", art_hash="s1") is not None
+
+
+def test_deleting_an_artifact_this_slide_does_not_have_is_404(client):
+    assert client.delete(f"{_BASE}/item9/artifacts/nope").status_code == 404
+
+
+@pytest.mark.anyio
+async def test_a_dead_worker_does_not_fail_a_delete_the_user_cannot_retry(
+    client, art_store, monkeypatch,
+):
+    await _seed(art_store, "item9", "tissue", "t1")
+
+    async def boom(*, base_url, kind, item, art_hash, client=None):
+        raise httpx.ConnectError("worker down")
+    monkeypatch.setattr(routes_mod, "delete_artifact", boom)
+    _with_map_workers(client)
+
+    # The row is already gone, so the artifact is gone as far as the app is concerned. What is left
+    # is an orphan directory, which the next build of the same hash overwrites.
+    assert client.delete(f"{_BASE}/item9/artifacts/t1").status_code == 204
+    assert await art_store.get_artifact(item="item9", art_hash="t1") is None
+
+
+@pytest.mark.anyio
+async def test_usage_answers_size_and_dependants_together(client, art_store, monkeypatch):
+    await _seed(art_store, "item9", "segmentation", "s1")
+    await _seed(art_store, "item9", "tissue", "t1", parent="s1", params={"backend": "hover-next"})
+    monkeypatch.setattr(routes_mod, "artifact_usage", _sized(304_087_040))
+
+    r = client.get(f"{_BASE}/item9/artifacts/s1/usage")
+    assert r.status_code == 200
+    assert r.json() == {
+        "bytes": 304_087_040,
+        "dependants": [{"kind": "tissue", "art_hash": "t1", "params": {"backend": "hover-next"}}],
+    }
+
+
+@pytest.mark.anyio
+async def test_a_size_the_worker_cannot_give_is_not_a_refusal(client, art_store, monkeypatch):
+    await _seed(art_store, "item9", "tissue", "t1")
+    monkeypatch.setattr(routes_mod, "artifact_usage", _sized(0))
+
+    r = client.get(f"{_BASE}/item9/artifacts/t1/usage")
+    assert r.status_code == 200 and r.json()["bytes"] == 0

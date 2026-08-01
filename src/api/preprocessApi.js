@@ -124,3 +124,37 @@ export async function startPreprocess(itemId, params = {}) {
   );
   return asJson(r, 'Start preprocess');
 }
+
+// ── Artifact removal (Inc 5, ticket 04) ────────────────────────────────────────────────
+
+// What deleting this artifact would free, and what is holding it. Asked together because a dialog
+// that offers a size for something it will then be refused permission to delete is a worse dialog
+// than one that leads with the refusal.
+export async function getArtifactUsage(itemId, artHash) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/artifacts/${encodeURIComponent(artHash)}/usage`,
+    { headers: authHeaders() },
+  );
+  const data = await asJson(r, 'Check artifact usage');
+  return { bytes: data.bytes || 0, dependants: data.dependants || [] };
+}
+
+// Delete the artifact's row and its bytes. Resolves to the dependants when the gateway refuses,
+// so the caller can name them; never cascades, so a refusal is the whole answer.
+export async function deleteArtifact(itemId, artHash) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/artifacts/${encodeURIComponent(artHash)}`,
+    { method: 'DELETE', headers: authHeaders() },
+  );
+  if (r.status === 409) {
+    let dependants = [];
+    try { dependants = (await r.json())?.detail?.dependants || []; } catch { /* keep the empty list */ }
+    return { deleted: false, dependants };
+  }
+  if (!r.ok) {
+    let detail = '';
+    try { detail = (await r.text()).slice(0, 300); } catch { /* ignore */ }
+    throw new Error(describeError(r.status, detail, 'Delete artifact'));
+  }
+  return { deleted: true, dependants: [] };
+}

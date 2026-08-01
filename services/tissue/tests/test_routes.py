@@ -255,3 +255,33 @@ def test_cancel_reports_the_job_status_it_actually_left_behind(app, client, tmp_
         threading.Event().wait(0.01)
     assert st["status"] == "cancelled"
     assert st["result"] == {"stopped": True}
+
+
+# ── delete (Inc 5, Phase 1) ────────────────────────────────────────────────────────
+
+def test_delete_removes_the_artifact_directory(client, tmp_path):
+    ah, root = _artifact(tmp_path)
+    assert root.is_dir()
+    assert client.delete(f"/tissue/{ITEM}/{ah}").status_code == 204
+    assert not root.exists()
+
+
+def test_delete_is_idempotent_so_a_retry_after_a_crash_still_succeeds(client, tmp_path):
+    ah, _root = _artifact(tmp_path)
+    assert client.delete(f"/tissue/{ITEM}/{ah}").status_code == 204
+    assert client.delete(f"/tissue/{ITEM}/{ah}").status_code == 204
+
+
+def test_delete_refuses_a_path_that_would_escape_the_cache_root(client):
+    assert client.delete(f"/tissue/{ITEM}/..").status_code in (400, 404)
+
+
+def test_delete_leaves_a_sibling_artifact_alone(client, tmp_path):
+    from tissue_service.artifacts import artifact_dir as adir
+
+    ah, root = _artifact(tmp_path)
+    other = adir(tmp_path, ITEM, "0123456789abcdef")
+    other.mkdir(parents=True)
+    (other / "meta.json").write_text("{}")
+    assert client.delete(f"/tissue/{ITEM}/{ah}").status_code == 204
+    assert not root.exists() and other.is_dir()

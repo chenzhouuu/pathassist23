@@ -16,6 +16,10 @@
 //   3. The eye renders only when `onToggleVisibility` was given. One line, guarding (2).
 //   4. The callback props are annotated `React.MouseEvent` instead of upstream's implicit any,
 //      which this repo's `strict` tsconfig rejects. A type annotation, no behaviour.
+//   5. Each menu item renders only when its callback was given — same rule as the eye. Upstream
+//      always shows Rename, Delete, Lock (and Colour when handed one) because a segment has all
+//      four; an artifact has none of them but Delete, and a menu of three dead entries would be
+//      worse than the copy fidelity is worth.
 // Everything else — layout, class strings, hover behaviour, the 4-line details cut with its
 // tooltip, the number box, the opacity drop when hidden — is upstream's.
 
@@ -267,24 +271,30 @@ export const DataRow: React.FC<DataRowProps> = ({
                 onCloseAutoFocus={e => e.preventDefault()}
               >
                 <>
-                  <DropdownMenuItem onClick={e => handleAction('Rename', e)}>
-                    <Icons.Rename className="text-foreground" />
-                    <span className="pl-2">Rename</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={e => handleAction('Delete', e)}>
-                    <Icons.Delete className="text-foreground" />
-                    <span className="pl-2">Delete</span>
-                  </DropdownMenuItem>
+                  {onRename && (
+                    <DropdownMenuItem onClick={e => handleAction('Rename', e)}>
+                      <Icons.Rename className="text-foreground" />
+                      <span className="pl-2">Rename</span>
+                    </DropdownMenuItem>
+                  )}
+                  {onDelete && (
+                    <DropdownMenuItem onClick={e => handleAction('Delete', e)}>
+                      <Icons.Delete className="text-foreground" />
+                      <span className="pl-2">Delete</span>
+                    </DropdownMenuItem>
+                  )}
                   {onColor && (
                     <DropdownMenuItem onClick={e => handleAction('Color', e)}>
                       <Icons.ColorChange className="text-foreground" />
                       <span className="pl-2">Change Color</span>
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem onClick={e => handleAction('Lock', e)}>
-                    <Icons.Lock className="text-foreground" />
-                    <span className="pl-2">{isLocked ? 'Unlock' : 'Lock'}</span>
-                  </DropdownMenuItem>
+                  {onToggleLocked && (
+                    <DropdownMenuItem onClick={e => handleAction('Lock', e)}>
+                      <Icons.Lock className="text-foreground" />
+                      <span className="pl-2">{isLocked ? 'Unlock' : 'Lock'}</span>
+                    </DropdownMenuItem>
+                  )}
                 </>
               </DropdownMenuContent>
             </DropdownMenu>

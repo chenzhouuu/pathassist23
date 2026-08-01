@@ -171,6 +171,26 @@ export function describeArtifact(row, now = Date.now()) {
   };
 }
 
+/**
+ * Bytes as the unit a person would say them in. Deliberately coarse: this appears in a delete
+ * confirmation, where "290 MB" is the whole point and "290.4 MB" is noise.
+ */
+export function formatBytes(n) {
+  const b = Number(n);
+  if (!Number.isFinite(b) || b <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = b;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+/** One dependant, said the way the rows say themselves — never a bare hash. */
+export function describeDependant(dep) {
+  const params = describeParams(dep);
+  return params ? `${kindLabel(dep?.kind)} (${params})` : kindLabel(dep?.kind);
+}
+
 /** Newest first — the artifact you just built is the one you are looking for. */
 export function sortArtifacts(rows) {
   return [...(rows || [])].sort(

@@ -14,10 +14,13 @@ any cached stage) for the one-click path; the legacy /run remains for the flat s
 import json
 import logging
 import os
+import shutil
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 
 from .artifacts import (
+    _artifact_dir,
     cache_paths,
     feat_hash,
     feat_paths,
@@ -37,6 +40,14 @@ from .stages import run_features, run_patching, run_segmentation
 from .tasks import get_task, list_tasks
 
 logger = logging.getLogger(__name__)
+
+
+def _dir_bytes(root: Path) -> int:
+    """Bytes on disk under `root`, or 0 if it is not there. Walked rather than cached: an artifact
+    grows while it builds, and a stale number in a delete dialog is worse than a slow one."""
+    if not root.is_dir():
+        return 0
+    return sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
 
 
 def _build_params(body: dict, settings) -> dict:
@@ -109,6 +120,47 @@ def create_app() -> Flask:
             "status": "ok", "service": "preprocess",
             "model": "trident" if s.use_trident else "stub",
         })
+
+    # ── Artifact removal (Inc 5, ticket 04) ─────────────────────────────────────────
+    # The gateway's row vocabulary, mapped to this service's directory names. Taking the row's own
+    # `kind` keeps the mapping in one place instead of asking the gateway to know this layout.
+    _KIND_DIR = {
+        "segmentation": "seg", "patching": "patch", "features": "feat", "prediction": "pred",
+    }
+
+    def _artifact_root(kind: str, item: str, ahash: str) -> Path:
+        sub = _KIND_DIR.get(kind)
+        if sub is None:
+            raise ValueError(f"unknown artifact kind {kind!r}")
+        return _artifact_dir(get_settings().artifact_cache, item, sub, ahash)
+
+    @app.delete("/artifacts/<kind>/<item>/<ahash>")
+    def delete_artifact(kind: str, item: str, ahash: str):
+        """Remove an artifact's whole directory.
+
+        **Idempotent**: a directory that is already gone is a 204, not a 404. The gateway deletes
+        the durable row first and this second, so a retry after a crash between the two must be
+        able to finish the job rather than report a failure that has already happened.
+
+        Only the gateway calls this, and only once it has established that nothing's `parent_hash`
+        points here — this service has no view of the DAG and does not check.
+        """
+        try:
+            root = _artifact_root(kind, item, ahash)
+        except ValueError as exc:              # unknown kind, or a segment that could escape
+            return jsonify({"detail": str(exc)}), 400
+        if root.is_dir():
+            shutil.rmtree(root)
+        return "", 204
+
+    @app.get("/artifacts/<kind>/<item>/<ahash>/usage")
+    def artifact_usage(kind: str, item: str, ahash: str):
+        """What this artifact costs on disk, for the confirm dialog. 0 for one already gone."""
+        try:
+            root = _artifact_root(kind, item, ahash)
+        except ValueError as exc:
+            return jsonify({"detail": str(exc)}), 400
+        return jsonify({"bytes": _dir_bytes(root)})
 
     # ── Stage 1: tissue segmentation ────────────────────────────────────────────────
     @app.post("/segment")

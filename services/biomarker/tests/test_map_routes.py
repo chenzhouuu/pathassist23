@@ -209,3 +209,30 @@ def test_cells_for_an_uncomputed_tile_is_empty_not_an_error():
 
 def test_unknown_job_is_404():
     assert create_app().test_client().get("/biomarker/status/nope").status_code == 404
+
+
+# ── delete (Inc 5, Phase 1) ────────────────────────────────────────────────────────
+
+def test_delete_removes_the_artifact_directory(tmp_path):
+    from biomarker_service.artifacts import artifact_dir
+
+    app = _app_with_fakes()
+    client = app.test_client()
+    ah = _run(client, app)
+    root = artifact_dir(tmp_path, "item1", ah)
+    assert root.is_dir()
+    assert client.delete(f"/biomarker/item1/{ah}").status_code == 204
+    assert not root.exists()
+
+
+def test_delete_is_idempotent(tmp_path):
+    app = _app_with_fakes()
+    client = app.test_client()
+    ah = _run(client, app)
+    assert client.delete(f"/biomarker/item1/{ah}").status_code == 204
+    assert client.delete(f"/biomarker/item1/{ah}").status_code == 204
+
+
+def test_delete_refuses_a_path_that_would_escape_the_cache_root():
+    client = _app_with_fakes().test_client()
+    assert client.delete("/biomarker/item1/..").status_code in (400, 404)

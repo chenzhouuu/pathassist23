@@ -69,6 +69,14 @@ class PreprocessArtifactStore(ABC):
     async def list_artifacts(self, *, item: str) -> list[dict]:
         """All artifacts for a slide (newest first)."""
 
+    @abstractmethod
+    async def delete_artifact(self, *, item: str, art_hash: str) -> bool:
+        """Remove the row. True if there was one. The directory is the owning service's to remove.
+
+        Deliberately dumb: refusing a delete because something was built on top of this is the
+        gateway's call, made against the list it already has. The store does what it is told.
+        """
+
 
 class MemoryPreprocessArtifactStore(PreprocessArtifactStore):
     """In-process store for tests (mirrors PgPreprocessArtifactStore semantics)."""
@@ -124,6 +132,9 @@ class MemoryPreprocessArtifactStore(PreprocessArtifactStore):
         rows = [r for r in self._rows.values() if r["item_id"] == item]
         rows.sort(key=lambda r: r["_seq"], reverse=True)
         return [self._public(r) for r in rows]
+
+    async def delete_artifact(self, *, item, art_hash):
+        return self._rows.pop((item, art_hash), None) is not None
 
     @staticmethod
     def _public(row: dict) -> dict:
@@ -191,3 +202,10 @@ class PgPreprocessArtifactStore(PreprocessArtifactStore):
             item,
         )
         return [_row(r) for r in rows]  # type: ignore[misc]
+
+    async def delete_artifact(self, *, item, art_hash):
+        tag = await self._pool.execute(
+            "DELETE FROM preprocess_artifact WHERE girder_item = $1 AND art_hash = $2",
+            item, art_hash,
+        )
+        return tag.rsplit(" ", 1)[-1] != "0"

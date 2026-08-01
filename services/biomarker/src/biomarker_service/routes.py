@@ -10,6 +10,7 @@ with a Flask test client and no GPU, no CellViT and no slide:
 """
 
 import logging
+import shutil
 from pathlib import Path
 
 from flask import Response, jsonify, request
@@ -144,6 +145,34 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
         meta["summary"] = read_json(summary_path(root)) or {}
         return jsonify(meta)
 
+    @app.delete("/biomarker/<item>/<ahash>")
+    def delete_artifact(item: str, ahash: str):
+        """Remove an artifact's whole directory (Inc 5, ticket 04).
+
+        **Idempotent**: a directory that is already gone is a 204, not a 404. The gateway deletes
+        the durable row first and this second, so a retry after a crash between the two must be
+        able to finish the job rather than report a failure that has already happened.
+
+        Only the gateway ever calls this, and only after it has established that nothing's
+        ``parent_hash`` points here — this service has no view of the DAG and does not check.
+        """
+        try:
+            root = _root(item, ahash)
+        except ValueError as exc:                # a path segment that could escape the cache root
+            return jsonify({"detail": str(exc)}), 400
+        if root.is_dir():
+            shutil.rmtree(root)
+        return "", 204
+
+    @app.get("/biomarker/<item>/<ahash>/usage")
+    def usage(item: str, ahash: str):
+        """What this artifact costs on disk, for the confirm dialog. 0 for one already gone."""
+        try:
+            root = _root(item, ahash)
+        except ValueError as exc:
+            return jsonify({"detail": str(exc)}), 400
+        return jsonify({"bytes": _dir_bytes(root)})
+
     @app.get("/biomarker/<item>/<ahash>/tile/<layer>/<int:z>/<int:x>/<int:y>.png")
     def tile(item: str, ahash: str, layer: str, z: int, x: int, y: int):
         root = _root(item, ahash)
@@ -218,6 +247,14 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
 
 def _root(item: str, ahash: str) -> Path:
     return artifact_dir(get_settings().cache_root, item, ahash)
+
+
+def _dir_bytes(root: Path) -> int:
+    """Bytes on disk under `root`, or 0 if it is not there. Walked rather than cached: an artifact
+    grows while it builds, and a stale number in a delete dialog is worse than a slow one."""
+    if not root.is_dir():
+        return 0
+    return sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
 
 
 def _f(v: str | None, default: float) -> float:

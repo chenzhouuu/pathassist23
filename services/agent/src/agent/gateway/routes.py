@@ -7,6 +7,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..common.config import get_settings
 from ..loop import AgentLoop, StubAgentLoop
+from ..loop.artifact_admin import artifact_usage, delete_artifact
 from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
 from ..loop.biomarker_map_client import (
     enqueue_map,
@@ -655,6 +656,94 @@ async def list_slide_artifacts(
     if dirty:
         rows = await artifacts.list_artifacts(item=item)
     return {"artifacts": rows}
+
+
+def _service_for(kind: str, *, preprocess_url, biomarker_url, tissue_url) -> str | None:
+    """Which worker owns this kind's bytes. Same table the list route polls status against."""
+    return {"biomarker": biomarker_url, "tissue": tissue_url}.get(kind, preprocess_url)
+
+
+def _dependants(rows: list[dict], art_hash: str) -> list[dict]:
+    """Rows built on top of this one, named the way the panel names them (never by hash alone)."""
+    return [
+        {"kind": r["kind"], "art_hash": r["art_hash"], "params": r.get("params") or {}}
+        for r in rows if r.get("parent_hash") == art_hash
+    ]
+
+
+@router.get("/slides/{item}/artifacts/{art_hash}/usage")
+async def artifact_usage_and_dependants(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> dict:
+    """The two things a delete dialog has to say before it offers the button: how much this frees,
+    and what is holding it. Answered together because asking them separately invites a UI that
+    shows a size for something it is then refused permission to delete."""
+    rows = await artifacts.list_artifacts(item=item)
+    row = next((r for r in rows if r["art_hash"] == art_hash), None)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such artifact on this slide")
+    base = _service_for(
+        row["kind"], preprocess_url=preprocess_url, biomarker_url=biomarker_url,
+        tissue_url=tissue_url,
+    )
+    used = await artifact_usage(
+        base_url=base, kind=row["kind"], item=item, art_hash=art_hash,
+    ) if base else 0
+    return {"bytes": used, "dependants": _dependants(rows, art_hash)}
+
+
+@router.delete("/slides/{item}/artifacts/{art_hash}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_slide_artifact(
+    item: str,
+    art_hash: str,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+    biomarker_url: str | None = Depends(get_biomarker_url),
+    tissue_url: str | None = Depends(get_tissue_url),
+) -> Response:
+    """Remove an artifact: the row first, then its bytes.
+
+    **Never cascades** (D8). The DAG is deep and one click must not be able to erase hours of GPU
+    time, so an artifact something was built on is refused, with the dependants named.
+
+    **Row before directory.** A crash between the two leaves an orphan directory, which is
+    recoverable — content addressing means a re-run rebuilds and overwrites it. The other order
+    leaves a row pointing at nothing, which is not: the re-run finds the row, believes the work is
+    done, and hands back an artifact whose bytes are gone.
+    """
+    rows = await artifacts.list_artifacts(item=item)
+    row = next((r for r in rows if r["art_hash"] == art_hash), None)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such artifact on this slide")
+
+    held_by = _dependants(rows, art_hash)
+    if held_by:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"detail": "other artifacts were built from this one", "dependants": held_by},
+        )
+
+    await artifacts.delete_artifact(item=item, art_hash=art_hash)
+    base = _service_for(
+        row["kind"], preprocess_url=preprocess_url, biomarker_url=biomarker_url,
+        tissue_url=tissue_url,
+    )
+    if base:
+        try:
+            await delete_artifact(base_url=base, kind=row["kind"], item=item, art_hash=art_hash)
+        except httpx.HTTPError:
+            # The row is already gone, so the artifact is gone as far as the app is concerned. Say
+            # so rather than failing a delete the user cannot retry — what is left is an orphan
+            # directory, which the next build of the same hash overwrites.
+            logger.warning("artifact %s row deleted but its directory was not removed", art_hash)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/tasks")
