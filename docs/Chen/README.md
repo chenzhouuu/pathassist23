@@ -57,6 +57,16 @@ fetched out-of-band (D4).
 | `2026-07-24-…-inc3b-marker-map-design-review.md` | Adversarial, code-grounded review (2 blocking + 6 should-fix + 3 open). Blocking: nuclei double-counted/chopped at every job-tile seam; `204` for uncovered tiles breaks OSD's `<img>` loader | ✅ review complete, folded |
 | `2026-07-24-…-inc3b-marker-map-plan.md` | **Inc 3b** task-by-task TDD plan — 25 tasks in three phases (region → whole slide → query/absorb) | 🟢 **Phase 1 COMPLETE** — real GigaTIME + real CellViT, browser-E2E 15/15 green; Phases 2–3 not started |
 
+### Increment 5 — slide workspace + nuclei as mask
+| Doc | What it is | State |
+|---|---|---|
+| `2026-07-31-…-inc5-slide-workspace-nuclei-mask-plan.md` | **Inc 5**: a per-slide Workspace listing every artifact (UI copied from OHIF), and nuclei promoted to a first-class artifact carrying polygon masks. 11 decisions | ✅ shipped — 9 tickets in `.scratch/inc5-slide-workspace-nuclei-mask/`, all verified on a live slide |
+
+### Increment 6 — analysis consolidation + Celery job substrate
+| Doc | What it is | State |
+|---|---|---|
+| `2026-08-01-…-inc6-analysis-consolidation-design.md` | **Inc 6**: Preprocess / Markers / Tissue / Nuclei / Task collapse into one Analysis algorithm catalog beside the HistomicsTK CLIs (12 → 7 tabs); job management moves from four hand-rolled in-process queues onto **girder_worker / Celery** with thin-driver tasks (models stay put); `preprocess_artifact` sheds its job columns so a row means "bytes exist". 11 decisions | 🟡 plan — 9 tickets in `.scratch/inc6-analysis-consolidation/`, no code yet |
+
 ### Superseded / historical
 | Doc | What it is | Superseded by |
 |---|---|---|
