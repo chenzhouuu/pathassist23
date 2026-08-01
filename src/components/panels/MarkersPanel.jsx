@@ -21,7 +21,7 @@ import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import { getBiomarkerMeta, getCatalog, startBiomarker } from '../../api/biomarkerApi.js';
 import {
   MODES, MODE_LABEL,
-  coverageSummary, describeStage, findBiomarkerRow, findReadySegmentation, isRunning,
+  coverageSummary, describeStage, findBiomarkerRow, findReadyNuclei, findReadySegmentation, isRunning,
   markerLabel, phenotypeLegend, presetChannels, presetNames, separableMarkers, withMarkerDefaults,
 } from './markerUtils.js';
 
@@ -61,6 +61,9 @@ export default function MarkersPanel() {
 
   const bioRow = findBiomarkerRow(rows);
   const segRow = findReadySegmentation(rows);
+  // The cells the phenotypes attach to. A map cannot be built before they exist (Inc 5 · D9),
+  // and it is built *on* them — the Workspace shows the chain and refuses to delete underneath it.
+  const nucRow = findReadyNuclei(rows);
   const artHash = bioRow?.status === 'ready' || bioRow?.progress > 0 ? bioRow?.art_hash : null;
 
   // Whether the Workspace has this artifact on the slide. Read-only here — the panel reports the
@@ -108,11 +111,12 @@ export default function MarkersPanel() {
 
   // ── actions ───────────────────────────────────────────────────────────────────
   const run = async (whole) => {
-    if (!itemId || !segRow) return;
+    if (!itemId || !segRow || !nucRow) return;
     setBusy(true); setError(null);
     try {
       await startBiomarker(itemId, {
         seg_hash: segRow.art_hash,
+        nuclei_hash: nucRow.art_hash,
         bbox: whole ? null : copilotRoi,
       });
       await refresh();
@@ -187,11 +191,17 @@ export default function MarkersPanel() {
             </button>
           </div>
         )}
+        {segRow && !nucRow && (
+          <div className="mk-note">
+            This slide has no nuclei yet — a phenotype is an attribute of a cell, so the map is
+            built on them rather than finding them again. Build them in the Nuclei tab.
+          </div>
+        )}
         {segRow && (
           <div className="mk-actions">
             <button
               type="button" className="mk-btn"
-              disabled={busy || isRunning(bioRow) || !copilotRoi}
+              disabled={busy || isRunning(bioRow) || !copilotRoi || !nucRow}
               title={copilotRoi ? '' : 'Draw a region on the slide first'}
               onClick={() => run(false)}
             >
@@ -199,7 +209,7 @@ export default function MarkersPanel() {
             </button>
             <button
               type="button" className="mk-btn"
-              disabled={busy || isRunning(bioRow)}
+              disabled={busy || isRunning(bioRow) || !nucRow}
               onClick={() => run(true)}
             >
               Analyse whole slide

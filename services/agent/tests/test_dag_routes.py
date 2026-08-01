@@ -534,3 +534,66 @@ def test_a_full_cache_is_forwarded_as_a_refusal_the_panel_can_read(client, monke
     r = client.post(f"{_BASE}/item9/nuclei", json={"bbox": None, "seg_hash": "s1"})
     assert r.status_code == 507
     assert "0.5 GB free" in r.json()["detail"]
+
+
+# ── biomarker is built on nuclei (Inc 5, ticket 09) ────────────────────────────────
+
+
+def _with_biomarker(client):
+    client.app.dependency_overrides[get_biomarker_url] = lambda: "http://biomarker:8022"
+    return client
+
+
+@pytest.mark.anyio
+async def test_a_phenotype_map_records_the_cells_it_is_a_map_of_as_its_parent(
+    client, art_store, monkeypatch,
+):
+    """Not the segmentation. A phenotype is an attribute of a nucleus: change the cells and every
+    number changes, whereas the tissue mask only decided which tiles were worth visiting."""
+    seen = []
+
+    async def enqueue(*, base_url, item, seg_hash, bbox, token, nuclei_hash=None, client=None):
+        seen.append({"seg_hash": seg_hash, "nuclei_hash": nuclei_hash})
+        return {"art_hash": "b1", "job_id": "j1", "status": "queued", "scope": "slide"}
+    monkeypatch.setattr(routes_mod, "enqueue_map", enqueue)
+    _with_biomarker(client)
+
+    r = client.post(f"{_BASE}/item9/biomarker",
+                    json={"seg_hash": "s1", "nuclei_hash": "n1", "bbox": None})
+    assert r.status_code == 200
+    assert seen[0] == {"seg_hash": "s1", "nuclei_hash": "n1"}
+    row = r.json()
+    assert row["parent_hash"] == "n1"
+    # The segmentation is still recorded — as provenance, where it belongs.
+    assert row["params"]["seg_hash"] == "s1"
+
+
+@pytest.mark.anyio
+async def test_deleting_the_nuclei_a_phenotype_map_stands_on_is_refused(
+    client, art_store, monkeypatch,
+):
+    """The parent edge is what makes ticket 04's refusal cover this at all."""
+    await _seed(art_store, "item9", "nuclei", "n1")
+    await _seed(art_store, "item9", "biomarker", "b1", parent="n1",
+                params={"scope": "slide"})
+    _with_cellvit(client)
+    _with_map_workers(client)
+
+    r = client.delete(f"{_BASE}/item9/artifacts/n1")
+    assert r.status_code == 409
+    dependants = r.json()["detail"]["dependants"]
+    assert [d["kind"] for d in dependants] == ["biomarker"]
+
+
+@pytest.mark.anyio
+async def test_a_map_built_before_the_switch_still_names_a_parent(
+    client, art_store, monkeypatch,
+):
+    """Old rows point at the segmentation and keep working; only new builds take the new path."""
+    async def enqueue(*, base_url, item, seg_hash, bbox, token, nuclei_hash=None, client=None):
+        return {"art_hash": "b2", "job_id": "j2", "status": "queued", "scope": "region"}
+    monkeypatch.setattr(routes_mod, "enqueue_map", enqueue)
+    _with_biomarker(client)
+
+    r = client.post(f"{_BASE}/item9/biomarker", json={"seg_hash": "s1"})
+    assert r.json()["parent_hash"] == "s1"

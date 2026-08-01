@@ -128,6 +128,12 @@ export function findBiomarkerRow(rows = []) {
   return rows.find((r) => r.kind === 'biomarker') || null;
 }
 
+/** The nuclei artifact a phenotype map is built on. Ready only: a half-built one would give the
+ *  map a set of cells that is about to change under it (Inc 5 · D9). */
+export function findReadyNuclei(rows = []) {
+  return rows.find((r) => r.kind === 'nuclei' && r.status === 'ready') || null;
+}
+
 export function findReadySegmentation(rows = []) {
   return rows.find((r) => r.kind === 'segmentation' && r.status === 'ready') || null;
 }

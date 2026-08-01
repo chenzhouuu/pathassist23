@@ -46,26 +46,29 @@ def unconfigured_client(art_store):
 
 
 def _fake_enqueue(**ack):
-    async def enqueue(*, base_url, item, seg_hash, bbox, token):
+    async def enqueue(*, base_url, item, seg_hash, bbox, token, nuclei_hash=None):
         return {"art_hash": "bio0001", "job_id": "j1", "status": "queued",
                 "scope": "slide" if bbox is None else "region", **ack}
     return enqueue
 
 
-def test_region_build_records_a_biomarker_row_parented_on_the_segmentation(
+def test_region_build_records_a_biomarker_row_parented_on_the_nuclei(
     client, art_store, monkeypatch,
 ):
     monkeypatch.setattr(routes_mod, "enqueue_map", _fake_enqueue())
     r = client.post(f"{_BASE}/item1/biomarker",
-                    json={"seg_hash": "seg9", "bbox": {"x": 0, "y": 0, "width": 2048,
-                                                       "height": 2048}})
+                    json={"seg_hash": "seg9", "nuclei_hash": "nuc9",
+                          "bbox": {"x": 0, "y": 0, "width": 2048, "height": 2048}})
     assert r.status_code == 200
     row = r.json()
     # D2: same artifact table as the preprocess DAG, so /tasks polling comes free.
     assert row["kind"] == "biomarker"
     assert row["art_hash"] == "bio0001"
-    # ...and the parent is the SEGMENTATION, not a patch grid (design §11 correction 1)
-    assert row["parent_hash"] == "seg9"
+    # The parent is the NUCLEI (Inc 5 · D9): a phenotype is an attribute of a cell, so change the
+    # cells and every number changes. The segmentation only ever chose which tiles to visit, and
+    # is kept in params as provenance. (It was the parent until Inc 5 — see design §11 corr. 1.)
+    assert row["parent_hash"] == "nuc9"
+    assert row["params"]["seg_hash"] == "seg9"
     assert row["params"]["scope"] == "region"
     assert row["status"] == "queued"
 

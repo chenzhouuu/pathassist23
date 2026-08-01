@@ -1,21 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DAPI_WEIGHT,
-  DEFAULT_DISPLAY,
-  channelParam,
-  coverageSummary,
-  describeStage,
-  findBiomarkerRow,
-  findReadySegmentation,
-  layerSignature,
-  layerLevels,
-  levelOffsetFor,
-  markerLabel,
-  phenotypeLegend,
-  presetChannels,
-  presetNames,
-  separableMarkers,
-  tileParams,
+  channelParam, coverageSummary, DAPI_WEIGHT, DEFAULT_DISPLAY, describeStage, findBiomarkerRow, findReadyNuclei, findReadySegmentation, layerLevels, layerSignature, levelOffsetFor, markerLabel, phenotypeLegend, presetChannels, presetNames, separableMarkers, tileParams,
 } from './markerUtils.js';
 
 const CATALOG = {
@@ -189,5 +174,22 @@ describe('meta readers', () => {
     // 4 tiles x (2048 * 0.25 / 1000 mm)^2 = 4 * 0.512^2 ≈ 1.05 mm²
     expect(coverageSummary(meta)).toEqual({ tiles: 4, mm2: 1.05 });
     expect(coverageSummary({})).toBe(null);
+  });
+});
+
+// ── the map is built on the cells (Inc 5 · 09) ─────────────────────────────────────
+
+describe('findReadyNuclei', () => {
+  it('picks the slide\'s ready nuclei artifact', () => {
+    const rows = [{ kind: 'segmentation', status: 'ready', art_hash: 's1' },
+                  { kind: 'nuclei', status: 'ready', art_hash: 'n1' }];
+    expect(findReadyNuclei(rows).art_hash).toBe('n1');
+  });
+
+  it('will not accept one that is still building', () => {
+    // A half-built artifact would hand the map a set of cells about to change under it.
+    expect(findReadyNuclei([{ kind: 'nuclei', status: 'running', art_hash: 'n1' }])).toBe(null);
+    expect(findReadyNuclei([{ kind: 'segmentation', status: 'ready' }])).toBe(null);
+    expect(findReadyNuclei()).toBe(null);
   });
 });

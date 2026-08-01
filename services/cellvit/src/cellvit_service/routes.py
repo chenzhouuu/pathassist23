@@ -24,12 +24,15 @@ from .artifacts import (
     Coverage,
     art_hash,
     artifact_dir,
+    cells_path,
     meta_path,
+    read_cells,
     read_json,
     summary_path,
 )
 from .config import get_settings
 from .nuclei import SlideInfo, run_region, summary_from_coverage
+from .pannuke import name_for
 from .pyramid import read_class_tile, read_cover_tile, read_instance_tile
 from .tiles import (
     TRANSPARENT_TILE,
@@ -175,6 +178,51 @@ def register(app) -> None:
         )
         return jsonify(meta)
 
+    @app.get("/nuclei/<item>/<ahash>/cells")
+    def nuclei_cells(item: str, ahash: str):
+        """The nuclei inside a level-0 rectangle, read back from the artifact (Inc 5, ticket 09).
+
+        The shape another service can consume: centroids in level-0 slide pixels, PanNuke class
+        names, per-nucleus rings and the artifact's own instance ids. Deliberately the same fields
+        `/segment` returns, so a consumer switching from segmenting-again to reading-what-is-stored
+        changes where it asks and not what it does with the answer.
+
+        Ownership is by centroid, so a nucleus is returned by exactly one core and asking for a
+        window that spans several cannot double-count. A window is not clipped to the cores it
+        touches: a cell whose centroid is inside is returned whole, ring and all.
+        """
+        root = _root(item, ahash)
+        if not meta_path(root).is_file():
+            return jsonify({"detail": "no nuclei artifact for that hash"}), 404
+        try:
+            box = _bbox(request.args.get("bbox"))
+        except ValueError as exc:
+            return jsonify({"detail": str(exc)}), 400
+
+        cov = Coverage.load(root)
+        centroids: list[list[float]] = []
+        classes: list[str] = []
+        contours: list[list[list[float]]] = []
+        inst: list[int] = []
+        for tx, ty in sorted(cov.done):
+            if not _core_meets(tx, ty, cov.core, box):
+                continue
+            cells = read_cells(cells_path(root, tx, ty))
+            if cells is None:
+                continue
+            for i, (cx, cy) in enumerate(cells["xy"].tolist()):
+                if not (box[0] <= cx < box[0] + box[2] and box[1] <= cy < box[1] + box[3]):
+                    continue
+                centroids.append([float(cx), float(cy)])
+                classes.append(name_for(int(cells["cls"][i])))
+                contours.append(cells["rings"][i])
+                inst.append(int(cells["inst"][i]))
+        return jsonify({
+            "count": len(centroids), "centroids": centroids, "classes": classes,
+            "contours": contours, "instances": inst,
+            "covered": all(_core_covered(tx, ty, cov) for tx, ty in _cores_of(box, cov.core)),
+        })
+
     @app.get("/nuclei/<item>/<ahash>/tile/<layer>/<int:z>/<int:x>/<int:y>.png")
     def nuclei_tile(item: str, ahash: str, layer: str, z: int, x: int, y: int):
         """One rendered tile of the nuclei mask.
@@ -237,6 +285,36 @@ def register(app) -> None:
 
 def _root(item: str, ahash: str) -> Path:
     return artifact_dir(get_settings().artifact_cache, item, ahash)
+
+
+def _bbox(spec: str | None) -> tuple[int, int, int, int]:
+    """``"x,y,w,h"`` → ints. Required: a consumer that forgot it would silently get the whole
+    slide's nuclei, which on a built-out artifact is millions of polygons."""
+    if not spec:
+        raise ValueError("bbox=x,y,width,height is required")
+    try:
+        x, y, w, h = (int(float(v)) for v in spec.split(","))
+    except ValueError as exc:
+        raise ValueError(f"bbox must be four numbers, got {spec!r}") from exc
+    if w <= 0 or h <= 0:
+        raise ValueError("bbox width and height must be positive")
+    return x, y, w, h
+
+
+def _cores_of(box: tuple[int, int, int, int], core: int) -> list[tuple[int, int]]:
+    x, y, w, h = box
+    return [(tx, ty)
+            for ty in range(y // core, (y + h - 1) // core + 1)
+            for tx in range(x // core, (x + w - 1) // core + 1)]
+
+
+def _core_meets(tx: int, ty: int, core: int, box: tuple[int, int, int, int]) -> bool:
+    x, y, w, h = box
+    return tx * core < x + w and (tx + 1) * core > x and ty * core < y + h and (ty + 1) * core > y
+
+
+def _core_covered(tx: int, ty: int, cov: Coverage) -> bool:
+    return cov.has(tx, ty)
 
 
 def _free_gb(path: Path | str) -> float | None:

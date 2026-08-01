@@ -21,6 +21,7 @@ from .config import get_settings
 from .infer import tile_fn
 from .jobs import JobQueue
 from .markers import CHANNEL_NAMES, MARKER_CHANNELS
+from .nuclei_client import fetch_cells
 from .pipeline import counts_by_phenotype, flag_counts, phenotype_region
 from .region import fetch_region
 from .routes import register as register_map_routes
@@ -35,24 +36,22 @@ _MAX_AREA = 4096 * 4096
 _DEFAULT_MPP = 0.25
 
 
-def _nuclei_factory(slide_ref: str, token: str | None):
+def _nuclei_factory(slide_ref: str, token: str | None, nuclei_hash: str):
     """A per-job nucleus source: level-0 centroids + classes + contours for a read window.
 
-    Points at the BATCH CellViT instance (D12) so a multi-hour map job never queues behind — or
-    ahead of — an interactive segmentation on the shared one.
+    Reads the *stored* nuclei artifact rather than segmenting the slide again (Inc 5, D9). A
+    whole-slide phenotype map used to run a second whole-slide CellViT pass on the same cells the
+    nuclei artifact already holds; now it asks for them. The batch CellViT instance is still the
+    one addressed (D12), but the call is a read, so it no longer competes for the GPU at all.
+
+    `token` is no longer needed — reading an artifact touches no slide — and is kept in the
+    signature because the caller has it and a later source may.
     """
     base = get_settings().batch_cellvit_url
 
     def fetch_nuclei(bbox: dict):
-        payload = {"slide_ref": slide_ref, "bbox": bbox, "girder_token": token}
-        with httpx.Client(base_url=base, timeout=900) as client:
-            resp = client.post("/segment", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-        cents = [[float(p[0]), float(p[1])] for p in data.get("centroids", [])]
-        classes = list(data.get("classes") or [])
-        contours = data.get("contours") or [[c] for c in cents]
-        return cents, classes, contours
+        res = fetch_cells(base_url=base, slide_ref=slide_ref, art_hash=nuclei_hash, bbox=bbox)
+        return res.centroids, res.classes, res.contours
 
     return fetch_nuclei
 

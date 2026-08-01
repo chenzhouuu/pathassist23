@@ -215,3 +215,55 @@ def test_an_uncovered_instance_tile_is_a_transparent_png(cache_root):
     ah = _run(client)
     r = client.get(f"/nuclei/item1/{ah}/tile/instances/0/40/40.png")
     assert r.status_code == 200 and r.headers["Content-Type"] == "image/png"
+
+
+# ── handing cells to another service (Inc 5 · 09) ──────────────────────────────────
+
+
+def test_cells_in_a_window_come_back_in_level_0_pixels(cache_root):
+    """The shape the biomarker map consumes instead of segmenting the slide a second time."""
+    placed = [(300, 300, 1), (500, 400, 3), (1500, 1500, 2)]
+    client = _app(placed).test_client()
+    ah = _run(client, {"x": 0, "y": 0, "width": 2048, "height": 2048})
+
+    body = client.get(f"/nuclei/item1/{ah}/cells?bbox=0,0,600,600").get_json()
+    assert body["count"] == 2                       # the third is outside the window
+    xs = sorted(int(c[0]) for c in body["centroids"])
+    assert xs == [300, 500]
+    assert sorted(body["classes"]) == ["Connective", "Neoplastic"]
+    assert len(body["contours"]) == 2 and len(body["contours"][0]) >= 3
+    assert len(set(body["instances"])) == 2         # the artifact's own ids ride along
+
+
+def test_a_window_spanning_two_cores_counts_each_nucleus_once(cache_root):
+    """Ownership is by centroid, so no cell is returned by two cores."""
+    client = _app([(CORE - 20, 300, 1), (CORE + 20, 300, 1)]).test_client()
+    ah = _run(client, {"x": 0, "y": 0, "width": CORE + 512, "height": 1024})
+
+    body = client.get(f"/nuclei/item1/{ah}/cells?bbox=0,0,{CORE + 512},1024").get_json()
+    assert body["count"] == 2
+    assert len(set(body["instances"])) == 2
+
+
+def test_a_window_reaching_past_the_computed_area_says_so(cache_root):
+    """Honest and partial rather than silently short: the caller decides whether that is usable."""
+    client = _app([(300, 300, 1)]).test_client()
+    ah = _run(client, {"x": 0, "y": 0, "width": 1024, "height": 1024})
+
+    inside = client.get(f"/nuclei/item1/{ah}/cells?bbox=0,0,1024,1024").get_json()
+    beyond = client.get(f"/nuclei/item1/{ah}/cells?bbox=0,0,{CORE * 3},1024").get_json()
+    assert inside["covered"] is True
+    assert beyond["covered"] is False
+
+
+def test_a_missing_bbox_is_refused_rather_than_meaning_the_whole_slide(cache_root):
+    """A built-out artifact holds millions of polygons; a forgotten parameter must not ship them."""
+    client = _app([(300, 300, 1)]).test_client()
+    ah = _run(client)
+    assert client.get(f"/nuclei/item1/{ah}/cells").status_code == 400
+    assert client.get(f"/nuclei/item1/{ah}/cells?bbox=0,0,0,0").status_code == 400
+
+
+def test_cells_for_an_artifact_that_does_not_exist_is_a_404():
+    client = _app([]).test_client()
+    assert client.get("/nuclei/item1/deadbeef/cells?bbox=0,0,10,10").status_code == 404

@@ -54,17 +54,25 @@ def _safe(seg: str) -> str:
 
 def art_hash(
     *, seg_hash: str, marker_mpp: float, pheno_mpp: float,
-    nucleus_radius_um: float, version: str = PIPELINE_VERSION,
+    nucleus_radius_um: float, nuclei_hash: str | None = None,
+    version: str = PIPELINE_VERSION,
 ) -> str:
     """Deterministic id for a slide's biomarker artifact.
 
     ``bbox`` is deliberately absent — it is coverage, not identity (D6). ``seg_hash`` transitively
     carries the slide and the segmenter params.
+
+    ``nuclei_hash`` *is* identity (Inc 5, D9): a phenotype is an attribute of a nucleus, so a map
+    built on a different set of cells is a different map even over identical pixels. It is optional
+    only so that artifacts built before the switch keep resolving to the hash they were written
+    under — they still render, and only new builds take the new path.
     """
     canonical = (
         f"bio|p={seg_hash}|mres={marker_mpp:g}|pres={pheno_mpp:g}"
         f"|rad={nucleus_radius_um:g}|ver={version}"
     )
+    if nuclei_hash:
+        canonical += f"|nuc={nuclei_hash}"
     return hashlib.sha1(canonical.encode()).hexdigest()[:16]
 
 

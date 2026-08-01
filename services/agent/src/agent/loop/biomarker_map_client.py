@@ -30,10 +30,15 @@ class TileResponse:
 
 async def enqueue_map(
     *, base_url: str, item: str, seg_hash: str, bbox: dict | None, token: str | None,
-    client: httpx.AsyncClient | None = None,
+    nuclei_hash: str | None = None, client: httpx.AsyncClient | None = None,
 ) -> dict:
-    """POST /biomarker → {art_hash, job_id, status, scope}. ``bbox=None`` means whole slide."""
-    payload = {"slide_ref": item, "seg_hash": seg_hash, "bbox": bbox, "girder_token": token}
+    """POST /biomarker → {art_hash, job_id, status, scope}. ``bbox=None`` means whole slide.
+
+    ``nuclei_hash`` names the cells the map is built on (Inc 5, D9). The worker refuses without it:
+    a phenotype is an attribute of a nucleus, so the nuclei have to exist first.
+    """
+    payload = {"slide_ref": item, "seg_hash": seg_hash, "bbox": bbox,
+               "nuclei_hash": nuclei_hash, "girder_token": token}
     owns = client is None
     client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
     try:

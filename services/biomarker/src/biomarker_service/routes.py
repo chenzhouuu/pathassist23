@@ -85,15 +85,30 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
         if bbox is not None and not isinstance(bbox, dict):
             return jsonify({"detail": "bbox must be an object or null (null = whole slide)"}), 400
 
+        # A phenotype is an attribute *of a nucleus*, so the nuclei have to exist before there is
+        # anything to attribute it to. Refusing here, by name, is the same precondition shape the
+        # patching and feature stages already use — and it is what stops a map job from paying for
+        # a second whole-slide segmentation of cells that are already stored (Inc 5, D9).
+        nuclei_hash = body.get("nuclei_hash")
+        if not nuclei_hash:
+            return jsonify({
+                "detail": "this needs a nuclei artifact — segment the slide's nuclei first, then "
+                          "the phenotype map is built on those cells rather than finding them "
+                          "again",
+            }), 400
+
         if app.config.get("TILE_PREDICT") is None:
             return jsonify({
                 "detail": "biomarker analysis needs the GPU worker (GigaTIME-Flash weights)",
             }), 503
 
         s = get_settings()
+        # The nuclei artifact is part of the identity, not just the provenance: different cells
+        # give different phenotypes for the same pixels, so two maps built on two nuclei artifacts
+        # are two different artifacts.
         ah = art_hash(
             seg_hash=seg_hash, marker_mpp=s.marker_mpp, pheno_mpp=s.pheno_mpp,
-            nucleus_radius_um=s.nucleus_radius_um,
+            nucleus_radius_um=s.nucleus_radius_um, nuclei_hash=nuclei_hash,
         )
         token = body.get("girder_token")
 
@@ -116,7 +131,7 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
                 slide=SlideInfo(handle.width, handle.height, handle.mpp),
                 bbox=bbox, tissue_tiles=tissue,
                 read_window=reader, tile_predict=app.config["TILE_PREDICT"],
-                fetch_nuclei=app.config["FETCH_NUCLEI_FACTORY"](slide_ref, token),
+                fetch_nuclei=app.config["FETCH_NUCLEI_FACTORY"](slide_ref, token, nuclei_hash),
                 nucleus_radius_um=s.nucleus_radius_um, report=report,
             )
 
@@ -124,6 +139,7 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
         return jsonify({
             "art_hash": ah, "job_id": job_id, "status": "queued",
             "scope": "slide" if bbox is None else "region",
+            "nuclei_hash": nuclei_hash,
         })
 
     @app.get("/biomarker/status/<job_id>")

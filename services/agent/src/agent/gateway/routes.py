@@ -891,6 +891,9 @@ class BiomarkerRequest(BaseModel):
 
     seg_hash: str
     bbox: dict | None = None
+    # The cells the phenotypes are attached to. Required by the worker (Inc 5, D9), and the row's
+    # real parent — see start_biomarker.
+    nuclei_hash: str | None = None
 
 
 def _need_biomarker(url: str | None) -> str:
@@ -948,17 +951,26 @@ async def start_biomarker(
     token: str | None = Depends(get_girder_token),
     biomarker_url: str | None = Depends(get_biomarker_url),
 ) -> dict:
-    """Enqueue (or extend) this slide's marker/phenotype map and record its artifact row."""
+    """Enqueue (or extend) this slide's marker/phenotype map and record its artifact row.
+
+    The parent is the **nuclei** artifact, not the segmentation (Inc 5, D9). A phenotype is an
+    attribute of a nucleus: change the cells and every number changes, whereas the tissue mask only
+    ever decided which tiles were worth visiting. Recording it this way is what makes ticket 04
+    refuse to delete nuclei that a phenotype map is standing on, and it is why the Workspace can
+    show the chain at all. The segmentation stays in `params`, where it is provenance.
+    """
     try:
         run = await enqueue_map(
             base_url=_need_biomarker(biomarker_url), item=item,
-            seg_hash=body.seg_hash, bbox=body.bbox, token=token,
+            seg_hash=body.seg_hash, bbox=body.bbox, nuclei_hash=body.nuclei_hash, token=token,
         )
     except httpx.HTTPError as exc:
         raise _map_error(exc) from exc
     return await artifacts.upsert_artifact(
-        item=item, kind="biomarker", art_hash=run["art_hash"], parent_hash=body.seg_hash,
-        params={"scope": run.get("scope"), "bbox": body.bbox},
+        item=item, kind="biomarker", art_hash=run["art_hash"],
+        parent_hash=body.nuclei_hash or body.seg_hash,
+        params={"scope": run.get("scope"), "bbox": body.bbox, "seg_hash": body.seg_hash,
+                "nuclei_hash": body.nuclei_hash},
         status="queued", job_id=run.get("job_id"),
     )
 

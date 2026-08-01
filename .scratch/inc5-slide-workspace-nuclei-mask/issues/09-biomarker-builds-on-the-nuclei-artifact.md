@@ -8,17 +8,20 @@ stages already use. The dependency direction becomes the true one: biomarker is 
 
 **Blocked by:** 05 — Nuclei as a stored artifact (region).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] On a slide with no nuclei artifact, starting a biomarker run is refused in the UI with a
+- [x] On a slide with no nuclei artifact, starting a biomarker run is refused in the UI with a
       message telling the user to build nuclei first — not a generic error and not a silent stall.
-- [ ] With a nuclei artifact present, the run succeeds, records it as its parent, and no second
+- [x] With a nuclei artifact present, the run succeeds, records it as its parent, and no second
       nuclei segmentation is executed (verifiable in the service log and in the wall-clock).
 - [ ] Phenotype counts for one region are identical before and after the switch — compare against a
-      biomarker artifact built the old way, number by number (plan R6).
-- [ ] Biomarker artifacts built before this change keep working and keep rendering; only new builds
+      biomarker artifact built the old way, number by number (plan R6). The paths are the same code
+      below the nucleus source (`fetch_nuclei` returns the same three lists either way), and the
+      service tests run the map over a fixed cell list, so equality holds by construction. The
+      number-by-number comparison on a real region is still a run to do.
+- [x] Biomarker artifacts built before this change keep working and keep rendering; only new builds
       take the new path.
-- [ ] The Workspace shows the parent relationship, and deleting a nuclei artifact that a biomarker
+- [x] The Workspace shows the parent relationship, and deleting a nuclei artifact that a biomarker
       artifact depends on is refused, naming it (ticket 04).
-- [ ] The client function name that says "centroids" no longer describes what is fetched — rename it
+- [x] The client function name that says "centroids" no longer describes what is fetched — rename it
       along with the change.

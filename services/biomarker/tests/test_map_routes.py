@@ -13,6 +13,7 @@ from biomarker_service.markers import CHANNEL_INDEX, CHANNEL_NAMES
 from biomarker_service.slides import SlideHandle
 
 N_CH = len(CHANNEL_NAMES)
+NUC = "nuc1"
 SEG = "seg0001"
 
 
@@ -57,7 +58,7 @@ def _app_with_fakes(nuclei=((900, 900),)):
     )
     app.config["TISSUE_TILES"] = lambda **kw: [(0, 0)]
 
-    def factory(slide_ref, token):
+    def factory(slide_ref, token, nuclei_hash):
         def fetch(bbox):
             cents = [[float(cx), float(cy)] for cx, cy in nuclei]
             return (cents, [1] * len(cents),
@@ -71,7 +72,7 @@ def _app_with_fakes(nuclei=((900, 900),)):
 
 def _run(client, app, bbox=None):
     r = client.post("/biomarker", json={
-        "slide_ref": "item1", "seg_hash": SEG,
+        "slide_ref": "item1", "seg_hash": SEG, "nuclei_hash": NUC,
         "bbox": bbox or {"x": 0, "y": 0, "width": CORE, "height": CORE},
     })
     assert r.status_code == 200, r.get_data(as_text=True)
@@ -100,8 +101,30 @@ def test_enqueue_requires_a_segmentation():
 def test_enqueue_is_503_without_weights():
     # No fabricated map when the GPU worker is absent — the same discipline as /phenotype.
     app = create_app()
-    r = app.test_client().post("/biomarker", json={"slide_ref": "i", "seg_hash": SEG})
+    r = app.test_client().post("/biomarker",
+                               json={"slide_ref": "i", "seg_hash": SEG, "nuclei_hash": NUC})
     assert r.status_code == 503
+
+
+def test_a_map_needs_the_cells_it_is_a_map_of(monkeypatch):
+    """A phenotype is an attribute of a nucleus, so there is nothing to attribute it to until the
+    nuclei exist. Refused by name rather than by a generic error or a silent stall (Inc 5, D9)."""
+    app = _app_with_fakes()
+    r = app.test_client().post("/biomarker", json={"slide_ref": "item1", "seg_hash": SEG})
+    assert r.status_code == 400
+    assert "nuclei" in r.get_json()["detail"]
+
+
+def test_the_cells_a_map_was_built_on_are_part_of_its_identity():
+    """Different cells give different phenotypes over the same pixels, so two maps built on two
+    nuclei artifacts are two artifacts — not one that silently overwrites the other."""
+    s = get_settings()
+    common = {"seg_hash": SEG, "marker_mpp": s.marker_mpp, "pheno_mpp": s.pheno_mpp,
+              "nucleus_radius_um": s.nucleus_radius_um}
+    assert art_hash(**common, nuclei_hash="a") != art_hash(**common, nuclei_hash="b")
+    # …and one built before the switch still resolves to the hash it was written under, so it
+    # keeps rendering rather than turning into a second, empty artifact.
+    assert art_hash(**common) != art_hash(**common, nuclei_hash="a")
 
 
 def test_art_hash_is_the_same_for_two_different_bboxes():
@@ -112,7 +135,7 @@ def test_art_hash_is_the_same_for_two_different_bboxes():
     assert a == b                       # D6: bbox is coverage, not identity
     s = get_settings()
     assert a == art_hash(seg_hash=SEG, marker_mpp=s.marker_mpp, pheno_mpp=s.pheno_mpp,
-                         nucleus_radius_um=s.nucleus_radius_um)
+                         nucleus_radius_um=s.nucleus_radius_um, nuclei_hash=NUC)
 
 
 def test_job_runs_and_meta_reports_coverage_and_layers():
