@@ -28,9 +28,8 @@ const ToolBtn = ({ title, active, onClick, children, color }) => (
 export default function ViewerToolbar({ viewer }) {
   const {
     drawingMode, setDrawingMode, drawColor,
-    setRightPanelTab, setRightPanelOpen,
     setLeftPanelTab, setLeftPanelOpen,
-    activeItem, user, addPanel, hasRole,
+    activeItem, user, hasRole,
     copilotNuclei, showNucleiOverlay, toggleNucleiOverlay,
   } = useStore();
   const canAnnotate = !!user && hasRole('annotation-users');
@@ -91,30 +90,10 @@ export default function ViewerToolbar({ viewer }) {
         } catch (_) {}
       }
 
-      // ── Generate small thumbnail from current canvas ───────────────────────
-      const THUMB_W = 240;
-      const THUMB_H = Math.round(canvas.height * THUMB_W / canvas.width);
-      const thumbCanvas = document.createElement('canvas');
-      thumbCanvas.width = THUMB_W; thumbCanvas.height = THUMB_H;
-      thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, THUMB_W, THUMB_H);
-      const thumbnail = thumbCanvas.toDataURL('image/jpeg', 0.75);
-
-      // ── Save panel to localStorage via store ──────────────────────────────
-      if (region) {
-        addPanel({
-          id: crypto.randomUUID(),
-          itemId:    activeItem._id,
-          itemName:  activeItem.name || 'Slide',
-          thumbnail,
-          region,
-          capturedAt: new Date().toISOString(),
-          capturedBy: user?.login || user?.firstName || 'unknown',
-        });
-        setRightPanelOpen(true);
-        setRightPanelTab('panels');
-      }
-
-      // ── Also upload full PNG to server (Captures folder) ──────────────────
+      // ── Upload full PNG to server (Captures folder) ───────────────────────
+      // The region above is carried as metadata on the uploaded file. It used to also open a
+      // localStorage panel in the Panels tab; that tab and its batch Ki67 action are gone, so the
+      // capture's only home is the Girder folder.
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (blob) {
         const capturesFolder = await ensureCapturesFolder();
@@ -131,7 +110,7 @@ export default function ViewerToolbar({ viewer }) {
         });
       }
 
-      showToast('Panel saved ✓');
+      showToast('Capture saved ✓');
     } catch (e) {
       showToast(`Save failed: ${e?.message || 'Unknown error'}`);
     } finally {

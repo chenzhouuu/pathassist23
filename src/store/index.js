@@ -466,26 +466,11 @@ export const useStore = create((set, get) => ({
   wsiProgress: null,
   setWsiProgress: (p) => set({ wsiProgress: p }),
 
-  // ── Panels (captured viewport ROIs for batch AI analysis) ────────────────
-  // Each entry: { id, itemId, itemName, thumbnail, region:{x,y,width,height}, capturedAt, capturedBy }
-  panels: (() => {
-    try { return JSON.parse(localStorage.getItem('pathassist_panels') || '[]'); }
-    catch { return []; }
-  })(),
-  addPanel: (panel) => set((s) => {
-    const next = [panel, ...s.panels].slice(0, 100);
-    localStorage.setItem('pathassist_panels', JSON.stringify(next));
-    return { panels: next };
-  }),
-  removePanel: (id) => set((s) => {
-    const next = s.panels.filter((p) => p.id !== id);
-    localStorage.setItem('pathassist_panels', JSON.stringify(next));
-    return { panels: next };
-  }),
-  clearPanels: () => {
-    localStorage.removeItem('pathassist_panels');
-    set({ panels: [] });
-  },
+  // Panel state — the localStorage cart of captured viewport ROIs — went with the Panels tab. Its
+  // one action was a batch Ki67 call whose region was squashed to 512 px however large the capture
+  // was, so the counts it produced could not mean anything. Single-ROI Ki67 is still on the
+  // annotation context menu, and the camera button still uploads its capture to Girder `Captures`.
+  // (The old `pathassist_panels` key may still sit in a returning user's localStorage; it is inert.)
 
   // Theme state was removed with the light/clinical/H&E variants: the app now has one palette,
   // defined once in src/styles/index.css. There is nothing to switch between, so there is nothing

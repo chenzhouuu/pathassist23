@@ -28,14 +28,16 @@ const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [
 // Preprocess and Task follow in 07 — 12 tabs down to 9 so far.
 // Nine in 06; seven now. Preprocess and Task went with 07 — every kind is submitted from Analysis
 // and read in the Workspace, so a tab for either would be a second way to start the same run.
+// Panels left on its own, for a different reason than the rest: its batch Ki67 fetched every
+// capture at 512 px however large the region was, so its counts could not mean anything. Six.
 const EXPECTED_TABS = [
-  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Panels',
+  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot',
 ];
 
 describe('RightPanel tab bar', () => {
   beforeEach(() => {
     useStore.setState({
-      ...AS_ADMIN, rightPanelOpen: true, rightPanelTab: null, activeItem: null, panels: [],
+      ...AS_ADMIN, rightPanelOpen: true, rightPanelTab: null, activeItem: null,
       visibleArtifacts: {},
     });
   });
@@ -65,8 +67,8 @@ describe('RightPanel tab bar', () => {
     useStore.setState({ activeItem: { _id: 'item-1', name: 'slide.svs' } });
     expect(await screen.findByText('Artifacts')).toBeInTheDocument();    // Workspace, the landing tab
 
-    await userEvent.click(screen.getByRole('button', { name: 'Panels' }));
-    expect(useStore.getState().rightPanelTab).toBe('panels');
+    await userEvent.click(screen.getByRole('button', { name: 'Info' }));
+    expect(useStore.getState().rightPanelTab).toBe('metadata');
     expect(screen.queryByText('Artifacts')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
