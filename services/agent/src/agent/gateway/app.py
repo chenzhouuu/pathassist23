@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..common.config import get_settings
+from ..common.http import close_shared_clients
 from ..loop import build_agent
 from ..loop.artifacts import InMemoryArtifactStore
 from ..loop.girder_annotations import GirderAnnotationStore
@@ -28,6 +29,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await app.state.store.close()
+        # The pooled clients auth and the tile proxies share (common/http.py). Closed here so a
+        # reload does not leave their keepalive sockets behind.
+        await close_shared_clients()
 
 
 def create_app() -> FastAPI:

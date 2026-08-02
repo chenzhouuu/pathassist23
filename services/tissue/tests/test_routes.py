@@ -140,6 +140,44 @@ def test_a_bad_class_spec_is_a_400_not_a_silent_drop(client, tmp_path):
         f"/tissue/{ITEM}/{ah}/tile/probs/0/0/0.png?ch=Tumour:zz").status_code == 400
 
 
+def test_the_confidence_plane_is_read_once_per_tile(client, tmp_path, monkeypatch):
+    """`conf=1` is the default look, and its probability read is the tile path's dominant cost.
+
+    Nothing in the render query changes the plane — `show`, `alpha` and `conf_floor` all apply
+    after it — so toggling a class in the panel must not re-read the pyramid for every tile.
+    """
+    ah, _ = _artifact(tmp_path)
+    routes_mod._conf_cache.clear()
+
+    reads: list = []
+    real = routes_mod.read_prob_tile
+
+    def counting(root, z, x, y, names):
+        reads.append((z, x, y))
+        return real(root, z, x, y, names)
+
+    monkeypatch.setattr(routes_mod, "read_prob_tile", counting)
+
+    base = f"/tissue/{ITEM}/{ah}/tile/classes/0/0/0.png"
+    assert client.get(base).status_code == 200
+    assert client.get(f"{base}?show=Tumour").status_code == 200          # a class toggle
+    assert client.get(f"{base}?alpha=0.3&conf_floor=0.4").status_code == 200
+    assert reads == [(0, 0, 0)]
+
+    # conf=0 asks for a different picture, and must not be served the shaded one by accident.
+    assert client.get(f"{base}?conf=0").status_code == 200
+    assert reads == [(0, 0, 0)]
+
+
+def test_conf_zero_and_conf_one_are_different_pictures(client, tmp_path):
+    ah, _ = _artifact(tmp_path)
+    routes_mod._conf_cache.clear()
+    base = f"/tissue/{ITEM}/{ah}/tile/classes/0/0/0.png"
+    shaded = client.get(f"{base}?conf=1").data
+    flat = client.get(f"{base}?conf=0").data
+    assert shaded != flat
+
+
 def test_all_three_render_modes_answer(client, tmp_path):
     ah, _ = _artifact(tmp_path)
     for layer in ("classes", "probs", "outline"):

@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     girder_base: str = "http://localhost:9080/api/v1"
     cors_origins: list[str] = ["*"]
 
+    # How long a resolved Girder identity is reused before asking `/user/me` again. Every overlay
+    # tile is an authorised request and a viewport is tens of them, so without this the gateway
+    # asks the same question about the same token tens of times a second. The cost is bounded
+    # staleness: a revoked token keeps working here for at most this long. 0 disables the cache.
+    auth_cache_seconds: float = 30.0
+
     # Control-plane store (increment 1). Default targets the compose `db` service;
     # override with AGENT_DATABASE_URL for local runs (e.g. localhost:5432).
     database_url: str = "postgresql://copilot:copilot@db:5432/copilot"

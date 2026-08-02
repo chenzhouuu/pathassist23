@@ -16,6 +16,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from ..common.http import shared_client
+
 # Small JSON reads off disk, so these stay short.
 _CONTROL_TIMEOUT = 30.0
 # Tiles are read off disk and rendered in-process; slow only when the disk is cold.
@@ -43,17 +45,12 @@ async def get_tissue_json(
     client: httpx.AsyncClient | None = None,
 ) -> dict | None:
     """GET a control-plane JSON document (catalog / meta / stats); None on 404."""
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
-    try:
-        resp = await client.get(path, params=params or {})
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
+    client = client or shared_client(base_url, _CONTROL_TIMEOUT)
+    resp = await client.get(path, params=params or {})
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def get_tissue_tile(
@@ -64,19 +61,14 @@ async def get_tissue_tile(
     A 400 (bad class spec) is forwarded verbatim rather than raised: the panel shows it as a
     control error, and raising here would turn a typo into a 502.
     """
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_TILE_TIMEOUT)
-    try:
-        resp = await client.get(path, params=params)
-        if resp.status_code >= 500:
-            resp.raise_for_status()
-        return TileResponse(
-            body=resp.content,
-            content_type=resp.headers.get("content-type", "application/json"),
-            cache_control=resp.headers.get("cache-control"),
-            etag=resp.headers.get("etag"),
-            status_code=resp.status_code,
-        )
-    finally:
-        if owns:
-            await client.aclose()
+    client = client or shared_client(base_url, _TILE_TIMEOUT)
+    resp = await client.get(path, params=params)
+    if resp.status_code >= 500:
+        resp.raise_for_status()
+    return TileResponse(
+        body=resp.content,
+        content_type=resp.headers.get("content-type", "application/json"),
+        cache_control=resp.headers.get("cache-control"),
+        etag=resp.headers.get("etag"),
+        status_code=resp.status_code,
+    )

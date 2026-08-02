@@ -22,6 +22,17 @@ export default defineConfig(() => {
     },
     server: {
       port: 3000,
+      // The Python services are a sibling tree, not frontend source: nothing under `services/` is
+      // ever imported by the app, and each service's `.venv` is thousands of files. Watching them
+      // exhausts the inotify budget and the dev server dies on `ENOSPC: System limit for number of
+      // file watchers reached` — the venvs are ~11k files where the whole frontend is a few hundred.
+      // Vite merges this with its own defaults (node_modules, .git), so it only adds.
+      watch: {
+        ignored: [
+          fileURLToPath(new URL('./services/**', import.meta.url)),
+          '**/.venv/**',
+        ],
+      },
       proxy: {
         // Must precede '/api' so copilot requests reach the agent gateway, not Girder.
         '/api/copilot': {
