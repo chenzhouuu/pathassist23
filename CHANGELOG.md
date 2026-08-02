@@ -1,6 +1,6 @@
 # PathAssist UI — Development Changelog
 
-> Recent development cycle covering AI Integration, Panels Feature, and EC2 Server Setup.
+> Recent development cycle covering AI Integration, Viewport Captures, and EC2 Server Setup.
 > All changes are on branch `keycloak-integration`.
 
 ---
@@ -8,7 +8,7 @@
 ## Table of Contents
 
 1. [Pragna AI Integration](#1-pragna-ai-integration)
-2. [Panels Feature — ROI Capture & Batch Analysis](#2-panels-feature--roi-capture--batch-analysis)
+2. [Viewport Captures → Girder](#2-viewport-captures--girder)
 3. [Multi-Brand Deployment Architecture](#3-multi-brand-deployment-architecture)
 4. [EC2 Server Setup & Infrastructure](#4-ec2-server-setup--infrastructure)
 5. [Keycloak SSO Integration](#5-keycloak-sso-integration)
@@ -93,7 +93,6 @@ The `ModelTag` component in `AIPanel.jsx` and all right-click menu items always 
 |------|---------------|-------------|
 | **Single ROI** | Right-click slide → Analyze Ki67 % → draw rectangle | Analyzes one region at chosen magnification |
 | **Whole Slide (WSI)** | Right-click slide → Analyze Whole Slide | Splits slide into 3×3 or 4×4 patch grid, analyzes each, aggregates |
-| **Batch (Panels)** | Panels tab → select panels → Analyze N with Pragna | Analyzes multiple saved viewport captures in sequence |
 
 ### API Keys Required
 
@@ -106,51 +105,15 @@ These go in `.env.local` on EC2 at `/opt/pathassist23/.env.local`. They are **no
 
 ---
 
-## 2. Panels Feature — ROI Capture & Batch Analysis
+## 2. Viewport Captures → Girder
 
 ### Overview
 
-The **Panels** feature lets pathologists capture any number of viewport snapshots across multiple slides, then submit them all to Pragna AI for Ki67 analysis in a single batch operation.
-
-### User Workflow
-
-```
-1. Open a slide
-2. Navigate to the region of interest
-3. Click "Camera Save to Server" (toolbar icon with download bar)
-   → Panel is saved with thumbnail + region coordinates
-   → Right panel auto-switches to "Panels" tab
-4. Browse other slides, capture more panels
-5. In the Panels tab: select panels → "Analyze N with Pragna"
-   → Results appear in the AI tab
-```
-
-### Data Stored per Panel
-
-```js
-{
-  id: "uuid-v4",
-  itemId: "girder-item-id",
-  itemName: "Slide_001.svs",
-  thumbnail: "data:image/jpeg;base64,...",   // 240px wide JPEG
-  region: {
-    x: 12000,      // image pixel X (top-left)
-    y: 8500,       // image pixel Y (top-left)
-    width: 45000,  // image pixel width
-    height: 32000  // image pixel height
-  },
-  capturedAt: "2026-03-15T10:23:00.000Z",
-  capturedBy: "dr.smith"
-}
-```
-
-- **Persisted** in `localStorage` under key `pathassist_panels`
-- Max **100 panels** stored (oldest are dropped)
-- Survives browser refresh and re-login
+The toolbar's **Camera Save to Server** button uploads the current viewport as a full-resolution PNG to a **Captures** subfolder in the same Girder folder as the slide.
 
 ### Region Coordinate Extraction
 
-The viewport region is captured in **image pixel coordinates** (full-resolution slide space), not screen pixels:
+The region is recorded in **image pixel coordinates** (full-resolution slide space), not screen pixels, and travels with the upload as file metadata:
 
 ```js
 const b = osd.viewport.getBounds(true);
@@ -164,28 +127,7 @@ region = {
 };
 ```
 
-### Files
-
-| File | Purpose |
-|------|---------|
-| `src/components/viewer/ViewerToolbar.jsx` | Camera Save to Server button + `snapshotToServer()` |
-| `src/components/panels/PanelsPanel.jsx` | Panels tab UI — list, select, analyze, delete |
-| `src/components/panels/RightPanel.jsx` | Adds "Panels" tab with live badge count |
-| `src/store/index.js` | `panels`, `addPanel`, `removePanel`, `clearPanels` state |
-
-### Batch Analysis (PanelsPanel)
-
-When "Analyze N with Pragna" is clicked:
-
-1. For each selected panel, fetches a 512px region blob from Girder at 20× zoom
-2. Calls `analyzeKi67WithGemini(blob)` (same API as single ROI)
-3. Adds result to `aiResults` store
-4. 400ms delay between calls to avoid rate limits
-5. Auto-navigates to AI tab when done
-
-### "Camera Save to Server" also uploads to Girder
-
-In addition to saving locally, the full-resolution PNG is also uploaded to a **Captures** subfolder in the same Girder folder as the slide:
+### Where it lands
 
 ```
 <slide folder>/
@@ -193,7 +135,9 @@ In addition to saving locally, the full-resolution PNG is also uploaded to a **C
         └── SlideName__capture__2026-03-15T10-23-00.png
 ```
 
-Metadata saved with the upload: `sourceItemId`, `sourceItemName`, `capturedAt`, `capturedBy`, `region` (JSON string).
+Metadata saved with the upload: `sourceItemId`, `sourceItemName`, `sourceFolderId`, `capturedAt`, `capturedBy`, `region` (JSON string).
+
+> A **Panels** tab used to collect these captures in `localStorage` and submit them to Pragna as a batch Ki67 run. It was removed on 2026-08-02 (`1c6844a`): the batch fetched every region at 512 px however large the capture was, so its counts could not mean anything. Single-ROI and whole-slide Ki67 are unaffected — see §1.
 
 ---
 
