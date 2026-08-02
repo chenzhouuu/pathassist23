@@ -12,8 +12,8 @@
 services:
   preprocess:
     build:
-      context: ../preprocess
-      dockerfile: Dockerfile.trident
+      context: ..
+      dockerfile: preprocess/Dockerfile.trident
     # Trident's feature-extraction DataLoader collates patch batches through /dev/shm; Docker's
     # 64 MB default (and even a large shm_size) overflows with many workers → Bus error. Share the
     # host IPC namespace so DataLoader shared memory is bounded only by host RAM (cf. torch's own

@@ -68,15 +68,6 @@ export async function getBiomarkerMeta(itemId, artHash) {
   return asJson(r, 'Load marker map metadata');
 }
 
-// One core tile's per-cell records (hover / stats / export).
-export async function getBiomarkerCells(itemId, artHash, tx, ty) {
-  const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/biomarker/${encodeURIComponent(artHash)}/cells/${tx}/${ty}`,
-    { headers: authHeaders() },
-  );
-  return asJson(r, 'Load cells');
-}
-
 // The tile URL OpenSeadragon fetches directly. No token in the query string: the layer is mounted
 // with `loadTilesWithAjax` + `ajaxHeaders: {'Girder-Token': ...}`, so tiles authenticate with the
 // same header as every other call and the gateway needs no second auth surface.

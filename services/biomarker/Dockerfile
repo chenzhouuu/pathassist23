@@ -11,7 +11,12 @@ FROM python:3.11-slim
 RUN pip install --no-cache-dir flask "httpx>=0.27" numpy pillow gunicorn
 
 WORKDIR /app
-COPY src ./src
+# Built from `services/` rather than from this directory, so that the one shared module can
+# be copied in beside the service (Inc 6 · 09). It is put on the path rather than installed:
+# a package with a version would be four services pinning four versions of the hundred lines
+# of threading it was extracted to stop duplicating.
+COPY biomarker/src ./src
+COPY _shared/pathassist_jobs ./src/pathassist_jobs
 ENV PYTHONPATH=/app/src
 EXPOSE 8022
 

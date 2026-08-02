@@ -5,14 +5,10 @@ from .preprocess_artifact import (
     PgPreprocessArtifactStore,
     PreprocessArtifactStore,
 )
-from .slide_index import MemorySlideIndexStore, PgSlideIndexStore, SlideIndexStore
 
 __all__ = [
     "ConversationStore",
     "PgStore",
-    "SlideIndexStore",
-    "PgSlideIndexStore",
-    "MemorySlideIndexStore",
     "PreprocessArtifactStore",
     "PgPreprocessArtifactStore",
     "MemoryPreprocessArtifactStore",

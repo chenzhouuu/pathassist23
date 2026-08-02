@@ -167,11 +167,14 @@ def test_a_dag_run_needs_both_the_service_and_the_queue():
 
 def test_the_artifact_list_only_reads(client, monkeypatch):
     """The reconcile loop is gone (07). Nothing this route does can change a row — which is what
-    stops a list nobody has open from being the reason a build never finishes."""
-    def explode(*a, **kw):
-        raise AssertionError("listing artifacts must not dial a worker")
+    stops a list nobody has open from being the reason a build never finishes.
 
-    monkeypatch.setattr(routes_mod, "get_job_status", explode)
+    Asserted by making every outbound call fail: after 09 the gateway has no worker-status client
+    left to name, and a route that dialled anything at all would surface here."""
+    def explode(*a, **kw):
+        raise AssertionError("listing artifacts must not dial a service")
+
+    monkeypatch.setattr(routes_mod.httpx, "AsyncClient", explode)
     _built(client, "seg-1", "segmentation", result={"n_contours": 12})
     r = client.get(f"{_BASE}/item9/artifacts")
     assert r.status_code == 200

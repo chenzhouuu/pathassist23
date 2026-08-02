@@ -13,10 +13,10 @@ import logging
 import os
 
 from flask import Flask, jsonify
+from pathassist_jobs import JobQueue
 
 from .classes import BACKENDS, get_backend
 from .config import get_settings
-from .jobs import JobQueue
 from .model import load_backend, predict_fn
 from .routes import register as register_map_routes
 from .slides import open_slide_handle, preprocess_contours_path, tissue_core_tiles
@@ -73,7 +73,7 @@ def _load_on_best_device(backend, settings):
 def create_app() -> Flask:
     app = Flask(__name__)
     settings = get_settings()
-    app.config["JOBS"] = JobQueue()
+    app.config["JOBS"] = JobQueue("tissue-worker")
     app.config["OPEN_SLIDE"] = open_slide_handle
     app.config["TISSUE_TILES"] = _tissue_tiles
     app.config["CONTOURS"] = _contours

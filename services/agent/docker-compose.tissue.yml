@@ -11,8 +11,8 @@
 services:
   tissue:
     build:
-      context: ../tissue
-      dockerfile: Dockerfile.trident
+      context: ..
+      dockerfile: tissue/Dockerfile.trident
     deploy:
       resources:
         reservations:

@@ -1,0 +1,20 @@
+# services/_shared — the one module every analysis service shares (Inc 6 · 09).
+#
+# Not installed and not published: it is put on the path, by `pythonpath` for the test suites and
+# by a COPY for the images. A package with a version and a release cadence would be four services
+# pinning four versions of a hundred lines of threading, which is the problem it was extracted to
+# stop having.
+#
+# It is run from any service's venv, since it needs nothing they do not already have:
+#     cd services/_shared && ../cellvit/.venv/bin/python -m pytest -q
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]

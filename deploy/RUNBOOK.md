@@ -339,10 +339,57 @@ docker restart agent-copilot-1
 docker cp services/cellvit/src/cellvit_service agent-cellvit-1:/app/src/
 docker restart agent-cellvit-1
 curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:8020/nuclei/hash
+
+# The four analysis services share one job queue (Inc 6 · 09), which lands in the image at
+# `/app/src/pathassist_jobs` and is NOT under any service's own `src/`. Editing it means copying it
+# to all four, and their build context is `services/` for the same reason:
+for c in agent-preprocess-1 agent-cellvit-1 agent-tissue-1 agent-biomarker-1; do
+    docker cp services/_shared/pathassist_jobs "$c":/app/src/ && docker restart "$c"
+done
 ```
 
 This lives in the container's writable layer, so it survives `docker restart` and dies with
 `docker compose up -d --force-recreate girder`. Rebuild the image for anything meant to persist.
+
+### `dsa-worker-1` reports unhealthy, and the worker is fine
+
+Measured, and it has been misread as a dead worker more than once. The healthcheck is
+
+```yaml
+# /home/path01/dsa/docker-compose.yml — the DSA deployment's file, not this repo's
+healthcheck:
+  test: ["CMD", "celery", "-b", "amqp://…@rabbitmq/", "inspect", "ping", "--timeout", "10"]
+  timeout: 10s
+```
+
+…a ten-second `celery inspect ping` inside a ten-second Docker timeout. It answers correctly and
+is then killed for taking as long as it was told it could:
+
+```
+ExitCode -1  Health check exceeded timeout (10s):
+  ->  celery@71a9a92b946b: OK   pong
+  ->  celery@6fd145e44333: OK   pong
+```
+
+**Both workers answered.** The fix is to give the check more room than the command it runs, not to
+shorten the ping — `--timeout 10` is what makes the check meaningful when a worker is wedged:
+
+```yaml
+healthcheck:
+  timeout: 30s        # > the ping's own --timeout 10
+```
+
+That file belongs to the `path01` user and to upstream DSA, so it is not changed from this repo
+(Inc 6 · 09). Apply it there, or in `docker-compose.override.yml` beside it, and
+`docker compose up -d worker`. Until then: read the health *log*, not the health *status*.
+
+### `pathagent-redis` is idle on purpose
+
+Running since 2026-07-13 with no importer anywhere in this repo. **Not deleted** (Inc 6 · 09):
+Girder 5's notification layer wants exactly one Redis (`GIRDER_NOTIFICATION_REDIS_URL`), which is
+almost certainly why it was started, and it is the input to the WebSocket ticket (plan D8) that
+replaces the Runs list's 2.5 s poll. Deleting it would mean standing it back up to do that work.
+Wire it or remove it there — not here.
 
 ### Four services ship two images each — check which one is running first
 

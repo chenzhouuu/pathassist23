@@ -12,8 +12,8 @@
 services:
   biomarker:
     build:
-      context: ../biomarker
-      dockerfile: Dockerfile.trident
+      context: ..
+      dockerfile: biomarker/Dockerfile.trident
     environment:
       # Gated GigaTIME-Flash weights, mounted read-only below; read offline (no token, no network).
       BIOMARKER_WEIGHTS: /weights/gigatime

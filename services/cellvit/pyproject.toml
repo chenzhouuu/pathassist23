@@ -25,7 +25,7 @@ build-backend = "hatchling.build"
 packages = ["src/cellvit_service"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "../_shared"]
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -18,6 +18,7 @@ import shutil
 from pathlib import Path
 
 from flask import Flask, jsonify, request
+from pathassist_jobs import JobQueue
 
 from .artifacts import (
     _artifact_dir,
@@ -31,7 +32,6 @@ from .artifacts import (
     seg_paths,
 )
 from .config import apply_model_cache_env, get_settings
-from .jobs import JobQueue
 from .pipeline import run_pipeline
 from .predict import pred_hash, pred_paths, run_prediction, torch_available
 from .retrieval import find_regions as retrieve_regions
@@ -108,7 +108,7 @@ def create_app() -> Flask:
     app.config["PIPELINE"] = run_pipeline
     app.config["FIND_REGIONS"] = retrieve_regions
     app.config["PREDICT"] = run_prediction
-    app.config["QUEUE"] = JobQueue()
+    app.config["QUEUE"] = JobQueue("preprocess-worker")
 
     def _resolve(item, token, settings):
         return app.config["RESOLVE"](item, settings.download_dir, settings, token)

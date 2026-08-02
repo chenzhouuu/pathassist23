@@ -8,11 +8,11 @@ model are injectable via `app.config` (tests override them), defaulting to the r
 
 import httpx
 from flask import Flask, jsonify, request
+from pathassist_jobs import JobQueue
 
 from .config import get_settings
 from .geometry import offset_points, offset_rings
 from .infer import segment_array, warm_up
-from .jobs import JobQueue
 from .pannuke import TYPE_NAMES, name_for
 from .region import fetch_region, fetch_slide_info
 from .routes import register as register_nuclei
@@ -34,7 +34,7 @@ def create_app() -> Flask:
     app.config["TISSUE_TILES"] = _tissue_tiles
     # Nuclei builds are minutes of GPU work, so they queue on one worker thread rather than
     # occupying a request (Inc 5, ticket 05). /segment stays synchronous: it is one small box.
-    app.config["JOBS"] = JobQueue()
+    app.config["JOBS"] = JobQueue("cellvit-worker")
 
     # Preload the GPU model synchronously, ON THE WORKER'S MAIN THREAD. This must NOT run in a
     # background thread: building the model starts ray, and ray initialized on a thread that

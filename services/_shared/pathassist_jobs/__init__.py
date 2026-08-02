@@ -1,15 +1,25 @@
-"""A single-consumer in-process job queue — the same shape preprocess and biomarker use.
+"""One single-consumer in-process job queue, for every analysis service (Inc 6 · 09).
 
-One daemon thread drains the queue so GPU work is serialised against the coresident CellViT,
-GigaTIME and Trident models on the one A6000. Job status here is the worker's transient view; the
-gateway mirrors it into the durable ``preprocess_artifacts`` row.
+There were four: `preprocess`, `cellvit`, `tissue`, `biomarker`. `cellvit/jobs.py` named the third
+copy as the agreed trigger for extracting a shared module and `biomarker/jobs.py` was the fourth,
+written by hand on the understanding that this ticket would collapse them. This is that module, and
+it is cellvit's version — the only one that carried `current`/`total`, which is what lets a progress
+bar read `142 / 338` instead of `42 %`. The other three gain that by arriving here; preprocess also
+gains a cooperative stop it never had.
 
-Cancellation is **cooperative**. A thread cannot be killed mid-tensor, and a whole-slide tissue map
-is hours of work holding the only worker, so the job itself is handed a way to notice it has been
-asked to stop and picks a boundary where stopping is clean. What "clean" means is the job's
-business (for the tissue map it is the core-tile boundary, where coverage has just been persisted);
-what this module guarantees is only that the request is delivered and that the outcome is reported
-as ``cancelled`` rather than ``ready``.
+**It keeps its role.** Celery serialises work *across* services on this box (Inc 6 · D4/D6); this
+serialises it *within* one, so a service with two requests in flight does not put two models on the
+A6000 at once. The two layers answer different questions and neither replaces the other.
+
+One daemon thread drains the queue. Job status here is the worker's transient view; the durable
+record is the `preprocess_artifact` row the gateway writes when the run reports its bytes.
+
+Cancellation is **cooperative**. A thread cannot be killed mid-tensor, and a whole-slide run is
+hours of work holding the only worker, so the job itself is handed a way to notice it has been
+asked to stop and picks a boundary where stopping is clean. What "clean" means is the job's business
+(for every kind here it is the core-tile boundary, where coverage has just been persisted); what
+this module guarantees is only that the request is delivered and that the outcome is reported as
+`cancelled` rather than `ready`.
 """
 
 import logging
@@ -21,7 +31,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-Emit = Callable[[str, float], None]
+Emit = Callable[[str, float, "int | None", "int | None"], None]
 
 # Terminal states: a cancel against one of these is a no-op, not an error (see JobQueue.cancel).
 TERMINAL = frozenset({"ready", "failed", "cancelled"})
@@ -31,15 +41,22 @@ class Progress:
     """What a running job is handed: report where it is, and notice when it should stop.
 
     Callable with the same ``(stage, progress)`` signature the reporter always had, so a job that
-    does not care about cancellation needs no changes at all.
+    does not care about cancellation or about counts needs no changes at all.
+
+    ``current`` and ``total`` are optional because not every stage has them: a job that walks core
+    tiles knows it is on tile 142 of 338, while Trident's segmentation is one call over the whole
+    slide and can only say "about a fifth of the way". Passing the counts where they exist is what
+    lets a progress bar read ``142 / 338`` instead of ``42 %`` — the numbers were always being
+    computed at the report site and thrown away one line later (Inc 6 · plan §3).
     """
 
     def __init__(self, emit: Emit, stop: threading.Event) -> None:
         self._emit = emit
         self._stop = stop
 
-    def __call__(self, stage: str, progress: float) -> None:
-        self._emit(stage, progress)
+    def __call__(self, stage: str, progress: float,
+                 current: int | None = None, total: int | None = None) -> None:
+        self._emit(stage, progress, current, total)
 
     def stopping(self) -> bool:
         """True once someone has asked this job to stop."""
@@ -52,7 +69,8 @@ JobFn = Callable[[Progress], Any]
 class JobQueue:
     """Serialized job execution with a thread-safe status registry."""
 
-    def __init__(self, name: str = "tissue-worker") -> None:
+    def __init__(self, name: str = "analysis-worker") -> None:
+        self._name = name
         self._q: queue.Queue = queue.Queue()
         self._status: dict[str, dict] = {}
         self._stops: dict[str, threading.Event] = {}
@@ -66,6 +84,9 @@ class JobQueue:
             self._status[job_id] = {
                 "job_id": job_id, "status": "queued", "stage": None,
                 "progress": 0.0, "error": None, "result": None,
+                # Present from the start so /status has a stable shape; None until a stage that
+                # actually counts something reports.
+                "current": None, "total": None,
             }
             self._stops[job_id] = threading.Event()
         self._q.put((job_id, fn))
@@ -121,8 +142,12 @@ class JobQueue:
 
             self._set(job_id, status="running", stage="starting", progress=0.0)
 
-            def report(stage: str, progress: float, _jid: str = job_id) -> None:
-                self._set(_jid, stage=stage, progress=float(progress))
+            def report(stage: str, progress: float, current: int | None = None,
+                       total: int | None = None, _jid: str = job_id) -> None:
+                # `current`/`total` are cleared when a stage does not carry them, so a bar can
+                # never show one stage's denominator against the next stage's numerator.
+                self._set(_jid, stage=stage, progress=float(progress),
+                          current=current, total=total)
 
             try:
                 result = fn(Progress(report, stop))
@@ -134,7 +159,10 @@ class JobQueue:
                 else:
                     self._set(job_id, status="ready", stage="done", progress=1.0, result=result)
             except Exception as exc:  # noqa: BLE001 — a failure is job state, never a dead worker
-                logger.exception("tissue job %s failed", job_id)
+                # `self._name` rather than a literal: the four copies this replaces had drifted
+                # far enough that cellvit's logged "tissue job … failed", which is exactly the kind
+                # of divergence a copy makes and nobody notices until they are reading a log.
+                logger.exception("%s job %s failed", self._name, job_id)
                 self._set(job_id, status="failed", error=str(exc))
             finally:
                 self._q.task_done()
@@ -142,7 +170,11 @@ class JobQueue:
 
 
 def _release_cuda_cache() -> None:
-    """Give the GPU back at the *job* boundary (mirrors preprocess.gpu / biomarker.jobs)."""
+    """Give the GPU back at the *job* boundary.
+
+    Between jobs, not between tiles: emptying the cache mid-run costs the allocator more than it
+    frees. The import is inside because three of the four images that use this ship without torch.
+    """
     try:
         import torch
 
@@ -150,3 +182,6 @@ def _release_cuda_cache() -> None:
             torch.cuda.empty_cache()
     except Exception:  # noqa: BLE001 — no torch (base image) or no GPU is not an error here
         pass
+
+
+__all__ = ["JobQueue", "Progress", "TERMINAL", "Emit", "JobFn"]

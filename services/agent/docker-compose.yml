@@ -59,7 +59,9 @@ services:
 
   # CellViT-SAM-H nuclei segmentation (GPU). Flask service; the gateway reaches it by name.
   cellvit:
-    build: ../cellvit
+    build:
+      context: ..
+      dockerfile: cellvit/Dockerfile
     ports: ["8020:8020"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -137,7 +139,8 @@ services:
   preprocess:
     # Long-form so the trident override (docker-compose.trident.yml) can merge in a GPU Dockerfile.
     build:
-      context: ../preprocess
+      context: ..
+      dockerfile: preprocess/Dockerfile
     ports: ["8030:8030"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -164,7 +167,8 @@ services:
   biomarker:
     # Long-form so the biomarker override can merge in the GPU (Dockerfile.trident) image.
     build:
-      context: ../biomarker
+      context: ..
+      dockerfile: biomarker/Dockerfile
     ports: ["8022:8022"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -195,7 +199,8 @@ services:
   tissue:
     # Long-form so the tissue override can merge in the GPU (Dockerfile.trident) image.
     build:
-      context: ../tissue
+      context: ..
+      dockerfile: tissue/Dockerfile
     ports: ["8023:8023"]
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -26,7 +26,12 @@ RUN pip install --no-cache-dir \
       "git+https://github.com/Mahmoodlab/CONCH.git"
 
 WORKDIR /app
-COPY src ./src
+# Built from `services/` rather than from this directory, so that the one shared module can
+# be copied in beside the service (Inc 6 · 09). It is put on the path rather than installed:
+# a package with a version would be four services pinning four versions of the hundred lines
+# of threading it was extracted to stop duplicating.
+COPY preprocess/src ./src
+COPY _shared/pathassist_jobs ./src/pathassist_jobs
 ENV PYTHONPATH=/app/src
 
 # Weight caches live on the mounted data2 volumes (compose maps host /home/chen/data2/{hf,trident}

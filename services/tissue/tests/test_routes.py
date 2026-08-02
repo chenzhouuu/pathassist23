@@ -3,12 +3,12 @@
 import numpy as np
 import pytest
 from flask import Flask
+from pathassist_jobs import JobQueue
 
 from tissue_service import routes as routes_mod
 from tissue_service.artifacts import CORE, TILE, art_hash, artifact_dir
 from tissue_service.classes import BCSS
 from tissue_service.config import get_settings
-from tissue_service.jobs import JobQueue
 from tissue_service.pyramid import write_class_tile, write_prob_tile
 from tissue_service.routes import register
 from tissue_service.slides import SlideHandle

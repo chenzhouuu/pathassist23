@@ -1,7 +1,7 @@
 """Gateway → preprocess service HTTP client (Inc 2b).
 
 Three thin async calls to the preprocess worker: trigger a build (`/run`), poll a job's status
-(`/status`, used by the gateway to reconcile the durable slide_index row), and text→patch region
+(no longer polled by the gateway — a run's progress is its Girder job), and text→patch region
 retrieval (`/find_regions`, used by the find_regions server tool). The Girder token rides
 server-to-server and is never a model argument (D3). Mirrors ``pathvlm_client.py``.
 """
@@ -20,28 +20,6 @@ class RegionsResult:
     top_score: float
     encoder: str
     query: str
-
-
-async def trigger_preprocess(
-    *,
-    base_url: str,
-    item: str,
-    params: dict,
-    token: str | None,
-    timeout: float = 30.0,
-    client: httpx.AsyncClient | None = None,
-) -> dict:
-    """POST /run to enqueue a build; returns {job_id, params_hash, status, encoder, mag, ...}."""
-    payload = {"item": item, "girder_token": token, **params}
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
-    try:
-        resp = await client.post("/run", json=payload)
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
 
 
 async def trigger_stage(
@@ -64,25 +42,6 @@ async def trigger_stage(
     client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
     try:
         resp = await client.post(f"/{stage}", json=payload)
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
-
-
-async def get_job_status(
-    *,
-    base_url: str,
-    job_id: str,
-    timeout: float = 15.0,
-    client: httpx.AsyncClient | None = None,
-) -> dict:
-    """GET /status for a job; returns {status, stage, progress, n_patches, features_ref, error}."""
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=timeout)
-    try:
-        resp = await client.get("/status", params={"job_id": job_id})
         resp.raise_for_status()
         return resp.json()
     finally:

@@ -15,11 +15,11 @@ import logging
 import httpx
 import numpy as np
 from flask import Flask, jsonify, request
+from pathassist_jobs import JobQueue
 
 from .cellvit_client import fetch_centroids
 from .config import get_settings
 from .infer import tile_fn
-from .jobs import JobQueue
 from .markers import CHANNEL_NAMES, MARKER_CHANNELS
 from .nuclei_client import fetch_cells
 from .pipeline import counts_by_phenotype, flag_counts, phenotype_region
@@ -92,7 +92,7 @@ def create_app() -> Flask:
     app.config["MODE"] = settings.mode
     app.config["TILE_PREDICT"] = None
     # Inc 3b map seams (tests override these; see routes.register)
-    app.config["JOBS"] = JobQueue()
+    app.config["JOBS"] = JobQueue("biomarker-worker")
     app.config["OPEN_SLIDE"] = open_slide_handle
     app.config["FETCH_NUCLEI_FACTORY"] = _nuclei_factory
     app.config["TISSUE_TILES"] = _tissue_tiles

@@ -1,8 +1,13 @@
-// src/api/preprocessApi.js — Preprocess gateway client (Inc 2b Trident index control plane).
-// Mirrors copilotApi's base + Girder-Token auth. The panel triggers a Trident feature-index
-// build (POST /slides/{item}/preprocess) and polls its status (GET /slides/{item}/index); the
-// resulting index is what Copilot's find_regions searches. Bulk arrays never come here — only
-// the durable slide_index control rows (status, stage, progress, n_patches, feature_ref).
+// src/api/preprocessApi.js — the preprocess DAG's client: submit a build, read a slide's
+// artifacts, delete one, fetch a segmentation's contours.
+//
+// Mirrors copilotApi's base + Girder-Token auth. Bulk arrays never come here — an artifact's own
+// numbers are on its row and its pixels are tiles.
+//
+// The Inc-2a flat index (`POST /slides/{item}/preprocess`, `GET .../index`) is gone with its two
+// clients (Inc 6 · 09). It predates the content-addressed DAG and had been unreachable from the UI
+// since Inc 2b-3; what replaced it is `startBuild`, which addresses every stage and reuses what a
+// slide already has.
 const COPILOT_BASE = (import.meta.env.VITE_COPILOT_API_URL || '/api/copilot').replace(/\/$/, '');
 
 function authHeaders(extra = {}) {
@@ -33,30 +38,6 @@ async function asJson(r, what) {
     throw new Error(describeError(r.status, detail, what));
   }
   return r.json();
-}
-
-// List a slide's feature indexes (one row per params hash), reconciled server-side against the
-// worker for any in-flight build. Returns [] for a slide that has never been preprocessed.
-export async function listSlideIndex(itemId) {
-  const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/index`,
-    { headers: authHeaders() },
-  );
-  const data = await asJson(r, 'List slide index');
-  return data.indexes || [];
-}
-
-// ── Preprocess DAG (Inc 2b-3): segment → patch → features, one artifact row per stage ──────
-
-function postJson(itemId, path, body, what) {
-  return fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/${path}`,
-    {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(body || {}),
-    },
-  ).then((r) => asJson(r, what));
 }
 
 // List a slide's DAG artifacts. Every row here is bytes on disk (Inc 6 · D9) — a run still in
@@ -109,24 +90,6 @@ export async function getSegmentationContours(itemId, segHash) {
   return asJson(r, 'Load tissue contours');
 }
 
-// Enqueue a Trident index build for a slide. `params` overrides (encoder/mag/patch_size/
-// segmenter) are optional; the worker fills defaults. Returns the durable slide_index row
-// (status `queued`), which the panel then polls via listSlideIndex.
-export async function startPreprocess(itemId, params = {}) {
-  const body = {};
-  for (const k of ['encoder', 'mag', 'patch_size', 'segmenter']) {
-    if (params[k] !== undefined && params[k] !== null && params[k] !== '') body[k] = params[k];
-  }
-  const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/preprocess`,
-    {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(body),
-    },
-  );
-  return asJson(r, 'Start preprocess');
-}
 
 // ── Artifact removal (Inc 5, ticket 04) ────────────────────────────────────────────────
 

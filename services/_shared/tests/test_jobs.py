@@ -1,15 +1,19 @@
-"""Cooperative cancellation: what a stop request actually promises.
+"""The one job queue, and what a stop request actually promises (Inc 6 · 09).
 
-A whole-slide tissue map is hours of work holding the only worker thread, so "stop" has to be real
-— but it also has to be honest: a job is not stopped when someone asks, it is stopped when it gets
-to a boundary where stopping leaves the artifact intact.
+There were four copies of this module and three of this suite. This is the one that is left,
+and it lives beside the module rather than in any service, because a shared module tested from
+one service's suite is a shared module whose owner is unclear.
+
+A whole-slide run is hours of work holding the only worker thread, so "stop" has to be real —
+but it also has to be honest: a job is not stopped when someone asks, it is stopped when it
+gets to a boundary where stopping leaves the artifact intact.
 """
 
 import threading
 
 import pytest
 
-from tissue_service.jobs import JobQueue
+from pathassist_jobs import JobQueue
 
 
 @pytest.fixture

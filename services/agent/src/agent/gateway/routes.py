@@ -13,20 +13,13 @@ from ..loop.biomarker_map_client import get_map_json, get_tile
 from ..loop.events import RunFinished
 from ..loop.nuclei_client import get_nuclei_meta, get_nuclei_tile
 from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_chain
-from ..loop.preprocess_client import (
-    get_contours,
-    get_job_status,
-    get_prediction,
-    list_tasks,
-    trigger_preprocess,
-)
+from ..loop.preprocess_client import get_contours, get_prediction, list_tasks
 from ..loop.tissue_map_client import get_tissue_json, get_tissue_tile
 from ..loop.tools import ToolContext
 from ..store import (
     ConversationStore,
     MemoryPreprocessArtifactStore,
     PreprocessArtifactStore,
-    SlideIndexStore,
 )
 from .auth import require_user
 from .plan import TITLES, UnplannableRun, match_feature_spec, plan
@@ -99,14 +92,6 @@ def get_plugin_url() -> str | None:
     keep working while the image is rebuilt.
     """
     return get_settings().pathassist_plugin_url or None
-
-
-def get_slide_index_store(request: Request) -> SlideIndexStore:
-    """Resolve the process-wide SlideIndexStore set up by the app lifespan."""
-    store = getattr(request.app.state, "slide_index", None)
-    if store is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Slide index unavailable")
-    return store
 
 
 def get_preprocess_artifact_store(request: Request) -> PreprocessArtifactStore:
@@ -330,89 +315,13 @@ async def get_turn_artifact(
 
 # ── Slide preprocessing (Trident index control plane — Inc 2b) ───────────────────
 
-
-class PreprocessRequest(BaseModel):
-    """Optional overrides; the worker fills defaults (image encoder / 20× / 256 / HEST)."""
-
-    encoder: str | None = None
-    mag: int | None = None
-    patch_size: int | None = None
-    segmenter: str | None = None
-
-
-async def _reconcile(store: SlideIndexStore, item: str, params_hash: str, js: dict) -> None:
-    """Fold a worker /status reply into the durable slide_index row (only the gateway writes)."""
-    st = js.get("status")
-    if st == "ready":
-        await store.set_status(
-            item=item, params_hash=params_hash, status="ready", stage="done", progress=1.0,
-            n_patches=js.get("n_patches"), feature_ref=js.get("features_ref"),
-        )
-    elif st == "failed":
-        await store.set_status(
-            item=item, params_hash=params_hash, status="failed",
-            error=js.get("error") or "preprocess failed",
-        )
-    elif st in ("queued", "running"):
-        await store.set_status(
-            item=item, params_hash=params_hash, status=st,
-            stage=js.get("stage"), progress=js.get("progress"),
-        )
-
-
-@router.post("/slides/{item}/preprocess")
-async def start_preprocess(
-    item: str,
-    body: PreprocessRequest,
-    user: dict = Depends(require_user),
-    slide_index: SlideIndexStore = Depends(get_slide_index_store),
-    token: str | None = Depends(get_girder_token),
-    preprocess_url: str | None = Depends(get_preprocess_url),
-) -> dict:
-    """Enqueue a Trident index build and record its durable slide_index row (F7).
-
-    Fast: proxies a non-blocking POST /run to the worker (which owns the single-consumer GPU
-    queue) and creates/reset the row to `queued`. The heavy build never runs in this request.
-    """
-    if not preprocess_url:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
-        )
-    params = {k: v for k, v in body.model_dump().items() if v is not None}
-    try:
-        run = await trigger_preprocess(
-            base_url=preprocess_url, item=item, params=params, token=token
-        )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
-        ) from exc
-    return await slide_index.upsert_index(
-        item=item, params_hash=run["params_hash"], encoder=run["encoder"], mag=run["mag"],
-        patch_size=run["patch_size"], segmenter=run["segmenter"],
-        status="queued", job_id=run.get("job_id"),
-    )
-
-
-@router.get("/slides/{item}/index")
-async def list_slide_index(
-    item: str,
-    user: dict = Depends(require_user),
-    slide_index: SlideIndexStore = Depends(get_slide_index_store),
-    preprocess_url: str | None = Depends(get_preprocess_url),
-) -> dict:
-    """List a slide's preprocess indexes, reconciling in-flight builds against the worker."""
-    rows = await slide_index.list_indexes(item=item)
-    if preprocess_url:
-        for row in rows:
-            if row["status"] in ("queued", "running") and row.get("job_id"):
-                try:
-                    js = await get_job_status(base_url=preprocess_url, job_id=row["job_id"])
-                except httpx.HTTPError:
-                    continue  # worker unreachable — keep the last known state
-                await _reconcile(slide_index, item, row["params_hash"], js)
-        rows = await slide_index.list_indexes(item=item)
-    return {"indexes": rows}
+# The Inc-2a flat index is gone (Inc 6 · 09): `POST /slides/{item}/preprocess`, `GET .../index`,
+# their `_reconcile`, and the `SlideIndexStore` behind them. It predates the content-addressed DAG
+# and had been unreachable from the UI since Inc 2b-3 — one params hash per build, no lineage, no
+# reuse of a shared stage. `POST .../build` replaced it, and its two clients went with it.
+#
+# The `slide_index` table itself is left in `pg.py`, unread. Dropping a table is destructive and is
+# somebody's decision, not a tidy-up's.
 
 
 # ── Preprocess DAG (segment → patch → features control plane — Inc 2b-3) ──────────
