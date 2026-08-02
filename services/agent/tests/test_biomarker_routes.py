@@ -54,20 +54,7 @@ def unconfigured_client(art_store):
     return TestClient(app)
 
 
-def _address(art_hash="bio0001"):
-    """A `/biomarker/hash` double: the service naming a run, enqueuing nothing."""
-    async def addressed(biomarker_url, seg_hash, nuclei_hash):
-        return {"kind": "biomarker", "art_hash": art_hash, "nuclei_hash": nuclei_hash}
-    return addressed
-
-
-def _dispatch(job_id="girder-job-7", seen=None):
-    async def dispatch(*, plugin_url, kind, item, art_hash, params, token, **kw):
-        if seen is not None:
-            seen.append({"kind": kind, "item": item, "art_hash": art_hash, "params": params})
-        return {"jobId": job_id, "celeryTaskId": "t1", "kind": kind,
-                "item": item, "artHash": art_hash, "queue": "pathassist"}
-    return dispatch
+_HASHES = {"biomarker": "bio0001"}
 
 
 def _rows(store, item="item1"):
@@ -75,37 +62,35 @@ def _rows(store, item="item1"):
     return asyncio.run(store.list_artifacts(item=item))
 
 
-def test_a_dispatched_marker_run_writes_no_row(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "_biomarker_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-7"))
+def test_a_dispatched_marker_run_writes_no_row(client, plan_seam):
+    plan_seam(hashes=_HASHES)
 
     r = client.post(f"{_BASE}/item1/biomarker",
                     json={"seg_hash": "seg9", "nuclei_hash": "nuc9",
                           "bbox": {"x": 0, "y": 0, "width": 2048, "height": 2048}})
     assert r.status_code == 200
     assert r.json()["art_hash"] == "bio0001"
-    assert r.json()["scope"] == "region"
-    assert r.json()["girder_job_id"] == "girder-job-7"
+    assert r.json()["girder_job_id"] == "girder-job-1"
     assert client.get(f"{_BASE}/item1/artifacts").json()["artifacts"] == []
 
 
-def test_the_cells_and_the_contours_both_travel_to_the_run(client, monkeypatch):
+def test_the_cells_and_the_contours_both_travel_to_the_run(client, plan_seam):
     seen = []
-    monkeypatch.setattr(routes_mod, "_biomarker_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=seen))
+    plan_seam(seen=seen, hashes=_HASHES)
 
     client.post(f"{_BASE}/item1/biomarker", json={"seg_hash": "seg9", "nuclei_hash": "nuc9"})
-    assert seen == [{"kind": "biomarker", "item": "item1", "art_hash": "bio0001",
-                     "params": {"bbox": None, "seg_hash": "seg9", "nuclei_hash": "nuc9",
-                                "scope": "slide"}}]
+    assert seen[0]["item"] == "item1"
+    assert [x["kind"] for x in seen[0]["steps"]] == ["biomarker"]
+    assert seen[0]["steps"][0]["artHash"] == "bio0001"
+    assert seen[0]["steps"][0]["params"] == {
+        "bbox": None, "seg_hash": "seg9", "nuclei_hash": "nuc9", "scope": "slide"}
 
 
-def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, monkeypatch):
+def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, plan_seam):
     """The parent is the NUCLEI (Inc 5 · D9): a phenotype is an attribute of a cell, so change the
     cells and every number changes. The segmentation only ever chose which tiles to visit, and is
     kept in params as provenance. (It was the parent until Inc 5 — see design §11 corr. 1.)"""
-    monkeypatch.setattr(routes_mod, "_biomarker_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-7"))
+    plan_seam(hashes=_HASHES)
     client.post(f"{_BASE}/item1/biomarker", json={"seg_hash": "seg9", "nuclei_hash": "nuc9"})
 
     r = client.post(
@@ -124,11 +109,10 @@ def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, monke
     assert row["girder_job_id"] == "girder-job-7"
 
 
-def test_a_stopped_run_creates_its_row_too(client, art_store, monkeypatch):
+def test_a_stopped_run_creates_its_row_too(client, art_store, plan_seam):
     """Cooperative stop is new for this kind in 06 — so a stopped marker map has to land like a
     stopped tissue map: a complete map of a smaller area, with what is left to do."""
-    monkeypatch.setattr(routes_mod, "_biomarker_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+    plan_seam(hashes=_HASHES)
     client.post(f"{_BASE}/item1/biomarker", json={"seg_hash": "seg9", "nuclei_hash": "nuc9"})
 
     client.post(
@@ -145,23 +129,49 @@ def test_a_stopped_run_creates_its_row_too(client, art_store, monkeypatch):
     assert row["parent_hash"] == "nuc9"
 
 
-def test_seg_hash_is_required(client):
-    assert client.post(f"{_BASE}/item1/biomarker", json={}).status_code == 422
+def test_neither_upstream_is_required_of_the_caller_any_more(client, plan_seam):
+    """Both are still required to *run*. An empty body is a slide with nothing on it and a user who
+    wants a marker map, which is a plan rather than a 422 (Inc 6 · 08)."""
+    plan_seam(hashes=_HASHES)
+    assert client.post(f"{_BASE}/item1/biomarker", json={}).status_code == 200
 
 
-def test_a_map_without_the_cells_it_is_a_map_of_is_refused_before_it_is_queued(
-    client, monkeypatch,
-):
-    """The worker refuses too, but a refusal that only exists inside a queued job is one nobody
-    sees until they go looking. This is the sentence the catalog form can show."""
-    dispatched = []
-    monkeypatch.setattr(routes_mod, "_biomarker_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=dispatched))
+def test_a_map_without_the_cells_it_is_a_map_of_gets_them_planned(client, plan_seam):
+    """The entry that made a DAG walk necessary (Inc 6 · 08). It used to be a 400 telling the user
+    to segment the nuclei first — true, and a piece of work the machine could do."""
+    seen = []
+    plan_seam(seen=seen, hashes=_HASHES)
 
     r = client.post(f"{_BASE}/item1/biomarker", json={"seg_hash": "seg9"})
-    assert r.status_code == 400
-    assert "nuclei" in r.json()["detail"]
-    assert dispatched == []
+    assert r.status_code == 200
+    assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei", "biomarker"]
+    # The named segmentation is used — by the map *and* by the nuclei run under it.
+    assert seen[0]["steps"][0]["params"]["seg_hash"] == "seg9"
+    assert seen[0]["steps"][1]["params"]["seg_hash"] == "seg9"
+    assert seen[0]["steps"][1]["params"]["nuclei_hash"] == "nuc-1"
+
+
+def test_a_marker_map_on_a_bare_slide_is_three_steps(client, plan_seam):
+    """Segment, then the nuclei, then the map — the sentence 08's form states before anyone
+    agrees to it."""
+    seen = []
+    plan_seam(seen=seen, hashes=_HASHES)
+
+    r = client.post(f"{_BASE}/item1/biomarker?mode=plan", json={})
+    assert [x["kind"] for x in r.json()["steps"]] == ["segmentation", "nuclei", "biomarker"]
+    assert seen == [], "a plan is a question, not a submission"
+
+
+def test_the_planned_nuclei_run_inherits_the_maps_own_region(client, plan_seam):
+    """A map over a rectangle needs cells in that rectangle. Planning the upstream whole-slide
+    would be an hour of GPU nobody asked for."""
+    addressed = []
+    bbox = {"x": 10, "y": 10, "width": 512, "height": 512}
+    plan_seam(addressed=addressed, hashes=_HASHES)
+
+    client.post(f"{_BASE}/item1/biomarker", json={"seg_hash": "seg9", "bbox": bbox})
+    nuclei = next(p for kind, p in addressed if kind == "nuclei")
+    assert nuclei["bbox"] == bbox
 
 
 def test_biomarker_without_the_job_queue_is_refused(art_store):
@@ -180,27 +190,19 @@ def test_unconfigured_service_is_503_not_a_crash(unconfigured_client):
     r = unconfigured_client.post(f"{_BASE}/item1/biomarker",
                                  json={"seg_hash": "seg9", "nuclei_hash": "nuc9"})
     assert r.status_code == 503
-    assert "AGENT_BIOMARKER_SERVICE_URL" in r.json()["detail"]
-
-
-def test_worker_refusals_are_forwarded_verbatim():
-    """Asserted on the mapping rather than through the route: the httpx client is constructed
-    inside `_biomarker_address`, so doubling that seam would double the mapping with it."""
-    req = httpx.Request("POST", f"{_BIO}/biomarker/hash")
-    resp = httpx.Response(503, json={"detail": "needs the GPU worker"}, request=req)
-    mapped = routes_mod._map_error(httpx.HTTPStatusError("no weights", request=req, response=resp))
-    assert mapped.status_code == 503
-    assert mapped.detail == "needs the GPU worker"
+    assert "biomarker" in r.json()["detail"]
 
 
 def test_a_biomarker_service_that_is_down_dispatches_nothing(client, monkeypatch):
     dispatched = []
 
-    async def addressed(*_a, **_kw):
-        raise httpx.ConnectError("refused")
+    def unreachable(urls):
+        async def address(kind, params):
+            raise httpx.ConnectError("refused")
+        return address
 
-    monkeypatch.setattr(routes_mod, "_biomarker_address", addressed)
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=dispatched))
+    monkeypatch.setattr(routes_mod, "_addresser", unreachable)
+    monkeypatch.setattr(routes_mod, "dispatch_chain", lambda **kw: dispatched.append(kw))
     with pytest.raises(httpx.ConnectError):
         client.post(f"{_BASE}/item1/biomarker", json={"seg_hash": "seg9", "nuclei_hash": "n"})
     assert dispatched == []
@@ -265,3 +267,16 @@ def test_catalog_is_proxied(client, monkeypatch):
 
     monkeypatch.setattr(routes_mod, "get_map_json", get_json)
     assert client.get("/api/copilot/biomarker/catalog").json()["markers"] == ["CD8"]
+
+
+def test_run_only_the_next_step_queues_one_of_three(client, plan_seam):
+    """The other half of the agreement (Inc 6 · 08). At `concurrency=1` three steps is a wait, and
+    neither "all of it" nor "just the first" is a default that quietly costs hours of GPU."""
+    seen = []
+    plan_seam(seen=seen, hashes=_HASHES)
+
+    r = client.post(f"{_BASE}/item1/biomarker?mode=next", json={})
+    assert [x["kind"] for x in r.json()["steps"]] == ["segmentation"]
+    assert [x["kind"] for x in seen[0]["steps"]] == ["segmentation"]
+    # …and the whole shape is still reported, so the form can say what is left after this.
+    assert [x["kind"] for x in r.json()["plan"]] == ["segmentation", "nuclei", "biomarker"]

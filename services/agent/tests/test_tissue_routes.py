@@ -9,6 +9,7 @@ the tile proxy.
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from starlette.testclient import TestClient
 
 from agent.gateway import routes as routes_mod
@@ -56,20 +57,10 @@ def unconfigured_client(art_store):
     return TestClient(app)
 
 
-def _address(art_hash="tis0001", backend="bcss_fcn_unet"):
-    """A `/tissue/hash` double: names the run and resolves the backend, enqueuing nothing."""
-    async def addressed(tissue_url, seg_hash, asked):
-        return {"kind": "tissue", "art_hash": art_hash, "backend": asked or backend}
-    return addressed
-
-
-def _dispatch(job_id="girder-job-4", seen=None):
-    async def dispatch(*, plugin_url, kind, item, art_hash, params, token, **kw):
-        if seen is not None:
-            seen.append({"kind": kind, "item": item, "art_hash": art_hash, "params": params})
-        return {"jobId": job_id, "celeryTaskId": "t1", "kind": kind,
-                "item": item, "artHash": art_hash, "queue": "pathassist"}
-    return dispatch
+#: What the tissue service resolves for itself: which of this box's backends an unnamed request
+#: lands on. The row has to say which model produced its numbers.
+_RESOLVED = {"tissue": {"backend": "bcss_fcn_unet"}}
+_HASHES = {"tissue": "tis0001"}
 
 
 def _rows(store, item="item1"):
@@ -80,53 +71,56 @@ def _rows(store, item="item1"):
 # ── dispatch (Inc 6 · 06) ──────────────────────────────────────────────────────────
 
 
-def test_a_dispatched_tissue_run_writes_no_row(client, monkeypatch):
+def test_a_dispatched_tissue_run_writes_no_row(client, plan_seam):
     """Same rule as nuclei: a row is the claim that bytes exist, and at submit none do."""
-    monkeypatch.setattr(routes_mod, "_tissue_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-4"))
+    plan_seam(hashes=_HASHES, extra=_RESOLVED)
 
     r = client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9", "bbox": _REGION})
     assert r.status_code == 200
     assert r.json()["art_hash"] == "tis0001"
-    assert r.json()["scope"] == "region"
-    assert r.json()["girder_job_id"] == "girder-job-4"
+    assert r.json()["girder_job_id"] == "girder-job-1"
     assert client.get(f"{_BASE}/item1/artifacts").json()["artifacts"] == []
 
 
 def test_the_run_carries_the_backend_the_service_resolved_not_the_one_asked_for(
-    client, monkeypatch,
+    client, plan_seam,
 ):
     """An unnamed backend lands on this deployment's default, and the row has to say which model
     produced its numbers — so what travels is the service's answer."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_tissue_address", _address(backend="bcss_fcn_unet"))
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=seen))
+    plan_seam(seen=seen, hashes=_HASHES, extra=_RESOLVED)
 
     client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    assert seen == [{"kind": "tissue", "item": "item1", "art_hash": "tis0001",
-                     "params": {"bbox": None, "seg_hash": "seg9", "scope": "slide",
-                                "backend": "bcss_fcn_unet"}}]
+    assert [x["kind"] for x in seen[0]["steps"]] == ["tissue"]
+    assert seen[0]["steps"][0]["params"] == {
+        "bbox": None, "seg_hash": "seg9", "scope": "slide", "backend": "bcss_fcn_unet"}
 
 
-def test_a_named_backend_reaches_the_service_that_computes_the_address(client, monkeypatch):
-    seen = {}
+def test_a_whole_slide_map_with_no_segmentation_gets_one_planned(client, plan_seam):
+    """A tissue map is masked by its contours in both scopes, so it always needs them — and from
+    08 never as something the user has to have run first (Inc 6 · 08)."""
+    seen = []
+    plan_seam(seen=seen, hashes=_HASHES, extra=_RESOLVED)
 
-    async def addressed(tissue_url, seg_hash, backend):
-        seen.update(seg_hash=seg_hash, backend=backend)
-        return {"kind": "tissue", "art_hash": "x", "backend": backend}
+    client.post(f"{_BASE}/item1/tissue", json={})
+    assert [x["kind"] for x in seen[0]["steps"]] == ["segmentation", "tissue"]
+    assert seen[0]["steps"][1]["params"]["seg_hash"] == "seg-1"
 
-    monkeypatch.setattr(routes_mod, "_tissue_address", addressed)
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+
+def test_a_named_backend_reaches_the_service_that_computes_the_address(client, plan_seam):
+    addressed = []
+    plan_seam(addressed=addressed, hashes=_HASHES)
     client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "s", "backend": "uni_decoder"})
-    assert seen == {"seg_hash": "s", "backend": "uni_decoder"}
+    assert addressed[0][0] == "tissue"
+    assert addressed[0][1]["seg_hash"] == "s"
+    assert addressed[0][1]["backend"] == "uni_decoder"
 
 
-def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, monkeypatch):
+def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, plan_seam):
     """…and it is parented on the segmentation. Unlike nuclei's, a tissue map's mask is not merely
     which tiles were worth visiting: everything outside the contours is masked out of the raster,
     so deleting the segmentation would invalidate this map."""
-    monkeypatch.setattr(routes_mod, "_tissue_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-4"))
+    plan_seam(hashes=_HASHES, extra=_RESOLVED)
     client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
 
     r = client.post(
@@ -145,11 +139,10 @@ def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, monke
     assert row["girder_job_id"] == "girder-job-4"
 
 
-def test_a_stopped_run_creates_its_row_too(client, art_store, monkeypatch):
+def test_a_stopped_run_creates_its_row_too(client, art_store, plan_seam):
     """It left a smaller but complete map, so its numbers are carried exactly as a finished
     build's are — and `remaining` is what makes starting again a resume."""
-    monkeypatch.setattr(routes_mod, "_tissue_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+    plan_seam(hashes=_HASHES, extra=_RESOLVED)
     client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
 
     client.post(
@@ -183,35 +176,47 @@ def test_tissue_without_the_job_queue_is_refused(art_store):
     assert r.status_code == 503
 
 
-def test_unconfigured_service_is_a_503_with_the_env_var_named(unconfigured_client):
+def test_unconfigured_service_is_a_503_naming_the_service(unconfigured_client):
+    """A step nothing can name is a step nothing can plan, which is a different failure from a
+    service that is there and refusing."""
     r = unconfigured_client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
     assert r.status_code == 503
-    assert "AGENT_TISSUE_SERVICE_URL" in r.json()["detail"]
+    assert "tissue" in r.json()["detail"]
 
 
-def test_a_worker_refusal_keeps_the_workers_own_words():
-    """The address call reaches the same service, so its refusals still have to arrive as its
-    own. Asserted on the mapping rather than through the route, because the route's httpx client
-    is constructed inside `_tissue_address` and doubling that seam would double the mapping too."""
-    exc = httpx.HTTPStatusError(
-        "no weights", request=httpx.Request("POST", "/tissue/hash"),
-        response=httpx.Response(503, json={"detail": "tissue segmentation needs the GPU"}),
-    )
-    mapped = routes_mod._tissue_error(exc)
-    assert mapped.status_code == 503
-    assert "GPU" in mapped.detail
+@pytest.mark.anyio
+async def test_a_worker_refusal_keeps_the_workers_own_words(monkeypatch):
+    """A service refusing to *name* a run is a fact about the request, not an outage, so its own
+    words and its own status reach the browser rather than a flat 502. Asserted against the real
+    addresser over a mock transport — one addresser now, so one mapping (Inc 6 · 08)."""
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        503, json={"detail": "tissue segmentation needs the GPU worker"}))
+    real = httpx.AsyncClient
+
+    def patched(*a, **kw):
+        return real(*a, **{**kw, "transport": transport})
+
+    monkeypatch.setattr(routes_mod.httpx, "AsyncClient", patched)
+    address = routes_mod._addresser({"tissue": _TISSUE})
+    with pytest.raises(HTTPException) as caught:
+        await address("tissue", {"seg_hash": "s"})
+    assert caught.value.status_code == 503
+    assert "GPU" in caught.value.detail
 
 
 def test_a_tissue_service_that_is_down_dispatches_nothing(client, monkeypatch):
-    """Nothing can name the artifact, so nothing is queued — the same order `start_segment` uses,
-    and the reason a job nobody will ever pick up cannot be created."""
+    """Nothing can name the artifact, so nothing is queued — the reason a job nobody will ever
+    pick up cannot be created."""
     dispatched = []
 
-    async def addressed(*_a, **_kw):
-        raise httpx.ConnectError("refused")
+    def unreachable(urls):
+        async def address(kind, params):
+            raise httpx.ConnectError("refused")
+        return address
 
-    monkeypatch.setattr(routes_mod, "_tissue_address", addressed)
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=dispatched))
+    monkeypatch.setattr(routes_mod, "_addresser", unreachable)
+    monkeypatch.setattr(routes_mod, "dispatch_chain",
+                        lambda **kw: dispatched.append(kw))
     with pytest.raises(httpx.ConnectError):
         client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "s"})
     assert dispatched == []

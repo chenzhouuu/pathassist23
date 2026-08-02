@@ -16,7 +16,7 @@ import { getTissueCatalog, startTissue } from '../../../api/tissueApi.js';
 import { startBiomarker } from '../../../api/biomarkerApi.js';
 import { listTasks, startPredict } from '../../../api/taskApi.js';
 import {
-  NATIVE_TOOLS, firstProblem, isEnabled, seedValues, taskNote, toolParams,
+  NATIVE_TOOLS, describePlan, firstProblem, isEnabled, seedValues, taskNote, toolParams,
 } from './nativeCatalog.js';
 
 const ITEM = '6a6e1ca82ae96ce927e33818';   // the DEMO slide
@@ -70,47 +70,48 @@ describe('scope and region are one decision in two fields', () => {
     expect(firstProblem(t, { scope: 'whole', seg_hash: 's1' }, { roi: null })).toBeNull();
   });
 
-  it('needs a segmentation for a whole-slide nuclei run only', () => {
-    const t = tool('nuclei');
-    expect(firstProblem(t, { scope: 'whole', seg_hash: '' }, { roi: null }))
-      .toMatch(/tissue segmentation is required/i);
-    // A drawn region enumerates its own tiles, so it does not.
-    expect(firstProblem(t, { scope: 'region', seg_hash: '' }, { roi: ROI })).toBeNull();
+  it('asks for nothing an upstream could supply (Inc 6 · 08)', () => {
+    // Until 07 this refused a whole-slide nuclei run with no segmentation, and a marker map with
+    // neither upstream, in sentences telling the user to go and run something else first. Both
+    // were true, and both were work the machine could do — the planner does it now.
+    expect(firstProblem(tool('nuclei'), { scope: 'whole', seg_hash: '' }, {})).toBeNull();
+    expect(firstProblem(tool('biomarker'), { scope: 'whole', seg_hash: '', nuclei_hash: '' }, {}))
+      .toBeNull();
   });
 
-  it('needs both upstreams for a marker map, whatever the scope', () => {
-    const t = tool('biomarker');
-    expect(firstProblem(t, { scope: 'whole', seg_hash: '', nuclei_hash: 'n1' }, {}))
-      .toMatch(/tissue segmentation is required/i);
-    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' }, {}))
-      .toMatch(/nuclei is required/i);
-    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: 'n1' }, {})).toBeNull();
+  it('still asks for the two things a plan cannot supply', () => {
+    // A rectangle nobody drew, and a choice only the user can make.
+    expect(firstProblem(tool('nuclei'), { scope: 'region' }, { roi: null }))
+      .toMatch(/draw a region/i);
+    expect(firstProblem(tool('prediction'), { task_id: '' }, {})).toMatch(/task is required/i);
+  });
+});
+
+describe('what a submission is about to cost', () => {
+  it('names the upstreams and counts the queue slots out loud', () => {
+    // At `concurrency=1` this is a wait the user agrees to on everyone else's behalf too.
+    const view = describePlan({ status: 'planned', steps: [
+      { kind: 'segmentation', title: 'Tissue segmentation' },
+      { kind: 'nuclei', title: 'Nuclei segmentation' },
+      { kind: 'biomarker', title: 'Marker map' },
+    ] });
+    expect(view.headline).toBe('3 steps · 3 queue slots, one after another');
+    expect(view.upstreams).toEqual(['Tissue segmentation', 'Nuclei segmentation']);
   });
 
-  it('distinguishes "you have not picked one" from "this slide has none"', () => {
-    // Two different answers: one is fixed by opening the dropdown, the other by running a
-    // different tool first. Telling someone to pick from an empty list reads as a bug.
-    const t = tool('biomarker');
-    const nothing = [];
-    const some = [{ kind: 'segmentation', art_hash: 's1' }, { kind: 'nuclei', art_hash: 'n1' }];
-
-    expect(firstProblem(t, { scope: 'whole', seg_hash: '', nuclei_hash: '' },
-                        { artifacts: nothing }))
-      .toMatch(/no segmentation yet — run it first/i);
-    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' },
-                        { artifacts: nothing }))
-      .toMatch(/no nuclei yet — run it first/i);
-    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' },
-                        { artifacts: some }))
-      .toMatch(/nuclei is required/i);
+  it('says one slot in the singular', () => {
+    expect(describePlan({ status: 'planned', steps: [{ kind: 'tissue', title: 'Tissue map' }] })
+      .headline).toBe('1 step · 1 queue slot');
   });
 
-  it('says nothing new while the artifact list has not loaded', () => {
-    // `undefined` is "we do not know yet", which is not "there are none" — claiming a slide has
-    // no nuclei before asking would be a refusal invented out of a loading state.
-    const t = tool('biomarker');
-    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' }, {}))
-      .toMatch(/nuclei is required/i);
+  it('says so when there is nothing to run at all', () => {
+    const view = describePlan({ status: 'ready', steps: [] });
+    expect(view.built).toBe(true);
+    expect(view.headline).toMatch(/already built/i);
+  });
+
+  it('is null before the server has answered', () => {
+    expect(describePlan(null)).toBeNull();
   });
 });
 
@@ -120,41 +121,41 @@ describe('submit hands each endpoint what it already expects', () => {
       segmenter: 'grandqc', seg_conf_thresh: '0.35',
       remove_holes: 'true', remove_artifacts: 'false', remove_penmarks: 'true',
     }, {});
-    expect(startSegment).toHaveBeenCalledWith(ITEM, {
+    expect(startSegment.mock.calls[0].slice(0, 2)).toEqual([ITEM, {
       segmenter: 'grandqc', seg_conf_thresh: 0.35,
       remove_holes: true, remove_artifacts: false, remove_penmarks: true,
-    });
+    }]);
   });
 
   it('nuclei: a region run sends the drawn rectangle and no seg_hash', async () => {
     await tool('nuclei').submit(ITEM, { scope: 'region', seg_hash: 's1' }, { roi: ROI });
-    expect(startNuclei).toHaveBeenCalledWith(ITEM, { bbox: ROI, seg_hash: null });
+    expect(startNuclei.mock.calls[0].slice(0, 2)).toEqual([ITEM, { bbox: ROI, seg_hash: null }]);
   });
 
   it('nuclei: a whole-slide run sends the seg_hash and no rectangle', async () => {
     await tool('nuclei').submit(ITEM, { scope: 'whole', seg_hash: 's1' }, { roi: ROI });
-    expect(startNuclei).toHaveBeenCalledWith(ITEM, { bbox: null, seg_hash: 's1' });
+    expect(startNuclei.mock.calls[0].slice(0, 2)).toEqual([ITEM, { bbox: null, seg_hash: 's1' }]);
   });
 
   it('tissue: an unset backend is null, not the empty string the select holds', async () => {
     await tool('tissue').submit(ITEM, { scope: 'whole', seg_hash: 's1', backend: '' }, {});
-    expect(startTissue).toHaveBeenCalledWith(ITEM, { seg_hash: 's1', bbox: null, backend: null });
+    expect(startTissue.mock.calls[0].slice(0, 2)).toEqual([ITEM, { seg_hash: 's1', bbox: null, backend: null }]);
   });
 
   it('biomarker: both upstream hashes travel with the scope', async () => {
     await tool('biomarker').submit(
       ITEM, { scope: 'region', seg_hash: 's1', nuclei_hash: 'n1' }, { roi: ROI },
     );
-    expect(startBiomarker).toHaveBeenCalledWith(ITEM, {
+    expect(startBiomarker.mock.calls[0].slice(0, 2)).toEqual([ITEM, {
       seg_hash: 's1', nuclei_hash: 'n1', bbox: ROI,
-    });
+    }]);
   });
 
   it('prediction: the feature index and the head, and nothing about regions', async () => {
     await tool('prediction').submit(ITEM, { feat_hash: 'f1', task_id: 'brca-subtype' }, {});
-    expect(startPredict).toHaveBeenCalledWith(ITEM, {
+    expect(startPredict.mock.calls[0].slice(0, 2)).toEqual([ITEM, {
       feat_hash: 'f1', task_id: 'brca-subtype',
-    });
+    }]);
   });
 });
 
@@ -206,10 +207,10 @@ describe('the feature index is one entry with an encoder target', () => {
 
   it('submits one build, with the numbers as numbers', () => {
     build().submit(ITEM, { ...seedValues(build()), segmenter: 'otsu', seg_conf_thresh: '0.4' });
-    expect(startBuild).toHaveBeenCalledWith(ITEM, {
+    expect(startBuild.mock.calls[0].slice(0, 2)).toEqual([ITEM, {
       encoder: 'conch_v1_text', segmenter: 'otsu', seg_conf_thresh: 0.4,
       mag: 20, patch_size: 512, overlap: 0,
-    });
+    }]);
   });
 
   it('says what each encoder is for, on the option itself', () => {
@@ -232,12 +233,12 @@ describe('the downstream task', () => {
     // The server finds the index matching the task's spec, or plans the build. A slide with
     // nothing on it reaches a call in one click.
     tool('prediction').submit(ITEM, { task_id: 'brca', feat_hash: '' });
-    expect(startPredict).toHaveBeenCalledWith(ITEM, { task_id: 'brca', feat_hash: null });
+    expect(startPredict.mock.calls[0].slice(0, 2)).toEqual([ITEM, { task_id: 'brca', feat_hash: null }]);
   });
 
   it('sends a named index when one was chosen deliberately', () => {
     tool('prediction').submit(ITEM, { task_id: 'brca', feat_hash: 'f1' });
-    expect(startPredict).toHaveBeenCalledWith(ITEM, { task_id: 'brca', feat_hash: 'f1' });
+    expect(startPredict.mock.calls[0].slice(0, 2)).toEqual([ITEM, { task_id: 'brca', feat_hash: 'f1' }]);
   });
 
   it('carries the model card on the option — what it eats, its scores, and its caveat', () => {

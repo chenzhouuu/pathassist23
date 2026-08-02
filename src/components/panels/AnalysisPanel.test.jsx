@@ -129,10 +129,10 @@ describe('a native form is built from the declaration', () => {
     await screen.findByText('Segmenter');
     await userEvent.click(screen.getByRole('button', { name: /run job/i }));
 
-    await waitFor(() => expect(startSegment).toHaveBeenCalledWith(SLIDE._id, {
-      segmenter: 'hest', seg_conf_thresh: 0.5,
-      remove_holes: false, remove_artifacts: false, remove_penmarks: false,
-    }));
+    await waitFor(() => expect(startSegment.mock.calls.some(
+      ([id, body, mode]) => id === SLIDE._id && mode === undefined
+        && body.segmenter === 'hest' && body.seg_conf_thresh === 0.5,
+    )).toBe(true));
     // Back on the list — no `running` view to be stranded in.
     expect(await screen.findByPlaceholderText('Filter algorithms...')).toBeTruthy();
     expect(screen.getByText(/Tissue segmentation submitted/)).toBeTruthy();
@@ -153,18 +153,57 @@ describe('a native form is built from the declaration', () => {
     await userEvent.click(await screen.findByText('Nuclei segmentation'));
     await screen.findByText('Run over');
     await userEvent.click(screen.getByRole('button', { name: /run job/i }));
-    await waitFor(() => expect(startNuclei).toHaveBeenCalledWith(SLIDE._id, {
-      bbox: ROI, seg_hash: null,
-    }));
+    await waitFor(() => expect(startNuclei.mock.calls.some(
+      ([id, body, mode]) => id === SLIDE._id && mode === undefined
+        && body.bbox === ROI && body.seg_hash === null,
+    )).toBe(true));
   });
 
-  it('names the missing upstream instead of letting a whole-slide run 409', async () => {
+  it('plans the missing upstream instead of refusing over it (Inc 6 · 08)', async () => {
+    // It used to say "this slide has no segmentation yet — run it first" and disable Run. True,
+    // and a piece of work the machine could do, so the server plans it and the form states the
+    // cost instead.
+    startNuclei.mockResolvedValue({
+      status: 'planned',
+      steps: [{ kind: 'segmentation', title: 'Tissue segmentation', art_hash: 's' },
+              { kind: 'nuclei', title: 'Nuclei segmentation', art_hash: 'n' }],
+    });
     render();
     await userEvent.click(await screen.findByText('Nuclei segmentation'));
     await screen.findByText('Run over');
     await userEvent.click(screen.getByRole('radio', { name: 'Whole slide' }));
-    expect(await screen.findByText(/No segmentation on this slide yet/i)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /run job/i }).disabled).toBe(true);
+
+    const plan = await screen.findByTestId('submission-plan');
+    expect(plan.textContent).toMatch(/2 steps · 2 queue slots/);
+    expect(plan.textContent).toMatch(/1\. Tissue segmentation/);
+    expect(screen.getByTestId('run-all').disabled).toBe(false);
+  });
+
+  it('offers running only the first step, and neither button is the default', async () => {
+    startNuclei.mockResolvedValue({
+      status: 'planned',
+      steps: [{ kind: 'segmentation', title: 'Tissue segmentation', art_hash: 's' },
+              { kind: 'nuclei', title: 'Nuclei segmentation', art_hash: 'n' }],
+    });
+    render();
+    await userEvent.click(await screen.findByText('Nuclei segmentation'));
+    await screen.findByText('Run over');
+    await userEvent.click(screen.getByRole('radio', { name: 'Whole slide' }));
+    await screen.findByTestId('submission-plan');
+
+    expect(screen.getByTestId('run-all').textContent).toMatch(/run everything/i);
+    await userEvent.click(screen.getByTestId('run-next'));
+    await waitFor(() => expect(startNuclei.mock.calls.some(c => c[2] === 'next')).toBe(true));
+  });
+
+  it('says so when there is nothing left to run', async () => {
+    startNuclei.mockResolvedValue({ status: 'ready', steps: [], reused: true });
+    render();
+    await userEvent.click(await screen.findByText('Nuclei segmentation'));
+    await screen.findByText('Run over');
+    await userEvent.click(screen.getByRole('radio', { name: 'Whole slide' }));
+    expect((await screen.findByTestId('submission-plan')).textContent)
+      .toMatch(/already built/i);
   });
 
   it('offers the slide\'s ready segmentations to a whole-slide run', async () => {
@@ -185,10 +224,11 @@ describe('a native form is built from the declaration', () => {
     expect(options.some(o => o.includes('still-going'))).toBe(false);
 
     await userEvent.selectOptions(select, 'abcdef0123');
-    await userEvent.click(screen.getByRole('button', { name: /run job/i }));
-    await waitFor(() => expect(startNuclei).toHaveBeenCalledWith(SLIDE._id, {
-      bbox: null, seg_hash: 'abcdef0123',
-    }));
+    await userEvent.click(screen.getByTestId('run-all'));
+    await waitFor(() => expect(startNuclei.mock.calls.some(
+      ([id, body, mode]) => id === SLIDE._id && mode === undefined
+        && body.bbox === null && body.seg_hash === 'abcdef0123',
+    )).toBe(true));
   });
 });
 

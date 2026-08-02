@@ -1,41 +1,85 @@
-"""What a submission still has to run, and what each step will be called (Inc 6 · 07, plan D7).
+"""What a submission still has to run, and what each step will be called (Inc 6 · 07–08, plan D7).
 
-The preprocess DAG is four kinds deep — segment, tile, encode, predict — and a slide usually has
-some prefix of it already. Planning is therefore two questions asked in order:
+One planner, for every kind. It answers the question four different pieces of code used to answer
+differently — `preprocessUtils.nextChainStep`, `taskUtils.pendingStages`, and the `required` /
+`requiredWhen` marks on the nuclei and marker-map forms — and it answers it in one place because
+the four answers were never the same shape and only one of them could reuse an artifact.
 
-1. **What would each step be called?** Every `art_hash` in this chain is computable from params and
-   parent alone, never from output bytes (`preprocess_service/artifacts.py`). So the whole chain
-   can be addressed before the first job starts, which is the fact the Celery chain rests on: no
-   result has to flow from one link to the next, and each link can be submitted immutable.
+Planning is two questions asked in order:
 
-2. **Which of them are missing?** Answered *backwards from the target*, not forwards. A step whose
-   bytes exist is a step nobody needs to run, and that is true whether or not its own parent still
-   exists — content addressing means the bytes are the artifact. Walking forwards would rebuild a
-   patch grid in order to reach a feature index that is already on disk.
+1. **What would each step be called?** Every `art_hash` here is computable from params and parents
+   alone, never from output bytes. So a whole submission can be addressed before the first job
+   starts, which is the fact the Celery chain rests on: no result has to flow from one link to the
+   next, and every link can be submitted immutable.
+
+2. **Which of them are missing?** Marked backwards from the target. A step whose bytes exist is a
+   step nobody needs to run, and so is everything that existed only to feed it — content addressing
+   means the bytes *are* the artifact, so a hole below a built step is not refilled.
 
 The hashes are not computed here. They are asked of the service that will produce them, through the
-injected `address` callable, for the reason `_content_address` gives: a second copy of `seg_hash`
-in the gateway would be free to drift from the one the worker uses, which is how `conch_v1` came to
-mean two different embeddings.
+injected `address` callable, for the reason `_content_address` gives: a second copy of a hash in the
+gateway would be free to drift from the one the worker stores under, which is how `conch_v1` came to
+mean two different embeddings — and how, in 07, a feature index came to be addressed with one
+version constant and written under another.
+
+**Needing something in order to run is not the same as being built from it**, and the two tables
+say so separately. `DEPENDS_ON` here is what must exist first; `_PARENT_PARAM_BY_KIND` in `routes`
+is lineage, which is what a delete is refused over. Nuclei is where they differ: a whole-slide run
+names a segmentation to pick the tiles worth the GPU, so it cannot start without one — but deleting
+those contours invalidates no nucleus, so the nuclei artifact is not their child.
 """
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-#: The chain, root first. Each kind's parent is the one before it.
-ORDER = ("segmentation", "patching", "features", "prediction")
-
-#: Which request field names a step's parent, per kind. The service's `/hash` takes the parent
-#: under this name too, so one table serves both the addressing and the dispatch.
-PARENT_KEY = {"patching": "seg_hash", "features": "patch_hash", "prediction": "feat_hash"}
-
-#: What the Runs list calls each step. The chain's own label says what the submission was for.
+#: What the Runs list calls each step. The submission's own label says what it was all for.
 TITLES = {
     "segmentation": "Tissue segmentation",
     "patching": "Tiling",
     "features": "Feature extraction",
     "prediction": "Downstream task",
+    "nuclei": "Nuclei segmentation",
+    "tissue": "Tissue map",
+    "biomarker": "Marker map",
 }
+
+
+@dataclass(frozen=True)
+class Need:
+    """An upstream a run cannot start without: the param that names it, and what kind it is."""
+
+    param: str
+    kind: str
+    #: When the need applies at all, read off the run's own params. `None` means always. The one
+    #: user is nuclei: a drawn region is segmented by its own rectangle, so only a whole-slide run
+    #: needs the contours.
+    when: Callable[[dict], bool] | None = None
+
+    def applies(self, params: dict) -> bool:
+        return self.when is None or bool(self.when(params))
+
+
+def _whole_slide(params: dict) -> bool:
+    return not params.get("bbox")
+
+
+#: The DAG, as "before this can run". Order within a tuple is the order the steps are queued in.
+DEPENDS_ON: dict[str, tuple[Need, ...]] = {
+    "segmentation": (),
+    "patching": (Need("seg_hash", "segmentation"),),
+    "features": (Need("patch_hash", "patching"),),
+    "prediction": (Need("feat_hash", "features"),),
+    "tissue": (Need("seg_hash", "segmentation"),),
+    "nuclei": (Need("seg_hash", "segmentation", when=_whole_slide),),
+    # Two upstreams, which is why this is a DAG walk and not a chain walk. The segmentation bounds
+    # the area the markers are inferred over; the nuclei are what the signal is attributed to.
+    "biomarker": (Need("seg_hash", "segmentation"), Need("nuclei_hash", "nuclei")),
+}
+
+#: Kinds an implicit upstream inherits the caller's scope from. A marker map over a rectangle needs
+#: nuclei *in that rectangle*, not over the whole slide — planning the upstream at the wrong scope
+#: is either an hour of GPU nobody asked for or a run that refuses at the first uncovered tile.
+SCOPED_KINDS = frozenset({"nuclei", "tissue", "biomarker"})
 
 
 @dataclass(frozen=True)
@@ -48,8 +92,10 @@ class Step:
     #: What the service is called with **and** what the row records. One dict, because they had
     #: better be the same thing: the driver echoes these params back on the report that creates the
     #: row, so anything the address depends on has to be in here or the row cannot explain itself.
-    #: That is why `impl` rides along — see `_SEG_PARAM_KEYS`.
+    #: That is why `impl` rides along.
     params: dict = field(default_factory=dict)
+    #: The addresses this step's own run needs — what marking works over.
+    needs: tuple[str, ...] = ()
 
     def as_json(self) -> dict:
         """One element of the chain the dispatcher is handed."""
@@ -60,71 +106,100 @@ class Step:
 Address = Callable[[str, dict], Awaitable[dict]]
 
 
-async def address_chain(
-    address: Address, target: str, params_by_kind: dict,
-    *, known_parent: tuple[str, str] | None = None,
-) -> list[Step]:
-    """Name every step from the root of the DAG up to `target`, built or not.
+class UnplannableRun(ValueError):
+    """A kind this planner has no dependency table for. A caller mistake, not a service outage."""
 
-    `params_by_kind` gives each kind its own request params, minus the parent — which is not the
-    caller's to supply, because it is whatever the step before it turned out to be called.
 
-    `known_parent` is `(kind, art_hash)`: a step somebody has named directly, so the chain starts
-    after it. The steps above it are neither addressed nor planned, and that is the point — naming
-    a feature index asserts it exists, and the params that would have produced it are then nobody's
-    business. Without this, running a task on a chosen index would require reconstructing the
-    segmentation params that index happened to be built with.
+async def address_run(address: Address, target: str, params_by_kind: dict) -> list[Step]:
+    """Name every step a run of `target` implies, upstream first, built or not.
+
+    `params_by_kind` gives each kind the params an **implicit** run of it would use; the target's
+    own entry is the request itself. An upstream the caller named directly is not planned at all —
+    naming a feature index asserts it exists, and reconstructing the segmentation params it happened
+    to be built with would be work in service of a question nobody asked.
     """
-    if target not in ORDER:
-        raise ValueError(f"{target!r} is not a step of the preprocess chain")
+    if target not in DEPENDS_ON:
+        raise UnplannableRun(f"{target!r} is not a kind this planner knows")
 
     steps: list[Step] = []
-    parent: str | None = None
-    start = 0
-    if known_parent is not None:
-        kind, parent = known_parent
-        if kind not in ORDER:
-            raise ValueError(f"{kind!r} is not a step of the preprocess chain")
-        start = ORDER.index(kind) + 1
+    seen: dict[str, str] = {}
 
-    for kind in ORDER[start : ORDER.index(target) + 1]:
-        request = dict(params_by_kind.get(kind) or {})
-        key = PARENT_KEY.get(kind)
-        if key:
-            request[key] = parent
+    async def resolve(kind: str, params: dict) -> str:
+        request = dict(params)
+        needs: list[str] = []
+        for need in DEPENDS_ON.get(kind, ()):
+            if not need.applies(request):
+                continue
+            if request.get(need.param):
+                # Named by the caller — and recorded, so a *deeper* need for the same kind uses it
+                # too. A marker map that names its contours must not have a second segmentation
+                # planned underneath it for the nuclei step: one submission, one segmentation.
+                seen.setdefault(need.kind, request[need.param])
+                needs.append(request[need.param])
+                continue
+            if need.kind in seen:
+                request[need.param] = seen[need.kind]
+                needs.append(seen[need.kind])
+                continue
+            upstream = dict(params_by_kind.get(need.kind) or {})
+            if need.kind in SCOPED_KINDS and "bbox" in request:
+                upstream.setdefault("bbox", request.get("bbox"))
+            parent = await resolve(need.kind, upstream)
+            request[need.param] = parent
+            needs.append(parent)
+
         addressed = await address(kind, request)
         art_hash = addressed["art_hash"]
         # The resolved params, not the requested ones: a segmenter left at its default and the
         # `impl` that produced the bytes are both part of the address and neither was typed by
-        # anyone. The parent goes back in because that is how the service is called.
-        resolved = dict(addressed.get("params") or request)
-        if key:
-            resolved[key] = parent
-        steps.append(Step(kind=kind, art_hash=art_hash, parent_hash=parent, params=resolved))
-        parent = art_hash
+        # anyone. The parents go back in because that is how the service is called.
+        resolved = {**request, **(addressed.get("params") or {})}
+        for need in DEPENDS_ON.get(kind, ()):
+            if request.get(need.param):
+                resolved[need.param] = request[need.param]
+        steps.append(Step(kind=kind, art_hash=art_hash,
+                          parent_hash=addressed.get("parent_hash"),
+                          params=resolved, needs=tuple(needs)))
+        seen[kind] = art_hash
+        return art_hash
+
+    await resolve(target, dict(params_by_kind.get(target) or {}))
     return steps
 
 
-def missing_suffix(steps: list[Step], have) -> list[Step]:
-    """The steps that still have to run, given what this slide already holds.
+def missing(steps: list[Step], have) -> list[Step]:
+    """The steps that still have to run, in the order they were planned.
 
-    Walks back from the target and stops at the first step whose bytes exist. Everything collected
-    on the way is what has to run, in order.
+    Marked backwards from the target: a step is needed when its own bytes are absent, and so is
+    every step it depends on that is also absent. A step that exists only to feed one already on
+    disk is dropped — bytes are the artifact, so the hole below it is not refilled.
     """
-    needed: list[Step] = []
-    for step in reversed(steps):
-        if step.art_hash in have:
-            break
-        needed.append(step)
-    needed.reverse()
-    return needed
+    if not steps:
+        return []
+    by_hash = {s.art_hash: s for s in steps}
+    needed: set[str] = set()
+
+    def mark(art_hash: str) -> None:
+        if art_hash in have or art_hash in needed or art_hash not in by_hash:
+            return
+        needed.add(art_hash)
+        for parent in by_hash[art_hash].needs:
+            mark(parent)
+
+    mark(steps[-1].art_hash)
+    return [s for s in steps if s.art_hash in needed]
 
 
-async def plan(address: Address, *, target: str, params_by_kind: dict, have,
-               known_parent: tuple[str, str] | None = None) -> list[Step]:
-    """`address_chain` then `missing_suffix` — the whole planning question, in that order."""
-    steps = await address_chain(address, target, params_by_kind, known_parent=known_parent)
-    return missing_suffix(steps, have)
+async def plan(address: Address, *, target: str, params_by_kind: dict,
+               have) -> tuple[list[Step], list[Step]]:
+    """`address_run` then `missing`, in that order.
+
+    Returns `(everything, todo)`. Both, because the caller needs the target's address whether or not
+    anything has to run — a submission with nothing left is answered with the artifact it already
+    has rather than queued.
+    """
+    steps = await address_run(address, target, params_by_kind)
+    return steps, missing(steps, have)
 
 
 def satisfies_spec(rows: list[dict], feat_row: dict, spec: dict) -> bool:

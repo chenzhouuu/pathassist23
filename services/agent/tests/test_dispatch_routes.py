@@ -21,7 +21,7 @@ from agent.gateway.routes import (
     get_preprocess_artifact_store,
     get_preprocess_url,
 )
-from agent.loop.pathassist_dispatch import DispatchUnavailable, dispatch_run
+from agent.loop.pathassist_dispatch import DispatchUnavailable, dispatch_chain
 from agent.store import MemoryPreprocessArtifactStore
 
 _USER = {"_id": "u1", "login": "tester"}
@@ -44,43 +44,17 @@ def client(art_store):
     return TestClient(app)
 
 
-def _address(art_hash="seg-abc", **params):
-    """A /hash double: the service naming what a run with these params would produce."""
-    async def addressed(preprocess_url, kind, item, p):
-        return {"kind": kind, "art_hash": art_hash,
-                "params": {"segmenter": "hest", "seg_conf_thresh": 0.5,
-                           "remove_artifacts": False, "remove_holes": False,
-                           "remove_penmarks": False, **params}}
-    return addressed
-
-
-def _dispatch(job_id="girder-job-1", seen=None):
-    """A `dispatch_run` double — the single-run route the three JobQueue kinds still use."""
-    async def dispatch(*, plugin_url, kind, item, art_hash, params, token, **kw):
-        if seen is not None:
-            seen.append({"kind": kind, "item": item, "art_hash": art_hash, "params": params})
-        return {"jobId": job_id, "celeryTaskId": "t1", "kind": kind,
-                "item": item, "artHash": art_hash, "queue": "pathassist"}
-    return dispatch
-
-
-def _chain(job_id="girder-job-1", seen=None):
-    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
-        if seen is not None:
-            seen.append({"item": item, "label": label, "steps": steps})
-        return {"chainId": "c1", "jobId": job_id, "queue": "pathassist",
-                "steps": [{"kind": x["kind"], "artHash": x["artHash"]} for x in steps]}
-    return dispatch
+#: What the preprocess service adds to a segmentation nobody typed.
+_RESOLVED = {"segmentation": {"segmenter": "hest", "seg_conf_thresh": 0.5, "impl": "trident"}}
 
 
 # ── start_segment, dispatching ────────────────────────────────────────────────────────
 
 
-def test_the_segmentation_is_named_before_it_is_queued(client, monkeypatch):
+def test_the_segmentation_is_named_before_it_is_queued(client, plan_seam):
     """The address goes to the plugin, so the driver can report against it later."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address("seg-xyz"))
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen=seen))
+    plan_seam(seen=seen, hashes={"segmentation": "seg-xyz"})
 
     r = client.post(f"{_BASE}/{_ITEM}/segment", json={"segmenter": "grandqc"})
     assert r.json()["art_hash"] == "seg-xyz"
@@ -89,29 +63,28 @@ def test_the_segmentation_is_named_before_it_is_queued(client, monkeypatch):
     assert seen[0]["steps"][0]["artHash"] == "seg-xyz"
 
 
-def test_the_queued_step_carries_the_params_the_service_resolved(client, monkeypatch):
+def test_the_queued_step_carries_the_params_the_service_resolved(client, plan_seam):
     """Defaults are the service's to fill. The driver echoes these back on the report that writes
     the row, so anything the address depends on has to be here or the row cannot explain itself."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address(segmenter="grandqc"))
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen=seen))
+    plan_seam(seen=seen, extra={"segmentation": {"segmenter": "grandqc",
+                                                 "seg_conf_thresh": 0.5}})
 
     client.post(f"{_BASE}/{_ITEM}/segment", json={})
     assert seen[0]["steps"][0]["params"]["segmenter"] == "grandqc"
     assert seen[0]["steps"][0]["params"]["seg_conf_thresh"] == 0.5
 
 
-def test_a_dispatched_segmentation_writes_no_row(client, monkeypatch):
+def test_a_dispatched_segmentation_writes_no_row(client, plan_seam):
     """D9 for the last four kinds. Between submit and the last byte there is a job and no row."""
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+    plan_seam()
 
     client.post(f"{_BASE}/{_ITEM}/segment", json={})
     assert client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"] == []
 
 
-def test_a_failed_dispatch_says_what_the_plugin_said(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
+def test_a_failed_dispatch_says_what_the_plugin_said(client, monkeypatch, plan_seam):
+    plan_seam()
 
     async def refuse(**kw):
         raise DispatchUnavailable("the PathAssist Girder plugin refused the run (503): no worker")
@@ -125,10 +98,12 @@ def test_a_failed_dispatch_says_what_the_plugin_said(client, monkeypatch):
 
 
 def test_a_preprocess_service_that_is_down_fails_before_anything_is_queued(client, monkeypatch):
-    async def unreachable(preprocess_url, kind, item, p):
-        raise httpx.ConnectError("no route to host")
+    def unreachable(urls):
+        async def address(kind, params):
+            raise httpx.ConnectError("no route to host")
+        return address
 
-    monkeypatch.setattr(routes_mod, "_content_address", unreachable)
+    monkeypatch.setattr(routes_mod, "_addresser", unreachable)
     with pytest.raises(httpx.ConnectError):
         client.post(f"{_BASE}/{_ITEM}/segment", json={})
     assert client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"] == []
@@ -138,16 +113,15 @@ def test_a_preprocess_service_that_is_down_fails_before_anything_is_queued(clien
 
 
 @pytest.fixture
-def dispatched(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+def dispatched(client, plan_seam):
+    plan_seam()
     client.post(f"{_BASE}/{_ITEM}/segment", json={})
     return client
 
 
 def _report(client, **body):
     """What the driver posts. `kind` is what lets it create the row it is the first write to."""
-    return client.post(f"{_BASE}/{_ITEM}/artifacts/seg-abc/result",
+    return client.post(f"{_BASE}/{_ITEM}/artifacts/seg-1/result",
                        json={"kind": "segmentation", "params": {"segmenter": "hest"}, **body})
 
 
@@ -194,59 +168,44 @@ def test_reporting_against_an_artifact_this_slide_does_not_have_is_a_404(dispatc
 # asserted, because the shape is Girder's rather than ours: `autoDescribeRoute`'s `.param()` reads
 # the QUERY STRING, and only a `paramType="body"` jsonParam reads the body. Sending one JSON
 # object for everything — the obvious thing, and what this first did — makes the plugin reject
-# every scalar as missing, and no amount of mocking `dispatch_run` can catch it.
+# every scalar as missing, and no amount of mocking `dispatch_chain` can catch it.
 
 
 @pytest.mark.anyio
-async def test_the_plugin_gets_its_scalars_in_the_query_and_the_params_in_the_body():
+async def test_the_plugin_gets_its_scalars_in_the_query_and_the_steps_in_the_body():
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = request.url
         seen["body"] = request.read().decode()
         seen["token"] = request.headers.get("Girder-Token")
-        return httpx.Response(200, json={"jobId": "j1", "celeryTaskId": "c1"})
+        return httpx.Response(200, json={"chainId": "c1", "jobId": "j1"})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    ack = await dispatch_run(
-        plugin_url="http://girder:8080/api/v1", kind="segmentation", item=_ITEM,
-        art_hash="seg-abc", params={"segmenter": "hest", "remove_holes": True},
-        token="tok-1", title="Tissue segmentation", client=client,
+    ack = await dispatch_chain(
+        plugin_url="http://girder:8080/api/v1", item=_ITEM, token="tok-1", label="Feature index",
+        steps=[{"kind": "segmentation", "artHash": "seg-abc",
+                "params": {"segmenter": "hest"}, "title": "Tissue segmentation"}],
+        client=client,
     )
 
     assert ack["jobId"] == "j1"
-    assert seen["url"].path == "/api/v1/pathassist/run"
-    q = dict(seen["url"].params)
-    assert q == {"kind": "segmentation", "item": _ITEM, "artHash": "seg-abc",
-                 "title": "Tissue segmentation"}
-    assert seen["body"] == '{"segmenter":"hest","remove_holes":true}'
+    assert seen["url"].path == "/api/v1/pathassist/chain"
+    assert dict(seen["url"].params) == {"item": _ITEM, "label": "Feature index"}
+    # An **array** body, because `steps` is a `requireArray` jsonParam. An object here is a 400.
+    assert seen["body"].startswith("[") and '"artHash":"seg-abc"' in seen["body"]
     assert seen["token"] == "tok-1"
 
 
-@pytest.mark.anyio
-async def test_a_run_with_no_params_still_sends_an_object():
-    """`requireObject=True` on the plugin side: an empty body would be a 400, not an empty dict."""
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = request.read().decode()
-        return httpx.Response(200, json={"jobId": "j2"})
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    await dispatch_run(plugin_url="http://girder:8080/api/v1", kind="nuclei", item=_ITEM,
-                       art_hash="nuc-1", params={}, token=None, client=client)
-    assert seen["body"] == "{}"
-
-
-# ── nuclei, the first kind fully on this path (Inc 6 · 05) ─────────────────────────────
+# ── nuclei, the first kind fully on this path (Inc 6 · 05, planned in 08) ──────────────
 #
-# Segmentation above still writes a row when it dispatches — its four sibling kinds share that row
-# and reconcile against it, so the column cannot go until the last of them moves (07). Nuclei has
-# no siblings and moved the whole way, which is what makes it the test of D9: **no row until the
+# Nuclei was the first kind to move the whole way, which made it the test of D9: **no row until the
 # bytes exist.** Between the submit and the last tile there is a Girder job and nothing else, and
-# the row is written by the report that says the run is over.
+# the row is written by the report that says the run is over. Every kind is that shape now.
 #
-# These nine replace nine in `test_dag_routes.py` that described the direct-to-worker path.
+# What changed in 08 is the refusal: a whole-slide run with no segmentation used to be a 400
+# telling the user to go and segment the slide first. That was a true sentence about a piece of
+# work the machine could do, so the planner now queues the segmentation ahead of it.
 
 
 @pytest.fixture
@@ -259,65 +218,69 @@ def nuclei_client(art_store):
     return TestClient(app)
 
 
-def _nuclei_address(art_hash="nuc-1", backend="cellvit-sam-h"):
-    """A `/nuclei/hash` double: the service naming what a run would produce, enqueuing nothing."""
-    async def addressed(cellvit_url):
-        return {"kind": "nuclei", "art_hash": art_hash, "backend": backend}
-    return addressed
-
+#: What the cellvit service resolves for itself: which checkpoint this box actually loaded.
+_NUCLEI_RESOLVED = {"nuclei": {"backend": "cellvit-sam-h"}}
 
 _REGION = {"x": 0, "y": 0, "width": 512, "height": 512}
 
 
-def test_a_dispatched_nuclei_run_writes_no_row(nuclei_client, monkeypatch):
+def test_a_dispatched_nuclei_run_writes_no_row(nuclei_client, plan_seam):
     """The submit's whole output is a job. A row here would be a claim that bytes exist, and at
     this moment none do — which is the reuse check, the delete and the eye all reading a promise."""
-    monkeypatch.setattr(routes_mod, "_nuclei_address", _nuclei_address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-9"))
+    plan_seam(extra=_NUCLEI_RESOLVED)
 
     r = nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": _REGION})
     assert r.status_code == 200
     assert r.json()["art_hash"] == "nuc-1"
-    assert r.json()["girder_job_id"] == "girder-job-9"
+    assert r.json()["girder_job_id"] == "girder-job-1"
     assert nuclei_client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"] == []
 
 
-def test_the_run_is_named_before_it_is_queued(nuclei_client, monkeypatch):
+def test_the_run_is_named_before_it_is_queued(nuclei_client, plan_seam):
     """The address has to exist first: a dispatched run never comes back through the gateway, so
     the hash it will be stored under is decided here or nowhere."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_nuclei_address", _nuclei_address("nuc-xyz"))
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=seen))
+    plan_seam(seen=seen, hashes={"nuclei": "nuc-xyz"}, extra=_NUCLEI_RESOLVED)
 
     nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": None, "seg_hash": "s1"})
-    assert seen == [{"kind": "nuclei", "item": _ITEM, "art_hash": "nuc-xyz",
-                     "params": {"bbox": None, "seg_hash": "s1",
-                                "scope": "slide", "backend": "cellvit-sam-h"}}]
+    assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei"]
+    assert seen[0]["steps"][0]["artHash"] == "nuc-xyz"
+    assert seen[0]["steps"][0]["params"] == {
+        "bbox": None, "seg_hash": "s1", "scope": "slide", "backend": "cellvit-sam-h"}
 
 
-def test_a_region_run_says_so_and_carries_no_segmentation(nuclei_client, monkeypatch):
+def test_a_region_run_carries_no_segmentation_and_plans_none(nuclei_client, plan_seam):
+    """A drawn rectangle is its own mask, which is why `Need.when` exists."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_nuclei_address", _nuclei_address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=seen))
+    plan_seam(seen=seen, extra=_NUCLEI_RESOLVED)
 
-    r = nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": _REGION})
-    assert r.json()["scope"] == "region"
-    assert seen[0]["params"]["bbox"] == _REGION and seen[0]["params"]["seg_hash"] is None
+    nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": _REGION})
+    assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei"]
+    step = seen[0]["steps"][0]["params"]
+    assert step["bbox"] == _REGION and step["seg_hash"] is None and step["scope"] == "region"
 
 
-def test_a_whole_slide_run_without_a_segmentation_is_refused_before_it_is_queued(
-    nuclei_client, monkeypatch,
-):
-    """The one refusal the caller can act on. Left to the worker it would become a job that fails
-    a second after it starts, which is a refusal nobody sees until they go looking for it."""
-    dispatched = []
-    monkeypatch.setattr(routes_mod, "_nuclei_address", _nuclei_address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=dispatched))
+def test_a_whole_slide_run_without_a_segmentation_gets_one_planned(nuclei_client, plan_seam):
+    """It used to be a 400 telling the user to go and segment the slide first (Inc 6 · 05). The
+    sentence was true and the work was something the machine could do, so it does it (08)."""
+    seen = []
+    plan_seam(seen=seen, extra=_NUCLEI_RESOLVED)
 
     r = nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": None})
-    assert r.status_code == 400
-    assert "segment the slide first" in r.json()["detail"]
-    assert dispatched == []
+    assert r.status_code == 200
+    assert [x["kind"] for x in seen[0]["steps"]] == ["segmentation", "nuclei"]
+    # And the nuclei step is dispatched against the segmentation the plan just named.
+    assert seen[0]["steps"][1]["params"]["seg_hash"] == "seg-1"
+
+
+def test_a_planned_upstream_is_skipped_when_the_slide_already_has_it(nuclei_client, plan_seam):
+    seen = []
+    plan_seam(seen=seen, extra=_NUCLEI_RESOLVED)
+    nuclei_client.post(f"{_BASE}/{_ITEM}/artifacts/seg-1/result",
+                       json={"status": "ready", "kind": "segmentation", "params": {}})
+
+    nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": None})
+    assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei"]
 
 
 def test_nuclei_without_the_job_queue_is_refused(art_store):
@@ -342,10 +305,9 @@ def test_nuclei_without_a_configured_worker_is_503(art_store):
     assert r.status_code == 503
 
 
-def test_the_row_appears_when_the_run_reports_its_bytes(nuclei_client, monkeypatch):
+def test_the_row_appears_when_the_run_reports_its_bytes(nuclei_client, plan_seam):
     """The report is the row's first write, so it has to say what kind it is creating."""
-    monkeypatch.setattr(routes_mod, "_nuclei_address", _nuclei_address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-9"))
+    plan_seam(extra=_NUCLEI_RESOLVED)
     nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": None, "seg_hash": "s1"})
 
     r = nuclei_client.post(
@@ -370,11 +332,10 @@ def test_the_row_appears_when_the_run_reports_its_bytes(nuclei_client, monkeypat
     assert row["girder_job_id"] == "girder-job-9"
 
 
-def test_a_stopped_nuclei_run_creates_its_row_too(nuclei_client, monkeypatch):
+def test_a_stopped_nuclei_run_creates_its_row_too(nuclei_client, plan_seam):
     """A stopped build is not a failed one: it holds a complete artifact of a smaller area, with
     the tallies and the remaining count that make starting again a resume rather than a restart."""
-    monkeypatch.setattr(routes_mod, "_nuclei_address", _nuclei_address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+    plan_seam(extra=_NUCLEI_RESOLVED)
     nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": None, "seg_hash": "s1"})
 
     nuclei_client.post(

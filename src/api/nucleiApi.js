@@ -46,9 +46,10 @@ async function asJson(r, what) {
 // an artifact row, because since Inc 6 · 05 there is no row until the bytes exist. What is watched
 // instead is the Girder job: it is in the Runs list from the moment this resolves, and the
 // Workspace joins it onto the same `art_hash` as a ghost row until the run finishes.
-export async function startNuclei(itemId, { bbox = null, seg_hash = null } = {}) {
+export async function startNuclei(itemId, { bbox = null, seg_hash = null } = {}, mode) {
   const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei`,
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei`
+    + (mode ? `?mode=${mode}` : ''),
     {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),

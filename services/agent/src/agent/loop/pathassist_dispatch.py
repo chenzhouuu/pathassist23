@@ -1,9 +1,9 @@
 """Gateway → Girder plugin dispatch (Inc 6 · ticket 01).
 
-One call: hand a run to `POST /pathassist/run` and get back the Girder job it created. The gateway
-keeps everything that makes the run *identifiable* — the content address, the reuse check, the
-lineage — and gives away only the part that has to happen inside the Girder process, which is
-minting the job and putting it on a queue (plan D5).
+One call: hand an ordered submission to `POST /pathassist/chain` and get back what Girder made of
+it. The gateway keeps everything that makes a run *identifiable* — the content address, the reuse
+check, the lineage, the plan — and gives away only the part that has to happen inside the Girder
+process, which is minting the jobs and putting them on a queue (plan D5).
 
 Deliberately thin, and deliberately not a second copy of the worker clients it replaces: there is
 no status polling here. Once a run is a Girder job, its progress is read from `GET /job` like every
@@ -17,52 +17,10 @@ class DispatchUnavailable(RuntimeError):
     """The plugin could not be reached or refused the run. Carries what it said."""
 
 
-async def dispatch_run(
-    *,
-    plugin_url: str,
-    kind: str,
-    item: str,
-    art_hash: str,
-    params: dict,
-    token: str | None,
-    title: str | None = None,
-    timeout: float = 30.0,
-    client: httpx.AsyncClient | None = None,
-) -> dict:
-    """Create the Girder job for one analysis run.
-
-    Returns the plugin's ack — ``{jobId, celeryTaskId, kind, item, artHash, queue}``. The `jobId`
-    is what goes on the artifact row: from here on, "where is this run" is a question about a
-    Girder job.
-
-    Raises:
-        DispatchUnavailable: the plugin is unreachable, unauthenticated, or refused the kind.
-    """
-    owns = client is None
-    client = client or httpx.AsyncClient(timeout=timeout)
-    try:
-        # Scalars in the query string, the params dict as the body. That split is Girder's, not
-        # ours: `autoDescribeRoute`'s `.param()` reads the query string and only a `paramType=
-        # "body"` jsonParam reads the request body, so sending one JSON object for everything
-        # gets every scalar rejected as missing.
-        resp = await client.post(
-            f"{plugin_url.rstrip('/')}/pathassist/run",
-            headers={"Girder-Token": token} if token else {},
-            params={
-                "kind": kind,
-                "item": item,
-                "artHash": art_hash,
-                **({"title": title} if title else {}),
-            },
-            json=params or {},
-        )
-    except httpx.HTTPError as exc:
-        raise DispatchUnavailable(f"could not reach the PathAssist Girder plugin: {exc}") from exc
-    finally:
-        if owns:
-            await client.aclose()
-
-    return _ack(resp)
+# `dispatch_run` is gone (Inc 6 · 08). It put one run on the queue, and by the end of 07 every kind
+# went through the planner instead — which always produces a sequence, even when the sequence is one
+# step. Keeping both would have been two ways for a run to exist, and only one of them could reuse
+# an artifact or plan an upstream.
 
 
 async def dispatch_chain(

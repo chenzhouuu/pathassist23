@@ -1,17 +1,22 @@
-"""Planning a preprocess chain (Inc 6 · 07).
+"""One planner, for every kind (Inc 6 · 07–08).
 
-Pure, against a doubled `address` callable, because the two things that are easy to get wrong here
-are arithmetic rather than networking: which steps a slide still needs, and what each one is called.
+Pure, against a doubled `address` callable, because what is easy to get wrong here is arithmetic
+rather than networking: which steps a slide still needs, in what order, and what each is called.
+
+The hash a fake service returns is `kind:parent1+parent2`, so an assertion can read the DAG off the
+string and a step addressed against the wrong upstream fails visibly rather than subtly.
 """
 
 import pytest
 
 from agent.gateway.plan import (
-    ORDER,
+    DEPENDS_ON,
+    SCOPED_KINDS,
     Step,
-    address_chain,
+    UnplannableRun,
+    address_run,
     match_feature_spec,
-    missing_suffix,
+    missing,
     plan,
     satisfies_spec,
 )
@@ -20,86 +25,170 @@ SEG = {"segmenter": "hest", "seg_conf_thresh": 0.5}
 TILE = {"mag": 20, "patch_size": 512, "overlap": 0}
 ENC = {"encoder": "conch_v1"}
 TASK = {"task_id": "brca_idc_ilc"}
-PARAMS = {"segmentation": SEG, "patching": TILE, "features": ENC, "prediction": TASK}
+PARAMS = {"segmentation": SEG, "patching": TILE, "features": ENC, "prediction": TASK,
+          "nuclei": {}, "tissue": {}, "biomarker": {}}
+
+PARENTS = ("seg_hash", "patch_hash", "feat_hash", "nuclei_hash")
 
 
 def fake_address(seen=None):
-    """A service whose hash is a readable function of kind and parent, so tests can assert on it."""
+    """A service whose hash is a readable function of kind and upstreams."""
     async def address(kind, params):
         if seen is not None:
             seen.append((kind, dict(params)))
-        parent = params.get("seg_hash") or params.get("patch_hash") or params.get("feat_hash")
+        ups = "+".join(str(params[k]) for k in PARENTS if params.get(k)) or "root"
         return {
             "kind": kind,
-            "art_hash": f"{kind[:4]}:{parent or 'root'}",
+            "art_hash": f"{kind[:4]}:{ups}",
             # The service resolves defaults and adds what only it knows — `impl` is the one that
             # matters, because it is in the address and nobody typed it.
-            "params": {**params, "impl": "trident"},
+            "params": {"impl": "trident"},
         }
     return address
 
 
+class TestTheGraph:
+    def test_every_dispatchable_kind_has_a_dependency_row(self):
+        assert set(DEPENDS_ON) == {
+            "segmentation", "patching", "features", "prediction", "nuclei", "tissue", "biomarker",
+        }
+
+    def test_the_marker_map_is_the_one_with_two_upstreams(self):
+        """Which is why this is a DAG walk. A chain walk cannot express it at all."""
+        assert [n.kind for n in DEPENDS_ON["biomarker"]] == ["segmentation", "nuclei"]
+
+
 class TestAddressing:
     @pytest.mark.asyncio
-    async def test_every_step_up_to_the_target_is_named(self):
-        steps = await address_chain(fake_address(), "features", PARAMS)
-        assert [s.kind for s in steps] == ["segmentation", "patching", "features"]
+    async def test_the_whole_preprocess_chain_is_named(self):
+        steps = await address_run(fake_address(), "prediction", PARAMS)
+        assert [s.kind for s in steps] == [
+            "segmentation", "patching", "features", "prediction"]
 
     @pytest.mark.asyncio
-    async def test_each_step_is_addressed_against_the_one_before_it(self):
-        steps = await address_chain(fake_address(), "prediction", PARAMS)
-        assert [s.parent_hash for s in steps] == [None] + [s.art_hash for s in steps[:-1]]
+    async def test_a_marker_map_names_both_of_its_upstreams_before_itself(self):
+        steps = await address_run(fake_address(), "biomarker", PARAMS)
+        assert [s.kind for s in steps] == ["segmentation", "nuclei", "biomarker"]
+        # The segmentation is addressed once and used twice — by the nuclei run and by the map.
+        seg = steps[0].art_hash
+        assert seg in steps[1].needs and seg in steps[2].needs
 
     @pytest.mark.asyncio
-    async def test_the_parent_is_supplied_by_the_plan_not_by_the_caller(self):
-        """A caller cannot name a patch grid's segmentation: it is whatever step 1 came out as."""
+    async def test_an_upstream_the_caller_named_is_not_planned(self):
+        """Naming it asserts it exists. Reconstructing the params it happened to be built with
+        would be work in service of a question nobody asked."""
+        steps = await address_run(
+            fake_address(), "biomarker", {**PARAMS, "biomarker": {"nuclei_hash": "mine"}})
+        assert [s.kind for s in steps] == ["segmentation", "biomarker"]
+        assert "mine" in steps[-1].needs
+
+    @pytest.mark.asyncio
+    async def test_a_region_run_needs_no_segmentation_to_start(self):
+        """A drawn rectangle is segmented by its own edges. `when` is what says so."""
+        steps = await address_run(
+            fake_address(), "nuclei", {**PARAMS, "nuclei": {"bbox": {"x": 0}}})
+        assert [s.kind for s in steps] == ["nuclei"]
+
+    @pytest.mark.asyncio
+    async def test_a_whole_slide_run_does(self):
+        steps = await address_run(fake_address(), "nuclei", PARAMS)
+        assert [s.kind for s in steps] == ["segmentation", "nuclei"]
+
+    @pytest.mark.asyncio
+    async def test_one_submission_uses_one_segmentation(self):
+        """A marker map that names its contours must not get a second set planned underneath it
+        for the nuclei step. Measured: it did, and the two would have been cut identically."""
         seen = []
-        await address_chain(fake_address(seen), "features", PARAMS)
-        assert seen[1][1]["seg_hash"] == "segm:root"
-        assert seen[2][1]["patch_hash"] == "patc:segm:root"
+        steps = await address_run(
+            fake_address(seen), "biomarker", {**PARAMS, "biomarker": {"seg_hash": "mine"}})
+        assert [s.kind for s in steps] == ["nuclei", "biomarker"]
+        nuclei = next(p for kind, p in seen if kind == "nuclei")
+        assert nuclei["seg_hash"] == "mine"
+
+    @pytest.mark.asyncio
+    async def test_an_implicit_upstream_inherits_the_callers_region(self):
+        """A marker map over a rectangle needs nuclei *in that rectangle*. Planning the upstream
+        whole-slide is an hour of GPU nobody asked for."""
+        seen = []
+        bbox = {"x": 10, "y": 10, "width": 512, "height": 512}
+        await address_run(fake_address(seen), "biomarker",
+                          {**PARAMS, "biomarker": {"bbox": bbox}})
+        nuclei = next(p for kind, p in seen if kind == "nuclei")
+        assert nuclei["bbox"] == bbox
+        assert SCOPED_KINDS == {"nuclei", "tissue", "biomarker"}
 
     @pytest.mark.asyncio
     async def test_the_step_records_what_the_service_resolved(self):
-        """`impl` is part of the address and nobody requested it, so the row has to carry it."""
-        steps = await address_chain(fake_address(), "segmentation", PARAMS)
+        steps = await address_run(fake_address(), "segmentation", PARAMS)
         assert steps[0].params["impl"] == "trident"
         assert steps[0].params["segmenter"] == "hest"
 
     @pytest.mark.asyncio
-    async def test_a_target_outside_the_chain_is_refused(self):
-        with pytest.raises(ValueError):
-            await address_chain(fake_address(), "nuclei", PARAMS)
+    async def test_the_parents_stay_in_the_params_the_service_is_called_with(self):
+        steps = await address_run(fake_address(), "patching", PARAMS)
+        assert steps[-1].params["seg_hash"] == steps[0].art_hash
 
-    def test_the_order_is_the_dag(self):
-        assert ORDER == ("segmentation", "patching", "features", "prediction")
+    @pytest.mark.asyncio
+    async def test_a_target_the_planner_has_no_table_for_is_refused(self):
+        with pytest.raises(UnplannableRun):
+            await address_run(fake_address(), "copilot", PARAMS)
 
 
 class TestWhatIsMissing:
-    def steps(self):
-        return [Step(kind=k, art_hash=k[:4]) for k in ORDER]
+    def chain(self):
+        """segmentation → patching → features → prediction, as `address_run` would return it."""
+        out, parent = [], None
+        for kind in ("segmentation", "patching", "features", "prediction"):
+            h = kind[:4]
+            out.append(Step(kind=kind, art_hash=h, needs=(parent,) if parent else ()))
+            parent = h
+        return out
 
     def test_nothing_to_run_when_the_target_is_already_built(self):
-        assert missing_suffix(self.steps(), {"pred"}) == []
+        assert missing(self.chain(), {"pred"}) == []
 
-    def test_a_built_parent_stops_the_walk(self):
-        needed = missing_suffix(self.steps(), {"feat"})
-        assert [s.kind for s in needed] == ["prediction"]
+    def test_a_built_parent_stops_the_marking(self):
+        assert [s.kind for s in missing(self.chain(), {"feat"})] == ["prediction"]
 
-    def test_an_empty_slide_runs_the_whole_chain(self):
-        assert [s.kind for s in missing_suffix(self.steps(), set())] == list(ORDER)
+    def test_an_empty_slide_runs_everything(self):
+        assert len(missing(self.chain(), set())) == 4
 
     def test_a_hole_below_a_built_step_is_not_refilled(self):
         """Bytes are the artifact. A feature index that exists does not need its patch grid back —
         rebuilding one to reach the other is minutes of GPU spent on something nobody will read."""
-        needed = missing_suffix(self.steps(), {"feat"})   # 'patc' and 'segm' both absent
-        assert [s.kind for s in needed] == ["prediction"]
+        assert [s.kind for s in missing(self.chain(), {"feat"})] == ["prediction"]
+
+    def test_a_second_upstream_is_marked_too(self):
+        steps = [
+            Step(kind="segmentation", art_hash="s"),
+            Step(kind="nuclei", art_hash="n", needs=("s",)),
+            Step(kind="biomarker", art_hash="b", needs=("s", "n")),
+        ]
+        assert [s.kind for s in missing(steps, set())] == ["segmentation", "nuclei", "biomarker"]
+
+    def test_only_the_missing_branch_of_a_fork_is_kept(self):
+        steps = [
+            Step(kind="segmentation", art_hash="s"),
+            Step(kind="nuclei", art_hash="n", needs=("s",)),
+            Step(kind="biomarker", art_hash="b", needs=("s", "n")),
+        ]
+        # The nuclei exist; the contours they were cut against do not have to come back for the
+        # map, which names them directly and finds them there.
+        assert [s.kind for s in missing(steps, {"n", "s"})] == ["biomarker"]
 
     @pytest.mark.asyncio
-    async def test_plan_addresses_then_trims(self):
-        steps = await plan(fake_address(), target="features", params_by_kind=PARAMS,
-                           have={"segm:root"})
-        assert [s.kind for s in steps] == ["patching", "features"]
-        assert steps[0].parent_hash == "segm:root"
+    async def test_plan_returns_the_whole_shape_and_the_part_left_to_do(self):
+        everything, todo = await plan(
+            fake_address(), target="features", params_by_kind=PARAMS, have={"segm:root"})
+        assert [s.kind for s in everything] == ["segmentation", "patching", "features"]
+        assert [s.kind for s in todo] == ["patching", "features"]
+
+    @pytest.mark.asyncio
+    async def test_the_target_is_addressed_even_when_there_is_nothing_to_run(self):
+        """The caller answers with the artifact the slide already has, so it needs its name."""
+        everything, todo = await plan(
+            fake_address(), target="segmentation", params_by_kind=PARAMS, have={"segm:root"})
+        assert todo == [] and everything[-1].art_hash == "segm:root"
 
 
 class TestFeatureSpec:
@@ -124,6 +213,9 @@ class TestFeatureSpec:
         """No parent row ⇒ the geometry cannot be checked. Running anyway would be a prediction on
         whatever tiling happened to be there, reported as the one the task declares."""
         assert match_feature_spec([self.FEAT], self.SPEC) is None
+
+    def test_a_row_with_no_params_at_all_is_not_a_match_and_not_a_crash(self):
+        assert match_feature_spec([self.PATCH, {**self.FEAT, "params": None}], self.SPEC) is None
 
     def test_the_segmenter_is_deliberately_not_compared(self):
         """It propagates into every downstream hash, so comparing it would reject valid indexes."""

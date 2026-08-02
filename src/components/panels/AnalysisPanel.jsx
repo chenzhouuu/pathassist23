@@ -25,7 +25,7 @@ import RunsSection from './analysis/RunsSection.jsx';
 import { cliRunParams } from './analysis/cliParams.js';
 import { isAutoFilled, parseXml } from './analysis/parseXml.js';
 import {
-  NATIVE_GROUP, NATIVE_TOOLS, firstProblem, isEnabled, seedValues, toolParams,
+  NATIVE_GROUP, NATIVE_TOOLS, describePlan, firstProblem, isEnabled, seedValues, toolParams,
 } from './analysis/nativeCatalog.js';
 import { useRegionSelect } from './useRegionSelect.js';
 
@@ -44,6 +44,7 @@ export default function AnalysisPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(null); // { title } — the last thing sent
+  const [plan, setPlan] = useState(null);           // the server's answer to "what would this cost"
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
 
@@ -230,6 +231,27 @@ export default function AnalysisPanel() {
     setLoadingForm(false);
   }, []);
 
+  // ── What this submission is about to cost ─────────────────────────────────
+  // Asked of the server, not worked out here, and that is the point of 08: one planner answers
+  // it, and it is the same function that will run the submission — so the sentence in front of
+  // the button and what the button does cannot drift apart. A fourth client-side copy of the
+  // dependency graph is what this replaces.
+  useEffect(() => {
+    if (!isNative || !meta || !activeItem
+        || firstProblem(meta, formValues, { roi: region.roi })) {
+      setPlan(null);
+      return undefined;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      selected.tool.submit(activeItem._id, formValues, { roi: region.roi, mode: 'plan' })
+        .then(p => { if (live) setPlan(p); })
+        .catch(() => { if (live) setPlan(null); });
+    }, 250);   // the form is a few selects; a keystroke should not be a round trip
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNative, meta, activeItem?._id, formValues, region.roi]);
+
   const backToList = useCallback(() => {
     setView('list');
     setMeta(null);
@@ -238,14 +260,17 @@ export default function AnalysisPanel() {
   }, []);
 
   // ── Submit ────────────────────────────────────────────────────────────────
-  const submit = useCallback(async () => {
+  // `mode` is the user's answer to what the plan just told them: everything, or only the step that
+  // can run without waiting. Neither is a default — a three-step submission at `concurrency=1` is
+  // a wait somebody agrees to, and so is stopping after the first (Inc 6 · 08).
+  const submit = useCallback(async (mode) => {
     if (!selected || !meta || !activeItem) return;
     setSubmitting(true);
     setError('');
     try {
       let ack = null;
       if (selected.source === 'native') {
-        ack = await selected.tool.submit(activeItem._id, formValues, { roi: region.roi });
+        ack = await selected.tool.submit(activeItem._id, formValues, { roi: region.roi, mode });
         qc.invalidateQueries({ queryKey: ['artifacts', activeItem._id] });
       } else {
         // Slicer CLI Web /run expects raw Girder ObjectId strings — NOT JSON-wrapped objects.
@@ -272,6 +297,7 @@ export default function AnalysisPanel() {
       setView('list');
       setMeta(null);
       setSelected(null);
+      setPlan(null);
     } catch (e) {
       setError('Submission failed: ' + (e?.response?.data?.message || e.message));
     }
@@ -404,8 +430,9 @@ export default function AnalysisPanel() {
   // RENDER: FORM view
   // ──────────────────────────────────────────────────────────────────────────
   const problem = isNative && meta
-    ? firstProblem(meta, formValues, { roi: region.roi, artifacts })
+    ? firstProblem(meta, formValues, { roi: region.roi })
     : null;
+  const cost = describePlan(plan);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -549,13 +576,35 @@ export default function AnalysisPanel() {
           {problem && (
             <div className="mb-2 text-xs" style={{ color: '#f5a623', fontSize: 10 }}>{problem}</div>
           )}
+
+          {/* What this is about to do, before it does it (Inc 6 · 08). The steps are named rather
+              than counted — "2 upstreams" is a number, and which two is the answer — and the
+              queue-slot count is said out loud because at concurrency=1 it is a wait the user
+              agrees to on everyone else's behalf as well as their own. */}
+          {cost && !problem && (
+            <div className="mb-2 rounded px-2 py-1.5" data-cy="submission-plan"
+              style={{ background: 'var(--highlight-hex)', border: '1px solid var(--border-hex)' }}>
+              <div style={{ color: cost.built ? '#4caf82' : '#4da6ff', fontSize: 10 }}>
+                {cost.headline}
+              </div>
+              {cost.steps.length > 1 && (
+                <ol className="mt-1 space-y-0.5" style={{ color: 'var(--muted-hex)', fontSize: 9 }}>
+                  {cost.steps.map((step, i) => (
+                    <li key={step.art_hash || step.kind}>{i + 1}. {step.title}</li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button onClick={backToList}
               className="flex items-center justify-center px-3 py-2 rounded text-xs transition-all"
               style={{ background: 'var(--highlight-hex)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)' }}>
               Cancel
             </button>
-            <button onClick={submit} disabled={submitting || !activeItem || !!problem}
+            <button onClick={() => submit()} disabled={submitting || !activeItem || !!problem}
+              data-cy="run-all"
               className="flex-1 flex items-center justify-center gap-2 py-2 rounded font-semibold text-xs transition-all"
               style={{
                 background: submitting || !activeItem || problem ? 'rgba(77,166,255,0.08)' : 'rgba(77,166,255,0.18)',
@@ -567,10 +616,23 @@ export default function AnalysisPanel() {
               ) : (
                 <><svg width="11" height="11" viewBox="0 0 24 24" fill="#4da6ff" stroke="none">
                   <polygon points="5 3 19 12 5 21 5 3" />
-                </svg> Run Job</>
+                </svg> {cost && cost.steps.length > 1 ? 'Run everything' : 'Run Job'}</>
               )}
             </button>
           </div>
+
+          {/* Offered only when there is more than one step, because otherwise it is the same
+              button twice. Neither is the default: "everything" can be hours of GPU and "the
+              first step" leaves the job half done, and which of those is right is not ours. */}
+          {cost && cost.steps.length > 1 && !problem && (
+            <button onClick={() => submit('next')} disabled={submitting || !activeItem}
+              data-cy="run-next"
+              className="mt-2 w-full py-1.5 rounded text-xs transition-all"
+              style={{ background: 'var(--highlight-hex)', color: 'var(--muted-hex)',
+                       border: '1px solid var(--border-hex)' }}>
+              Run only {cost.steps[0].title.toLowerCase()} for now
+            </button>
+          )}
         </div>
       )}
     </div>

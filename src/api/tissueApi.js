@@ -44,8 +44,12 @@ export async function getTissueCatalog() {
 // route, the same pipeline, the same artifact. Returns `{art_hash, girder_job_id, ...}` and no
 // row: since Inc 6 · 06 the artifact row is written when the run reports its bytes, and the run
 // itself is watched in the Runs list.
-export async function startTissue(itemId, { seg_hash, bbox = null, backend = null } = {}) {
-  const r = await fetch(`${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/tissue`, {
+export async function startTissue(
+  itemId, { seg_hash = null, bbox = null, backend = null } = {}, mode,
+) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/tissue`
+    + (mode ? `?mode=${mode}` : ''), {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ seg_hash, bbox, backend }),

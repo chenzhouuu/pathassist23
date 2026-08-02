@@ -93,3 +93,55 @@ def client(store: MemoryStore) -> TestClient:
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_agent] = lambda: StubAgentLoop()
     return TestClient(app)
+
+
+# ── One planner, one seam (Inc 6 · 08) ────────────────────────────────────────────────
+#
+# Every submission route goes through `_plan_and_dispatch`, which asks `_addresser` what each step
+# would be called. Doubling that one factory replaces the four per-kind `_*_address` doubles the
+# route tests used to keep, and it is the seam that matters: what the *services* answer is their own
+# suites' business, and what this one tests is what the gateway does with the answers.
+
+
+def _fake_addresser(hashes=None, seen=None, extra=None):
+    """A stand-in for `routes._addresser`. `seen` records `(kind, params)` in the order asked."""
+    names = {
+        "segmentation": "seg-1", "patching": "pat-1", "features": "feat-1",
+        "prediction": "pred-1", "nuclei": "nuc-1", "tissue": "tis-1", "biomarker": "bio-1",
+        **(hashes or {}),
+    }
+
+    def factory(urls):
+        async def address(kind, params):
+            if seen is not None:
+                seen.append((kind, dict(params)))
+            resolved = {**(extra or {}).get(kind, {})}
+            return {"kind": kind, "art_hash": names[kind], "params": resolved}
+        return address
+    return factory
+
+
+def _fake_chain(job_id="girder-job-1", chain_id="c1", seen=None):
+    """A stand-in for `routes.dispatch_chain`, recording exactly what went on the queue."""
+    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
+        if seen is not None:
+            seen.append({"item": item, "label": label, "steps": steps})
+        return {"chainId": chain_id, "jobId": job_id, "queue": "pathassist",
+                "steps": [{"kind": s["kind"], "artHash": s["artHash"]} for s in steps]}
+    return dispatch
+
+
+@pytest.fixture
+def plan_seam(monkeypatch):
+    """Both seams at once, since no submission route uses one without the other.
+
+    `seam(seen=[], addressed=[], hashes={}, extra={})` patches `routes._addresser` and
+    `routes.dispatch_chain` and hands back the lists it will fill.
+    """
+    from agent.gateway import routes as routes_mod
+
+    def seam(seen=None, addressed=None, hashes=None, extra=None):
+        monkeypatch.setattr(routes_mod, "_addresser",
+                            _fake_addresser(hashes=hashes, seen=addressed, extra=extra))
+        monkeypatch.setattr(routes_mod, "dispatch_chain", _fake_chain(seen=seen))
+    return seam

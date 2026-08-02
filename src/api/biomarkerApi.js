@@ -43,12 +43,16 @@ export async function getCatalog() {
 
 // Enqueue a map build. `bbox: null` means the whole slide — the same route, the same pipeline,
 // the same artifact (D5/D6). Returns the durable artifact row to poll via listArtifacts().
-export async function startBiomarker(itemId, { seg_hash, nuclei_hash = null, bbox = null } = {}) {
-  const r = await fetch(`${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/biomarker`, {
+export async function startBiomarker(
+  itemId, { seg_hash = null, nuclei_hash = null, bbox = null } = {}, mode,
+) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/biomarker`
+    + (mode ? `?mode=${mode}` : ''), {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    // `nuclei_hash` names the cells the phenotypes attach to. The worker refuses without it
-    // (Inc 5 · D9): a phenotype is an attribute of a nucleus.
+    // `nuclei_hash` names the cells the phenotypes attach to (Inc 5 · D9): a phenotype is an
+    // attribute of a nucleus. Left null it is *planned* rather than refused (Inc 6 · 08).
     body: JSON.stringify({ seg_hash, nuclei_hash, bbox }),
   });
   return asJson(r, 'Start marker analysis');

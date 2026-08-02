@@ -81,13 +81,13 @@ export const NATIVE_TOOLS = [
         { tag: 'boolean', name: 'remove_penmarks', label: 'Remove pen marks', defVal: 'false' },
       ],
     }],
-    submit: (itemId, v) => startSegment(itemId, {
+    submit: (itemId, v, { mode } = {}) => startSegment(itemId, {
       segmenter: v.segmenter,
       seg_conf_thresh: Number(v.seg_conf_thresh),
       remove_holes: v.remove_holes === 'true',
       remove_artifacts: v.remove_artifacts === 'true',
       remove_penmarks: v.remove_penmarks === 'true',
-    }),
+    }, mode),
   },
 
   {
@@ -161,14 +161,14 @@ export const NATIVE_TOOLS = [
       mag: String(recommendedMag(value)),
       patch_size: String(recommendedPatchSize(value)),
     }),
-    submit: (itemId, v) => startBuild(itemId, {
+    submit: (itemId, v, { mode } = {}) => startBuild(itemId, {
       encoder: v.encoder,
       segmenter: v.segmenter,
       seg_conf_thresh: Number(v.seg_conf_thresh),
       mag: Number(v.mag),
       patch_size: Number(v.patch_size),
       overlap: Number(v.overlap),
-    }),
+    }, mode),
   },
 
   {
@@ -192,10 +192,10 @@ export const NATIVE_TOOLS = [
         )],
       },
     ],
-    submit: (itemId, v, { roi }) => startNuclei(itemId, {
+    submit: (itemId, v, { roi, mode } = {}) => startNuclei(itemId, {
       bbox: v.scope === 'whole' ? null : roi,
       seg_hash: v.scope === 'whole' ? (v.seg_hash || null) : null,
-    }),
+    }, mode),
   },
 
   {
@@ -210,7 +210,8 @@ export const NATIVE_TOOLS = [
         label: 'Inputs',
         params: [
           artifactParam('seg_hash', 'segmentation', 'Tissue segmentation',
-            'Everything outside these contours is masked out.', { required: true }),
+            'Optional. Everything outside these contours is masked out; one is planned for you '
+            + 'if this slide has none.'),
           {
             tag: 'string-enumeration', name: 'backend', label: 'Backend',
             desc: 'The deployed model. Its classes, palette and licence come from the service.',
@@ -226,11 +227,11 @@ export const NATIVE_TOOLS = [
         ],
       },
     ],
-    submit: (itemId, v, { roi }) => startTissue(itemId, {
-      seg_hash: v.seg_hash,
+    submit: (itemId, v, { roi, mode } = {}) => startTissue(itemId, {
+      seg_hash: v.seg_hash || null,
       bbox: v.scope === 'whole' ? null : roi,
       backend: v.backend || null,
-    }),
+    }, mode),
   },
 
   {
@@ -245,17 +246,17 @@ export const NATIVE_TOOLS = [
         label: 'Inputs',
         params: [
           artifactParam('seg_hash', 'segmentation', 'Tissue segmentation',
-            'Bounds the area the markers are inferred over.', { required: true }),
+            'Optional. Bounds the area the markers are inferred over.'),
           artifactParam('nuclei_hash', 'nuclei', 'Nuclei',
-            'The cells the marker signal is attributed to.', { required: true }),
+            'Optional. The cells the marker signal is attributed to.'),
         ],
       },
     ],
-    submit: (itemId, v, { roi }) => startBiomarker(itemId, {
-      seg_hash: v.seg_hash,
-      nuclei_hash: v.nuclei_hash,
+    submit: (itemId, v, { roi, mode } = {}) => startBiomarker(itemId, {
+      seg_hash: v.seg_hash || null,
+      nuclei_hash: v.nuclei_hash || null,
       bbox: v.scope === 'whole' ? null : roi,
-    }),
+    }, mode),
   },
 
   {
@@ -289,9 +290,9 @@ export const NATIVE_TOOLS = [
           'Optional. Left empty, the index matching the task is found — or built.'),
       ],
     }],
-    submit: (itemId, v) => startPredict(itemId, {
+    submit: (itemId, v, { mode } = {}) => startPredict(itemId, {
       feat_hash: v.feat_hash || null, task_id: v.task_id,
-    }),
+    }, mode),
   },
 ];
 
@@ -330,35 +331,53 @@ export function isEnabled(param, values) {
  * The first reason this form cannot be submitted, or null.
  *
  * Reported as one sentence rather than per-field marks because the native forms are short and the
- * failures are about missing *upstream work* ("no nuclei run on this slide yet"), which is a
- * sentence, not a red outline.
+ * one thing they can be missing is short too.
  *
- * A missing upstream has two quite different causes and they get two different sentences (Inc 6 ·
- * 06). "You have not picked one" is answered by opening the dropdown; "this slide has none" is
- * answered by running a different tool first, and telling someone to pick from an empty list is
- * the kind of instruction that gets read as a bug. The marker map is the entry that made this
- * worth separating — it needs both a segmentation and a nuclei run, and on a fresh slide it has
- * neither.
+ * **Missing upstreams are no longer among them (Inc 6 · 08).** Until 07 this said things like
+ * *"this slide has no nuclei yet — run it first, then come back"*: a true sentence about a piece
+ * of work the machine could do, which made the user the scheduler. The server plans them now, and
+ * what the form shows instead is what it is *about* to do — see `describePlan`. What is left here
+ * is the two things a plan cannot supply: a rectangle nobody drew, and a choice only the user can
+ * make (which task).
  */
-export function firstProblem(tool, values, { roi, artifacts } = {}) {
+export function firstProblem(tool, values, { roi } = {}) {
   for (const p of toolParams(tool)) {
     if (!isEnabled(p, values)) continue;
     if (p.tag === 'pa-region' && values.scope === 'region' && !roi) {
       return 'Draw a region on the slide, or switch to the whole slide.';
     }
-    const needed = p.required || (p.requiredWhen ? p.requiredWhen(values) : false);
-    if (!needed || values[p.name]) continue;
-    // Only an upstream picker has an "this slide has none" case. A required enum that is empty is
-    // simply unanswered, and telling someone their slide has no `undefined` is worse than the
-    // plain sentence — which is what this said until a required non-artifact param existed
-    // (the task picker, Inc 6 · 07).
-    //
-    // `artifacts` undefined means the list has not loaded, which is not the same as empty — so
-    // the generic sentence stands until we actually know.
-    if (p.tag === 'pa-artifact' && artifacts && !artifacts.some(a => a.kind === p.artifactKind)) {
-      return `This slide has no ${p.artifactKind} yet — run it first, then come back.`;
-    }
+    // `pa-artifact` params are never required: an unnamed upstream is planned, not demanded.
+    if (p.tag === 'pa-artifact' || !p.required || values[p.name]) continue;
     return `${p.label} is required.`;
   }
   return null;
+}
+
+/**
+ * What a submission is about to cost, as the server planned it.
+ *
+ * `plan` is a `mode=plan` reply — `{status, steps, plan}` — computed by the same function that
+ * will run the submission, so the sentence and the run cannot disagree. That is the whole reason
+ * this is a server round-trip rather than a fourth client-side dependency table.
+ *
+ * The queue-slot count is stated out loud because at `concurrency=1` it is a wait the user is
+ * agreeing to on everyone else's behalf as well as their own.
+ */
+export function describePlan(plan) {
+  if (!plan) return null;
+  if (plan.status === 'ready') {
+    return { built: true, steps: [], headline: 'Already built — nothing to run.' };
+  }
+  const steps = plan.steps || [];
+  const n = steps.length;
+  if (!n) return null;
+  return {
+    built: false,
+    steps,
+    headline: n === 1
+      ? '1 step · 1 queue slot'
+      : `${n} steps · ${n} queue slots, one after another`,
+    // Named rather than counted: "2 upstreams" is a number, and which two is the answer.
+    upstreams: steps.slice(0, -1).map(s => s.title),
+  };
 }

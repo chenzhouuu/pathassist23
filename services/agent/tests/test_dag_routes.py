@@ -36,79 +36,56 @@ def client(art_store):
     return TestClient(app)
 
 
-def _address(hashes=None, seen=None):
-    """A `/hash` double: the service naming what a run with these params would produce."""
-    names = hashes or {"segmentation": "s1", "patching": "p1", "features": "f1",
-                       "prediction": "pr1"}
-
-    async def addressed(preprocess_url, kind, item, params):
-        if seen is not None:
-            seen.append((kind, dict(params)))
-        return {"kind": kind, "art_hash": names[kind], "params": {**params, "impl": "trident"}}
-    return addressed
+#: What the preprocess service adds to a segmentation nobody typed: the image that ran it.
+_RESOLVED = {"segmentation": {"impl": "trident"}}
 
 
-def _chain(seen=None, chain_id="c1", job_id="girder-job-1"):
-    """A `dispatch_chain` double, recording exactly what was put on the queue."""
-    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
-        if seen is not None:
-            seen.append({"item": item, "label": label, "steps": steps})
-        return {"chainId": chain_id, "jobId": job_id, "queue": "pathassist",
-                "steps": [{"kind": s["kind"], "artHash": s["artHash"]} for s in steps]}
-    return dispatch
-
-
-def test_a_segmentation_is_a_one_step_chain_and_writes_no_row(client, art_store, monkeypatch):
+def test_a_segmentation_is_a_one_step_chain_and_writes_no_row(client, art_store, plan_seam):
     """D9, now for the last four kinds: dispatch names the artifact and queues the work, and the
     row waits for the bytes. Until then the run exists only as its Girder job."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    plan_seam(seen=seen, extra=_RESOLVED)
 
     r = client.post(f"{_BASE}/item9/segment", json={"segmenter": "hest"})
     assert r.status_code == 200
     body = r.json()
-    assert body["kind"] == "segmentation" and body["art_hash"] == "s1"
+    assert body["kind"] == "segmentation" and body["art_hash"] == "seg-1"
     assert body["status"] == "queued" and body["girder_job_id"] == "girder-job-1"
     assert [s["kind"] for s in seen[0]["steps"]] == ["segmentation"]
     assert art_store._rows == {}
 
 
-def test_a_build_queues_segment_then_tile_then_encode(client, monkeypatch):
+def test_a_build_queues_segment_then_tile_then_encode(client, plan_seam):
     """One submission, three steps, in the order the DAG requires them."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    plan_seam(seen=seen, extra=_RESOLVED)
 
     r = client.post(f"{_BASE}/item9/build",
                     json={"encoder": "conch_v1", "mag": 20, "patch_size": 512})
     assert r.status_code == 200
     body = r.json()
-    assert body["art_hash"] == "f1", "the submission is named after what it is for"
+    assert body["art_hash"] == "feat-1", "the submission is named after what it is for"
     assert [s["kind"] for s in body["steps"]] == ["segmentation", "patching", "features"]
     assert seen[0]["label"] == "Feature index"
 
 
-def test_each_step_is_dispatched_with_the_parent_the_step_before_it_produced(client, monkeypatch):
-    addressed = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address(seen=addressed))
-    seen = []
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+def test_each_step_is_dispatched_with_the_parent_the_step_before_it_produced(client, plan_seam):
+    addressed, seen = [], []
+    plan_seam(seen=seen, addressed=addressed, extra=_RESOLVED)
 
     client.post(f"{_BASE}/item9/build", json={"encoder": "conch_v1"})
     steps = seen[0]["steps"]
-    assert steps[1]["params"]["seg_hash"] == "s1"
-    assert steps[2]["params"]["patch_hash"] == "p1"
+    assert steps[1]["params"]["seg_hash"] == "seg-1"
+    assert steps[2]["params"]["patch_hash"] == "pat-1"
     # Nobody supplied those, and nobody could: they are what the steps before them turned out to
     # be called.
-    assert addressed[1][1]["seg_hash"] == "s1"
+    assert addressed[1][1]["seg_hash"] == "seg-1"
 
 
-def test_a_step_carries_what_the_service_resolved_not_what_was_asked_for(client, monkeypatch):
+def test_a_step_carries_what_the_service_resolved_not_what_was_asked_for(client, plan_seam):
     """`impl` is in the address and nobody types it, so it has to reach the row that records it."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    plan_seam(seen=seen, extra=_RESOLVED)
 
     client.post(f"{_BASE}/item9/segment", json={"segmenter": "hest"})
     assert seen[0]["steps"][0]["params"]["impl"] == "trident"
@@ -123,31 +100,53 @@ def _built(client, art_hash, kind, item="item9", result=None):
     return r.json()
 
 
-def test_a_build_queues_only_what_the_slide_is_missing(client, monkeypatch):
+def test_a_build_queues_only_what_the_slide_is_missing(client, plan_seam):
     """The second encoder over the same tiles is one step, not three."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
-    _built(client, "s1", "segmentation")
+    plan_seam(seen=seen, extra=_RESOLVED)
+    _built(client, "seg-1", "segmentation")
 
     client.post(f"{_BASE}/item9/build", json={"encoder": "conch_v1"})
     assert [s["kind"] for s in seen[0]["steps"]] == ["patching", "features"]
 
 
-def test_a_build_with_nothing_left_to_do_is_answered_rather_than_queued(client, monkeypatch):
+def test_a_build_with_nothing_left_to_do_is_answered_rather_than_queued(client, plan_seam):
     """Content addressing makes the second identical build a no-op. Spending a queue slot to
     rediscover that, at `concurrency=1`, is a wait somebody else pays for."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
-    for h, kind in (("s1", "segmentation"), ("p1", "patching"), ("f1", "features")):
+    plan_seam(seen=seen, extra=_RESOLVED)
+    for h, kind in (("seg-1", "segmentation"), ("pat-1", "patching"), ("feat-1", "features")):
         _built(client, h, kind)
 
     r = client.post(f"{_BASE}/item9/build", json={"encoder": "conch_v1"})
     assert r.status_code == 200
-    assert r.json() == {"kind": "features", "art_hash": "f1", "status": "ready", "steps": [],
-                        "reused": True}
+    assert r.json()["status"] == "ready" and r.json()["steps"] == []
+    assert r.json()["art_hash"] == "feat-1" and r.json()["reused"] is True
     assert seen == []
+
+
+def test_a_dry_run_states_what_it_would_cost_and_queues_nothing(client, plan_seam):
+    """The sentence the form shows before anyone agrees to it, computed by the function that will
+    run the submission — so the statement and the run cannot disagree (Inc 6 · 08)."""
+    seen = []
+    plan_seam(seen=seen, extra=_RESOLVED)
+
+    r = client.post(f"{_BASE}/item9/build?mode=plan", json={"encoder": "conch_v1"})
+    body = r.json()
+    assert body["status"] == "planned"
+    assert [s["kind"] for s in body["steps"]] == ["segmentation", "patching", "features"]
+    assert [s["title"] for s in body["steps"]][0] == "Tissue segmentation"
+    assert seen == [], "a plan is a question, not a submission"
+
+
+def test_a_dry_run_marks_what_the_slide_already_has(client, plan_seam):
+    plan_seam(extra=_RESOLVED)
+    _built(client, "seg-1", "segmentation")
+
+    body = client.post(f"{_BASE}/item9/build?mode=plan", json={"encoder": "conch_v1"}).json()
+    assert [(s["kind"], s["built"]) for s in body["plan"]] == [
+        ("segmentation", True), ("patching", False), ("features", False)]
+    assert [s["kind"] for s in body["steps"]] == ["patching", "features"]
 
 
 def test_a_dag_run_needs_both_the_service_and_the_queue():
@@ -173,7 +172,7 @@ def test_the_artifact_list_only_reads(client, monkeypatch):
         raise AssertionError("listing artifacts must not dial a worker")
 
     monkeypatch.setattr(routes_mod, "get_job_status", explode)
-    _built(client, "s1", "segmentation", result={"n_contours": 12})
+    _built(client, "seg-1", "segmentation", result={"n_contours": 12})
     r = client.get(f"{_BASE}/item9/artifacts")
     assert r.status_code == 200
     assert r.json()["artifacts"][0]["n_items"] == 12

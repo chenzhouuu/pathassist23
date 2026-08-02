@@ -70,28 +70,34 @@ export async function listArtifacts(itemId) {
   return data.artifacts || [];
 }
 
+// Every submission route takes the same `mode` (Inc 6 · 08): `plan` asks what it *would* queue
+// and enqueues nothing, `next` queues only the step that can run without waiting for another, and
+// the default runs the lot. One planner answers all three, so the sentence a form shows and the
+// submission it makes cannot disagree.
+export const withMode = (path, mode) => (mode ? `${path}?mode=${mode}` : path);
+
 // Stage 1 — enqueue a tissue segmentation. Returns the durable artifact row (its art_hash is the
 // seg_hash the tiling stage needs).
-export function startSegment(itemId, params = {}) {
+export function startSegment(itemId, params = {}, mode) {
   const body = {};
   for (const k of ['segmenter', 'seg_conf_thresh',
     'remove_artifacts', 'remove_holes', 'remove_penmarks']) {
     if (params[k] !== undefined && params[k] !== null) body[k] = params[k];
   }
-  return postJson(itemId, 'segment', body, 'Start segmentation');
+  return postJson(itemId, withMode('segment', mode), body, 'Start segmentation');
 }
 
 // A feature index: segment, tile, encode — one submission (Inc 6 · 07). The three stages had a
 // route each until the panel that advanced them one at a time was deleted; they are steps of a
 // Celery chain now, and the server drops the ones this slide already has. The reply says which
 // steps were actually queued, or `status: 'ready'` when the whole build already existed.
-export function startBuild(itemId, form = {}) {
+export function startBuild(itemId, form = {}, mode) {
   const body = {};
   for (const k of ['encoder', 'segmenter', 'seg_conf_thresh', 'remove_artifacts', 'remove_holes',
     'remove_penmarks', 'mag', 'patch_size', 'overlap']) {
     if (form[k] !== undefined && form[k] !== null && form[k] !== '') body[k] = form[k];
   }
-  return postJson(itemId, 'build', body, 'Start feature build');
+  return postJson(itemId, withMode('build', mode), body, 'Start feature build');
 }
 
 // Fetch a segmentation's tissue contours (level-0 px GeoJSON) for the viewer overlay (Phase 5).

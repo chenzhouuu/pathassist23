@@ -60,9 +60,10 @@ export async function listTasks() {
 // an index matching what the task's weights were trained on, and plans the build when the slide has
 // none — so a slide with nothing on it reaches a call in one submission. The reply says how many
 // steps were queued.
-export async function startPredict(itemId, { feat_hash, task_id } = {}) {
+export async function startPredict(itemId, { feat_hash, task_id } = {}, mode) {
   const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/predict`,
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/predict`
+    + (mode ? `?mode=${mode}` : ''),
     {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),

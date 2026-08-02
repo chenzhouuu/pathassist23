@@ -24,7 +24,7 @@ from agent.store import MemoryPreprocessArtifactStore
 _USER = {"_id": "u1", "login": "tester"}
 _BASE = "/api/copilot"
 _ITEM = "item9"
-_FEAT, _PRED = "f1", "pr1"
+_FEAT, _PRED = "feat-1", "pred-1"
 
 _ACK = {
     "job_id": "j4", "pred_hash": _PRED, "feat_hash": _FEAT, "kind": "prediction",
@@ -74,26 +74,6 @@ def registry(monkeypatch):
         return {"tasks": [_TASK], "available": True}
     monkeypatch.setattr(routes_mod, "list_tasks", fake)
     return fake
-
-
-def _address(names=None, seen=None):
-    hashes = names or {"segmentation": "s1", "patching": "p1", "features": _FEAT,
-                       "prediction": _PRED}
-
-    async def addressed(preprocess_url, kind, item, params):
-        if seen is not None:
-            seen.append((kind, dict(params)))
-        return {"kind": kind, "art_hash": hashes[kind], "params": {**params, "impl": "trident"}}
-    return addressed
-
-
-def _chain(seen=None):
-    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
-        if seen is not None:
-            seen.append({"item": item, "label": label, "steps": steps})
-        return {"chainId": "c1", "jobId": "girder-job-1", "queue": "pathassist",
-                "steps": [{"kind": x["kind"], "artHash": x["artHash"]} for x in steps]}
-    return dispatch
 
 
 def _built(client, art_hash, kind, params=None, item=_ITEM):
@@ -146,10 +126,9 @@ def test_tasks_503s_when_preprocess_is_not_configured(art_store, monkeypatch):
 # ── POST /slides/{item}/predict ─────────────────────────────────────────────────────
 
 
-def test_a_named_feature_index_is_a_one_step_submission(client, monkeypatch):
+def test_a_named_feature_index_is_a_one_step_submission(client, plan_seam):
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    plan_seam(seen=seen)
 
     r = client.post(f"{_BASE}/slides/{_ITEM}/predict",
                     json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
@@ -161,36 +140,33 @@ def test_a_named_feature_index_is_a_one_step_submission(client, monkeypatch):
     assert seen[0]["label"] == "BRCA IDC vs ILC"
 
 
-def test_the_steps_above_a_named_index_are_never_even_addressed(client, monkeypatch):
+def test_the_steps_above_a_named_index_are_never_even_addressed(client, plan_seam):
     """Naming an index asserts it exists. Reconstructing the segmentation params it happened to be
     built with would be work in service of a question nobody asked."""
     addressed = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address(seen=addressed))
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+    plan_seam(addressed=addressed)
 
     client.post(f"{_BASE}/slides/{_ITEM}/predict",
                 json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
     assert [kind for kind, _ in addressed] == ["prediction"]
 
 
-def test_an_index_matching_the_task_spec_is_found_without_being_named(client, monkeypatch):
+def test_an_index_matching_the_task_spec_is_found_without_being_named(client, plan_seam):
     """What Inc 2c earned: the task declares the build its weights want, and the slide is searched
     for it. Nobody has to know which of four hashes on this slide is the right one."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
-    _built(client, "p1", "patching", {"mag": 20, "patch_size": 512, "overlap": 0})
-    _built(client, _FEAT, "features", {"encoder": "conch_v1", "patch_hash": "p1"})
+    plan_seam(seen=seen)
+    _built(client, "pat-1", "patching", {"mag": 20, "patch_size": 512, "overlap": 0})
+    _built(client, _FEAT, "features", {"encoder": "conch_v1", "patch_hash": "pat-1"})
 
     r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
     assert [x["kind"] for x in r.json()["steps"]] == ["prediction"]
 
 
-def test_a_slide_with_nothing_built_reaches_a_call_in_one_submission(client, monkeypatch):
+def test_a_slide_with_nothing_built_reaches_a_call_in_one_submission(client, plan_seam):
     """The whole point of 07: four steps, one click, in order."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    plan_seam(seen=seen)
 
     r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
     assert [x["kind"] for x in r.json()["steps"]] == [
@@ -200,29 +176,27 @@ def test_a_slide_with_nothing_built_reaches_a_call_in_one_submission(client, mon
     assert tiling["params"]["patch_size"] == 512 and tiling["params"]["mag"] == 20
 
 
-def test_an_index_the_task_was_not_fitted_on_is_not_used(client, monkeypatch):
+def test_an_index_the_task_was_not_fitted_on_is_not_used(client, plan_seam):
     """An ABMIL head fitted on CONCH will consume UNI vectors of the same width and return a
     confident number, and nothing downstream would say it was nonsense.
 
     The tiles underneath it *are* reused — they are the same 512 px at 20× either encoder reads,
     which is why encoding a second index over one patch grid is two steps and not four.
     """
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
-    _built(client, "p1", "patching", {"mag": 20, "patch_size": 512, "overlap": 0})
-    _built(client, "other", "features", {"encoder": "uni_v2", "patch_hash": "p1"})
+    plan_seam()
+    _built(client, "pat-1", "patching", {"mag": 20, "patch_size": 512, "overlap": 0})
+    _built(client, "other", "features", {"encoder": "uni_v2", "patch_hash": "pat-1"})
 
     r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
     assert [x["kind"] for x in r.json()["steps"]] == ["features", "prediction"]
 
 
-def test_a_build_planned_for_a_task_reuses_the_slides_own_segmentation(client, monkeypatch):
+def test_a_build_planned_for_a_task_reuses_the_slides_own_segmentation(client, plan_seam):
     """A task says nothing about segmentation, correctly. But cutting a second set of contours over
     a slide that already has one is minutes of GPU spent arriving back where it started."""
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address(seen=seen))
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
-    _built(client, "s1", "segmentation", {"segmenter": "grandqc", "seg_conf_thresh": 0.7})
+    plan_seam(addressed=seen)
+    _built(client, "seg-1", "segmentation", {"segmenter": "grandqc", "seg_conf_thresh": 0.7})
 
     client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
     assert seen[0] == ("segmentation", {"segmenter": "grandqc", "seg_conf_thresh": 0.7})
@@ -232,16 +206,15 @@ def test_predict_requires_a_task(client):
     assert client.post(f"{_BASE}/slides/{_ITEM}/predict", json={}).status_code == 422
 
 
-def test_a_task_this_deployment_does_not_have_is_a_404(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
+def test_a_task_this_deployment_does_not_have_is_a_404(client, plan_seam):
+    plan_seam()
     r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "nope"})
     assert r.status_code == 404 and "nope" in r.json()["detail"]
 
 
-def test_a_prediction_that_already_exists_is_not_queued_again(client, monkeypatch):
+def test_a_prediction_that_already_exists_is_not_queued_again(client, plan_seam):
     seen = []
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    plan_seam(seen=seen)
     _built(client, _PRED, "prediction", {"task_id": "brca_idc_ilc"})
 
     r = client.post(f"{_BASE}/slides/{_ITEM}/predict",
@@ -250,8 +223,8 @@ def test_a_prediction_that_already_exists_is_not_queued_again(client, monkeypatc
     assert seen == []
 
 
-def test_a_refused_dispatch_writes_no_row(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
+def test_a_refused_dispatch_writes_no_row(client, art_store, plan_seam, monkeypatch):
+    plan_seam()
 
     async def refuse(**kw):
         raise routes_mod.DispatchUnavailable("no worker")
@@ -263,10 +236,9 @@ def test_a_refused_dispatch_writes_no_row(client, art_store, monkeypatch):
     assert art_store._rows == {}
 
 
-def test_the_result_the_driver_reports_lands_in_the_result_column(client, monkeypatch):
+def test_the_result_the_driver_reports_lands_in_the_result_column(client, plan_seam):
     """The summary the Workspace row reads. It arrives on the report now, not on a status poll."""
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+    plan_seam()
     client.post(f"{_BASE}/slides/{_ITEM}/predict",
                 json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
 
