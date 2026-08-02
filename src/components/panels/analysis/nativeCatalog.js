@@ -24,7 +24,7 @@
 // below, planned and sequenced server-side (`agent/gateway/plan.py`), which is what 07 replaced the
 // panel's auto-advance loop with.
 import { startBiomarker } from '../../../api/biomarkerApi.js';
-import { startNuclei } from '../../../api/nucleiApi.js';
+import { getNucleiCatalog, startClassify, startNuclei } from '../../../api/nucleiApi.js';
 import { startBuild, startSegment } from '../../../api/preprocessApi.js';
 import { listTasks, startPredict } from '../../../api/taskApi.js';
 import { getTissueCatalog, startTissue } from '../../../api/tissueApi.js';
@@ -47,7 +47,13 @@ const scopeParams = (wholeHint) => ([
   },
   {
     tag: 'pa-region', name: 'bbox', label: 'Region',
-    desc: 'Draw a rectangle on the slide. Shared with Copilot and the other panels.',
+    // The second sentence is here because its absence reads as a bug. These runs are stored on a
+    // fixed tile grid — that is what lets two regions of one slide share a coverage set and lets a
+    // stopped build resume — so the area computed is the drawn rectangle rounded outwards to whole
+    // tiles. On a small rectangle that is visibly more than was drawn, and in the wrong place: a
+    // 1000 × 800 box came back as 4096 × 4096 starting 1.5 k px up and to the left of it.
+    desc: 'Draw a rectangle on the slide. Shared with Copilot and the other panels. The run covers '
+      + 'the whole storage tiles the rectangle touches, so it computes somewhat more than you drew.',
     enabledWhen: (v) => v.scope === 'region',
   },
 ]);
@@ -195,6 +201,55 @@ export const NATIVE_TOOLS = [
     submit: (itemId, v, { roi, mode } = {}) => startNuclei(itemId, {
       bbox: v.scope === 'whole' ? null : roi,
       seg_hash: v.scope === 'whole' ? (v.seg_hash || null) : null,
+    }, mode),
+  },
+
+  {
+    id: 'classify',
+    title: 'Cell classification',
+    description:
+      'Re-label an existing nuclei run\'s cells with a different model. The outlines are not '
+      + 'recomputed — CellViT already produced an embedding per nucleus and the segmentation kept '
+      + 'it, so this is seconds and no GPU. Run it again with another model and the same cells '
+      + 'carry a second set of labels; the Workspace switches between them.',
+    groups: [
+      {
+        label: 'Inputs',
+        params: [
+          artifactParam(
+            'art_hash', 'nuclei', 'Nuclei run',
+            'The cells to label. Runs from before this feature have no embeddings and cannot be '
+            + 'labelled — segment the slide again to get one that can.',
+            { requiredWhen: () => true },
+          ),
+          {
+            tag: 'string-enumeration', name: 'taxonomy', label: 'Model',
+            desc: 'What the classes mean, and on what tissue the model learned them. A model '
+              + 'trained on another organ will still produce labels; they will not mean much.',
+            defVal: 'nucls_super',
+            // Resolved when the form opens. Which heads a box has is a deployment fact, and this
+            // deployment's list should not be a constant in the browser that can quietly stop
+            // matching the weights on disk (the same call the tissue backend list makes).
+            optionsFrom: async () => {
+              const c = await getNucleiCatalog();
+              return (c?.taxonomies || [])
+                // PanNuke is not offered: segmentation produces it, so every artifact already
+                // has it and "running" it would be a job with nothing to do.
+                .filter(t => t.produced_by === 'classifier')
+                .map(t => ({
+                  value: t.id,
+                  label: t.label,
+                  note: `${t.organ} · ${(t.classes || []).length} classes`
+                    + (t.installed ? '' : ' · weights download on first run'),
+                }));
+            },
+          },
+        ],
+      },
+    ],
+    submit: (itemId, v, { mode } = {}) => startClassify(itemId, {
+      art_hash: v.art_hash,
+      taxonomy: v.taxonomy,
     }, mode),
   },
 

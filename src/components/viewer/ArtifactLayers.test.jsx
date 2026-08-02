@@ -49,11 +49,21 @@ const META = {
 };
 
 const BIO_META = { slide: { width: 40000, height: 30000 }, levels: 6, level_offset: 2 };
-const NUC_META = {
-  slide: { width: 40000, height: 30000, mpp: 0.25 },
+// Since Inc 7 a naming is an entry with its own classes, palette and coverage — the outlines are
+// shared, the labels are not.
+const pannuke = (over = {}) => ({
+  id: 'pannuke', label: 'PanNuke', organ: 'pan-organ (19 tissues)',
   classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
   colors: { Neoplastic: '#D55E00' },
+  coverage: { n_tiles: 1 },
+  summary: {},
+  ...over,
+});
+const NUC_META = {
+  slide: { width: 40000, height: 30000, mpp: 0.25 },
+  coverage: { n_tiles: 1 },
   layers: { classes: { level_offset: 0, levels: 8 } },
+  taxonomies: [pannuke()],
 };
 const CONTOURS = { type: 'FeatureCollection', features: [] };
 
@@ -297,7 +307,8 @@ describe('the nuclei mask', () => {
     await waitFor(() => expect(nucleiCalls().length).toBeGreaterThan(0));
     const before = nucleiCalls().at(-1)[1].signature;
 
-    useStore.getState().setNucleiLayerParams({ hidden: { Dead: true } });
+    // Hidden is keyed by naming since Inc 7 — `Other` means different things across the six.
+    useStore.getState().setNucleiLayerParams({ hidden: { pannuke: { Dead: true } } });
     await waitFor(() => expect(nucleiCalls().at(-1)[1].signature).not.toBe(before));
     expect(nucleiCalls().at(-1)[1].signature).toContain('show=');
   });
@@ -305,7 +316,9 @@ describe('the nuclei mask', () => {
   it('puts the artifact\'s coverage in the tile URL', async () => {
     // A tile is only immutable for a *given* coverage: without this, the transparent tiles
     // fetched before a region was computed would stay in the browser cache forever.
-    getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 4 } });
+    getNucleiMeta.mockResolvedValue(
+      { ...NUC_META, coverage: { n_tiles: 4 }, taxonomies: [pannuke({ coverage: { n_tiles: 4 } })] },
+    );
     render(<ArtifactLayers />);
     useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
 
@@ -318,14 +331,18 @@ describe('the nuclei mask', () => {
     // its bytes exist, so "is this mask still growing" is a question about the run.
     vi.useFakeTimers();
     try {
-      getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 1 } });
+      getNucleiMeta.mockResolvedValue(
+        { ...NUC_META, coverage: { n_tiles: 1 }, taxonomies: [pannuke({ coverage: { n_tiles: 1 } })] },
+      );
       useRunsStore.setState({ byId: { j1: { id: 'j1', artHash: 'nuc1', status: 2 } } });
       render(<ArtifactLayers />);
       useStore.getState().setArtifactVisible('nuc1', 'nuclei', true);
       await vi.waitFor(() => expect(getNucleiMeta).toHaveBeenCalled());
 
       // A whole-slide run fills in core by core; the mask has to catch up without a click.
-      getNucleiMeta.mockResolvedValue({ ...NUC_META, coverage: { n_tiles: 2 } });
+      getNucleiMeta.mockResolvedValue(
+        { ...NUC_META, coverage: { n_tiles: 2 }, taxonomies: [pannuke({ coverage: { n_tiles: 2 } })] },
+      );
       await vi.advanceTimersByTimeAsync(5000);
       await vi.waitFor(() => expect(nucleiCalls().at(-1)[1].signature).toContain('rev=2'));
 

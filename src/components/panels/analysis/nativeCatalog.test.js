@@ -5,13 +5,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../api/preprocessApi.js', () => ({ startSegment: vi.fn(), startBuild: vi.fn() }));
-vi.mock('../../../api/nucleiApi.js', () => ({ startNuclei: vi.fn() }));
+vi.mock('../../../api/nucleiApi.js', () => ({
+  startNuclei: vi.fn(), startClassify: vi.fn(), getNucleiCatalog: vi.fn(),
+}));
 vi.mock('../../../api/tissueApi.js', () => ({ startTissue: vi.fn(), getTissueCatalog: vi.fn() }));
 vi.mock('../../../api/biomarkerApi.js', () => ({ startBiomarker: vi.fn() }));
 vi.mock('../../../api/taskApi.js', () => ({ startPredict: vi.fn(), listTasks: vi.fn() }));
 
 import { startBuild, startSegment } from '../../../api/preprocessApi.js';
-import { startNuclei } from '../../../api/nucleiApi.js';
+import { getNucleiCatalog, startClassify, startNuclei } from '../../../api/nucleiApi.js';
 import { getTissueCatalog, startTissue } from '../../../api/tissueApi.js';
 import { startBiomarker } from '../../../api/biomarkerApi.js';
 import { listTasks, startPredict } from '../../../api/taskApi.js';
@@ -29,8 +31,11 @@ describe('the catalog itself', () => {
   it('lists every native tool, in the order a slide is worked through', () => {
     // Six, not five: the feature-index build joined in 07 as one entry with an encoder target,
     // rather than as the three DAG stages it runs (`patching` and `features` are still not here).
+    // Seven since Inc 7: `classify` sits directly after `nuclei` because it is that run's second
+    // step — it takes the artifact `nuclei` produced and names the cells in it.
     expect(NATIVE_TOOLS.map(t => t.id))
-      .toEqual(['segmentation', 'preprocess', 'nuclei', 'tissue', 'biomarker', 'prediction']);
+      .toEqual(['segmentation', 'preprocess', 'nuclei', 'classify', 'tissue', 'biomarker',
+                'prediction']);
   });
 
   it('gives every param a name, a label and a tag the renderer knows', () => {
@@ -135,6 +140,21 @@ describe('submit hands each endpoint what it already expects', () => {
   it('nuclei: a whole-slide run sends the seg_hash and no rectangle', async () => {
     await tool('nuclei').submit(ITEM, { scope: 'whole', seg_hash: 's1' }, { roi: ROI });
     expect(startNuclei.mock.calls[0].slice(0, 2)).toEqual([ITEM, { bbox: null, seg_hash: 's1' }]);
+  });
+
+  it('classify: the artifact and the model, and the mode the form asked in', async () => {
+    await tool('classify').submit(ITEM, { art_hash: 'n1', taxonomy: 'nucls_super' }, {});
+    expect(startClassify.mock.calls[0].slice(0, 2)).toEqual([ITEM, {
+      art_hash: 'n1', taxonomy: 'nucls_super',
+    }]);
+  });
+
+  // The cost sentence in front of the button is a `mode: 'plan'` call on every form change. A
+  // submit that dropped the mode turned each of those into a real run — three classifications
+  // dispatched before anyone pressed anything.
+  it('classify: a plan is asked for as a plan', async () => {
+    await tool('classify').submit(ITEM, { art_hash: 'n1', taxonomy: 'midog' }, { mode: 'plan' });
+    expect(startClassify.mock.calls[0][2]).toBe('plan');
   });
 
   it('tissue: an unset backend is null, not the empty string the select holds', async () => {

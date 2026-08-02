@@ -304,15 +304,25 @@ const NUCLEI_ROW = {
 };
 
 const NUCLEI_META = {
-  summary: {
-    n_nuclei: 15180,
-    area_mm2: 19.28,
-    counts_by_class: { Connective: 10955, Neoplastic: 3836, Inflammatory: 168, Epithelial: 221 },
-  },
   coverage: { n_tiles: 72 },
-  classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
-  colors: { Neoplastic: '#e94560', Connective: '#4caf82' },
   layers: { classes: { levels: 5 }, instances: { levels: 5 } },
+  // One naming, with its own coverage and counts (Inc 7). The outlines are the artifact's; the
+  // labels belong to the taxonomy that produced them.
+  taxonomies: [{
+    id: 'pannuke', label: 'PanNuke', organ: 'pan-organ (19 tissues)',
+    classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
+    display: {
+      Neoplastic: 'Neoplastic', Inflammatory: 'Inflammatory', Connective: 'Connective',
+      Dead: 'Dead', Epithelial: 'Epithelial',
+    },
+    colors: { Neoplastic: '#e94560', Connective: '#4caf82' },
+    coverage: { n_tiles: 72 },
+    summary: {
+      n_nuclei: 15180,
+      area_mm2: 19.28,
+      counts_by_class: { Connective: 10955, Neoplastic: 3836, Inflammatory: 168, Epithelial: 221 },
+    },
+  }],
 };
 
 // ── the two kinds that joined the registry in Inc 6 · 06 ───────────────────────────────
@@ -494,7 +504,8 @@ describe('an opened artifact row', () => {
 
     await userEvent.click(within(classRow).getByRole('button', { name: 'Hide' }));
 
-    expect(useStore.getState().nucleiLayerParams.hidden).toEqual({ Connective: true });
+    expect(useStore.getState().nucleiLayerParams.hidden)
+      .toEqual({ pannuke: { Connective: true } });
     // The whole point: the count is still on screen.
     expect(screen.getByText('10,955 · 72.2%')).toBeInTheDocument();
   });

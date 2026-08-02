@@ -18,7 +18,8 @@ the warm weights, the warm-up and the idle GPU release that three increments wen
 
 #: Kinds this bridge can dispatch. A kind not in here is refused at the REST layer rather than
 #: discovered as a missing env var an hour into a queue.
-KINDS = ("segmentation", "patching", "features", "prediction", "nuclei", "tissue", "biomarker")
+KINDS = ("segmentation", "patching", "features", "prediction", "nuclei", "classify", "tissue",
+         "biomarker")
 
 #: Human-facing titles. The Runs list shows these, so they name the work rather than the route.
 #: Here rather than in `rest.py` because both halves need them: the REST layer titles the first
@@ -29,6 +30,7 @@ TITLES = {
     "features": "Feature extraction",
     "prediction": "Downstream task",
     "nuclei": "Nuclei segmentation",
+    "classify": "Cell classification",
     "tissue": "Tissue map",
     "biomarker": "Marker map",
 }

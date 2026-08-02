@@ -5,7 +5,20 @@
 import { describe, expect, it } from 'vitest';
 import { detailFor, hasDetail, layerBinding, metaIsRow } from './artifactDetail.js';
 
-const META = {
+const PANNUKE = {
+  id: 'pannuke',
+  label: 'PanNuke',
+  organ: 'pan-organ (19 tissues)',
+  classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
+  display: {
+    Neoplastic: 'Neoplastic', Inflammatory: 'Inflammatory', Connective: 'Connective',
+    Dead: 'Dead', Epithelial: 'Epithelial',
+  },
+  colors: {
+    Neoplastic: '#e94560', Inflammatory: '#4da6ff', Connective: '#4caf82',
+    Dead: '#888888', Epithelial: '#f5a623',
+  },
+  coverage: { n_tiles: 72 },
   summary: {
     n_nuclei: 15180,
     area_mm2: 19.28425585508351,
@@ -13,16 +26,39 @@ const META = {
       Connective: 10955, Neoplastic: 3836, Inflammatory: 168, Epithelial: 221,
     },
   },
-  coverage: { n_tiles: 72 },
-  classes: ['Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial'],
-  colors: {
-    Neoplastic: '#e94560', Inflammatory: '#4da6ff', Connective: '#4caf82',
-    Dead: '#888888', Epithelial: '#f5a623',
-  },
-  layers: { classes: { levels: 5, level_offset: 2 }, instances: { levels: 5, level_offset: 2 } },
 };
 
-const detail = (over = {}, layer = {}) => detailFor('nuclei', { ...META, ...over }, layer);
+// A second naming over the same outlines: fewer cores, its own classes, its own palette.
+const NUCLS = {
+  id: 'nucls_super',
+  label: 'NuCLS super',
+  organ: 'breast (TCGA-BRCA)',
+  classes: ['tumor_any', 'nonTIL_stromal', 'sTIL', 'other_nucleus'],
+  display: {
+    tumor_any: 'Tumour (any)', nonTIL_stromal: 'Stromal (non-TIL)', sTIL: 'sTIL',
+    other_nucleus: 'Other',
+  },
+  colors: { tumor_any: '#e94560', sTIL: '#4caf82' },
+  coverage: { n_tiles: 40 },
+  summary: {
+    n_nuclei: 9000, area_mm2: 10.7,
+    counts_by_class: { tumor_any: 6000, sTIL: 3000 },
+  },
+};
+
+const META = {
+  coverage: { n_tiles: 72 },
+  layers: { classes: { levels: 5, level_offset: 2 }, instances: { levels: 5, level_offset: 2 } },
+  taxonomies: [PANNUKE],
+};
+
+/** `over` patches the artifact; `pan` patches the PanNuke naming inside it. */
+const detail = (over = {}, layer = {}, pan = null) => detailFor(
+  'nuclei',
+  { ...META, ...over, taxonomies: over.taxonomies
+    || [pan ? { ...PANNUKE, ...pan } : PANNUKE] },
+  layer,
+);
 
 describe('which kinds have moved across', () => {
   it('is the three drawable raster kinds, after 06', () => {
@@ -56,13 +92,23 @@ describe('the numbers the artifact stores', () => {
 
   it('says nothing about a number the artifact does not carry', () => {
     // A slide with no mpp has no area. An omitted row is a fact; "0 mm²" would not be one.
-    const stats = detail({ summary: { ...META.summary, area_mm2: undefined } }).stats;
+    const stats = detail({}, {}, { summary: { ...PANNUKE.summary, area_mm2: undefined } }).stats;
     expect(stats.find(s => s.key === 'area')).toBeUndefined();
     expect(stats.find(s => s.key === 'total')).toBeTruthy();
   });
 
   it('has no coverage row for an artifact that recorded none', () => {
-    expect(detail({ coverage: undefined }).stats.find(s => s.key === 'covered')).toBeUndefined();
+    expect(detail({}, {}, { coverage: undefined }).stats.find(s => s.key === 'covered'))
+      .toBeUndefined();
+  });
+
+  it('reports the naming\'s coverage, not the artifact\'s, and says how far behind it is', () => {
+    // 72 cores have outlines and NuCLS has named 40 of them. Reporting its 9,000 cells against
+    // 72 tiles would be a count over an area it is not an account of.
+    const d = detailFor('nuclei', { ...META, taxonomies: [PANNUKE, NUCLS] },
+                        { taxonomy: 'nucls_super' });
+    expect(d.stats[0].value).toBe('40 tiles · 10.70 mm²');
+    expect(d.config.note).toMatch(/32 cores have outlines this labelling has not reached/);
   });
 });
 
@@ -87,19 +133,26 @@ describe('one row per class', () => {
   });
 
   it('falls back to grey for a class the palette predates', () => {
-    const segs = detail({ colors: { Neoplastic: '#e94560' } }).segments;
+    const segs = detail({}, {}, { colors: { Neoplastic: '#e94560' } }).segments;
     expect(segs.find(s => s.label === 'Connective').colorHex).toBe('#888888');
   });
 
   it('reads a hidden class as not visible, and still counts it', () => {
-    const segs = detail({}, { hidden: { Connective: true } }).segments;
+    const segs = detail({}, { hidden: { pannuke: { Connective: true } } }).segments;
     const conn = segs.find(s => s.label === 'Connective');
     expect(conn.visible).toBe(false);
     expect(conn.count).toBe(10955);
   });
 
   it('has no rows at all before anything has been counted', () => {
-    expect(detail({ summary: { n_nuclei: 0, counts_by_class: {} } }).segments).toEqual([]);
+    expect(detail({}, {}, { summary: { n_nuclei: 0, counts_by_class: {} } }).segments).toEqual([]);
+  });
+
+  it('keys on the stored name and labels with the readable one', () => {
+    const segs = detailFor('nuclei', { ...META, taxonomies: [PANNUKE, NUCLS] },
+                           { taxonomy: 'nucls_super' }).segments;
+    expect(segs.map(s => s.key)).toEqual(['tumor_any', 'sTIL']);
+    expect(segs.map(s => s.label)).toEqual(['Tumour (any)', 'sTIL']);
   });
 });
 
@@ -128,19 +181,39 @@ describe('the controls the layer is drawn with', () => {
     expect(detail().config.note).toBeNull();
     expect(detail({}, { render: 'instances' }).config.note).toMatch(/colour per cell/);
   });
+
+  it('offers the naming selector only when there is more than one, and not per cell', () => {
+    // An artifact that has only ever been segmented has PanNuke and nothing to choose between.
+    expect(detail().config.choices).toEqual([]);
+    const both = { ...META, taxonomies: [PANNUKE, NUCLS] };
+    expect(detailFor('nuclei', both, {}).config.choices[0])
+      .toMatchObject({ key: 'taxonomy', value: 'pannuke' });
+    expect(detailFor('nuclei', both, {}).config.choices[0].options.map(o => o.value))
+      .toEqual(['pannuke', 'nucls_super']);
+    // The per-cell plane colours by *which* cell, which no naming changes.
+    expect(detailFor('nuclei', both, { render: 'instances' }).config.choices).toEqual([]);
+  });
 });
 
 describe('an eye on a class row', () => {
   it('patches the store rather than replacing it', () => {
     const { toggleSegment } = layerBinding('nuclei');
-    const patch = toggleSegment({ hidden: { Dead: true } }, 'Connective');
-    expect(patch).toEqual({ hidden: { Dead: true, Connective: true } });
+    const patch = toggleSegment({ hidden: { pannuke: { Dead: true } } }, 'Connective');
+    expect(patch).toEqual({ hidden: { pannuke: { Dead: true, Connective: true } } });
   });
 
   it('turns a hidden class back on', () => {
     const { toggleSegment } = layerBinding('nuclei');
-    expect(toggleSegment({ hidden: { Connective: true } }, 'Connective'))
-      .toEqual({ hidden: { Connective: false } });
+    expect(toggleSegment({ hidden: { pannuke: { Connective: true } } }, 'Connective'))
+      .toEqual({ hidden: { pannuke: { Connective: false } } });
+  });
+
+  it('hides per naming, so `Other` in one does not hide `Other` in another', () => {
+    const { toggleSegment } = layerBinding('nuclei');
+    const layer = { taxonomy: 'nucls_super', hidden: { pannuke: { Dead: true } } };
+    expect(toggleSegment(layer, 'other_nucleus')).toEqual({
+      hidden: { pannuke: { Dead: true }, nucls_super: { other_nucleus: true } },
+    });
   });
 
   it('names the store slice the layer lives in, not a local copy', () => {

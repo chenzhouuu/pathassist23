@@ -59,6 +59,38 @@ export async function startNuclei(itemId, { bbox = null, seg_hash = null } = {},
   return asJson(r, 'Start nuclei');
 }
 
+// Step 2 (Inc 7): name an artifact's existing outlines with a classifier head. Takes the artifact
+// rather than a scope, because it covers whatever that artifact covers — a naming is cheap enough
+// that offering to do half of it would only create states nobody can read a count out of.
+//
+// Returns the dispatch ack. No new artifact row is created and none is expected: the run carries
+// the *same* `art_hash` as the artifact it names, so the Runs list shows its progress on the Nuclei
+// row that already exists.
+//
+// `mode` is not optional decoration. The form asks what a submission would cost by calling this
+// with `mode: 'plan'` on every change, so a route that ignored the parameter would run the job
+// three times while the user was still choosing the model — which is what it did.
+export async function startClassify(itemId, { art_hash, taxonomy }, mode) {
+  const r = await fetch(
+    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/classify`
+    + (mode ? `?mode=${mode}` : ''),
+    {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ art_hash, taxonomy }),
+    },
+  );
+  return asJson(r, 'Start cell classification');
+}
+
+// The namings this deployment can produce, their classes and their palettes. From the service,
+// because which weights a box actually has is a deployment fact — the same reason the tissue map's
+// backend list is not hardcoded either.
+export async function getNucleiCatalog() {
+  const r = await fetch(`${COPILOT_BASE}/nuclei/catalog`, { headers: authHeaders() });
+  return asJson(r, 'Load nuclei catalog');
+}
+
 // Stopping a build is `cancelJob` in `api/index.js` — the run is a Girder job, so it is stopped the
 // way every job on this machine is, from the Runs list. The gateway route this used to call is gone
 // (Inc 6 · 05): the driver carries the cancel down to the cellvit worker's own core-tile boundary,
@@ -77,6 +109,9 @@ export async function getNucleiMeta(itemId, artHash) {
 // The tile URL OpenSeadragon fetches directly. No token in the query string: the layer is mounted
 // with `loadTilesWithAjax` + `ajaxHeaders`, so tiles authenticate with the same header as every
 // other call and the gateway needs no second auth surface.
+//
+// `params` carries which naming to draw (`taxonomy=`), which classes to show and the opacity —
+// so switching taxonomy is a URL change, not a rebuild.
 export function tileUrl(itemId, artHash, layer, level, x, y, params = {}) {
   const qs = new URLSearchParams(params);
   return `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/nuclei/`

@@ -338,6 +338,9 @@ export const useStore = create((set, get) => ({
     set((s) => ({ markerLayerParams: { ...s.markerLayerParams, ...patch } })),
 
   // The same, for the nuclei mask. Patches workspace/nuclei.js' NUCLEI_LAYER_DEFAULTS.
+  // Since Inc 7 it also holds `taxonomy` — which of the artifact's namings the mask is coloured by
+  // — and `hidden` is keyed by taxonomy first, because a class name hidden in one naming is not a
+  // class name in another.
   nucleiLayerParams: {},
   setNucleiLayerParams: (patch) =>
     set((s) => ({ nucleiLayerParams: { ...s.nucleiLayerParams, ...patch } })),

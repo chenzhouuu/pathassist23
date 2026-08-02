@@ -67,6 +67,16 @@ ROUTES: dict[str, Route] = {
         submit="/nuclei", status="/nuclei/status/{job_id}",
         cancel="/nuclei/cancel/{job_id}", nested_result=True, item_key="slide_ref",
     ),
+    # Step 2 (Inc 7): name an existing nuclei artifact's outlines with a classifier head. Same
+    # service, same queue, same worker as `nuclei` — a separate kind because it is a separate run,
+    # and because a kind that borrowed another's status path is a coincidence somebody later has
+    # to check is still true. It carries the *same* `art_hash` as the artifact it names, which is
+    # what makes its progress join onto the existing Workspace row instead of making a new one.
+    "classify": Route(
+        env="PATHASSIST_CELLVIT_URL", default="http://localhost:8020",
+        submit="/classify", status="/classify/status/{job_id}",
+        cancel="/classify/cancel/{job_id}", nested_result=True, item_key="slide_ref",
+    ),
     "tissue": Route(
         env="PATHASSIST_TISSUE_URL", default="http://localhost:8023",
         submit="/tissue", status="/tissue/status/{job_id}",

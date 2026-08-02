@@ -283,6 +283,41 @@ def test_a_planned_upstream_is_skipped_when_the_slide_already_has_it(nuclei_clie
     assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei"]
 
 
+def test_a_second_region_is_queued_and_not_answered_as_already_built(nuclei_client, plan_seam):
+    """The artifact's address does not depend on the rectangle — that is what lets two regions
+    share one coverage set. So a slide that already has nuclei is a slide that covers *something*,
+    and a new rectangle is work. Reading it as `ready` made the second region a silent no-op: the
+    mask stayed where the first run put it, which is what a user sees as "it ran somewhere else"."""
+    seen = []
+    plan_seam(seen=seen, extra=_NUCLEI_RESOLVED)
+    # The first region's bytes are on disk.
+    nuclei_client.post(f"{_BASE}/{_ITEM}/artifacts/nuc-1/result",
+                       json={"status": "ready", "kind": "nuclei", "params": {"scope": "region"},
+                             "result": {"art_hash": "nuc-1", "n_nuclei": 5083}})
+
+    r = nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei",
+                           json={"bbox": {"x": 11000, "y": 11000, "width": 600, "height": 500}})
+    assert r.json()["status"] == "queued"
+    assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei"]
+
+
+def test_resuming_a_stopped_whole_slide_run_is_queued_too(nuclei_client, plan_seam):
+    """"Stopped … and resumed by starting the same run again" is what the panel promises, and a
+    stopped run leaves a row behind."""
+    seen = []
+    plan_seam(seen=seen, extra=_NUCLEI_RESOLVED)
+    nuclei_client.post(f"{_BASE}/{_ITEM}/artifacts/seg-1/result",
+                       json={"status": "ready", "kind": "segmentation", "params": {}})
+    nuclei_client.post(f"{_BASE}/{_ITEM}/artifacts/nuc-1/result",
+                       json={"status": "cancelled", "kind": "nuclei", "params": {"scope": "slide"},
+                             "result": {"n_nuclei": 412, "stopped": True, "remaining": 5}})
+
+    r = nuclei_client.post(f"{_BASE}/{_ITEM}/nuclei", json={"bbox": None, "seg_hash": "seg-1"})
+    assert r.json()["status"] == "queued"
+    # And it does not rebuild the contours it already has.
+    assert [x["kind"] for x in seen[0]["steps"]] == ["nuclei"]
+
+
 def test_nuclei_without_the_job_queue_is_refused(art_store):
     """There is no direct-to-worker fallback left for this kind: the queue is the path."""
     app = create_app()
@@ -357,4 +392,82 @@ def test_a_report_for_a_missing_row_that_does_not_name_its_kind_is_still_a_404(n
     like."""
     r = nuclei_client.post(f"{_BASE}/{_ITEM}/artifacts/never-dispatched/result",
                            json={"status": "ready", "result": {}})
+    assert r.status_code == 404
+
+
+# ── classify, the one kind that is dispatched rather than planned (Inc 7) ──────────────
+#
+# Its input is a *built* artifact, so there is nothing to address and nothing to skip: the run
+# writes into the hash it was handed. That is why it does not go through `_plan_and_dispatch` —
+# the planner would find the address already in `have` and answer `ready`.
+#
+# What it still has to honour is `mode`. Every native form asks what a submission would cost by
+# calling its own submit with `mode="plan"` on each change, so a route that took the parameter and
+# dispatched anyway ran the job three times while the user was choosing the model. A browser E2E
+# counted the jobs; these tests are so that nothing has to count them again.
+
+
+def _nuclei_row(client, art_hash="nuc-1"):
+    client.post(f"{_BASE}/{_ITEM}/artifacts/{art_hash}/result",
+                json={"status": "ready", "kind": "nuclei", "params": {"scope": "region"},
+                      "result": {"art_hash": art_hash, "n_nuclei": 10}})
+
+
+def test_a_classification_is_dispatched_against_the_artifact_it_names(nuclei_client, plan_seam):
+    seen = []
+    plan_seam(seen=seen)
+    _nuclei_row(nuclei_client)
+
+    r = nuclei_client.post(f"{_BASE}/{_ITEM}/classify",
+                           json={"art_hash": "nuc-1", "taxonomy": "nucls_super"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "queued"
+    # One step, and it carries the artifact's own address — which is what joins its progress onto
+    # the Nuclei row instead of making a second one.
+    assert [s["kind"] for s in seen[0]["steps"]] == ["classify"]
+    assert seen[0]["steps"][0]["artHash"] == "nuc-1"
+    assert seen[0]["steps"][0]["params"]["taxonomy"] == "nucls_super"
+
+
+def test_planning_a_classification_queues_nothing(nuclei_client, plan_seam):
+    """The form asks this on every keystroke. It must be free."""
+    seen = []
+    plan_seam(seen=seen)
+    _nuclei_row(nuclei_client)
+
+    r = nuclei_client.post(f"{_BASE}/{_ITEM}/classify?mode=plan",
+                           json={"art_hash": "nuc-1", "taxonomy": "nucls_super"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "planned"
+    assert [s["kind"] for s in r.json()["steps"]] == ["classify"]
+    assert seen == []
+
+
+def test_a_planned_classification_is_never_reported_as_already_built(nuclei_client, plan_seam):
+    """Unlike a content-addressed build there is no `ready` answer: re-running a naming is how it
+    catches up with a segmentation that has grown since."""
+    plan_seam()
+    _nuclei_row(nuclei_client)
+
+    body = nuclei_client.post(f"{_BASE}/{_ITEM}/classify?mode=plan",
+                              json={"art_hash": "nuc-1", "taxonomy": "nucls_super"}).json()
+    assert body["reused"] is False
+    assert body["plan"][0]["built"] is False
+
+
+def test_classifying_something_that_is_not_a_nuclei_run_is_refused(nuclei_client, plan_seam):
+    plan_seam()
+    nuclei_client.post(f"{_BASE}/{_ITEM}/artifacts/tis-1/result",
+                       json={"status": "ready", "kind": "tissue", "params": {},
+                             "result": {"art_hash": "tis-1"}})
+
+    r = nuclei_client.post(f"{_BASE}/{_ITEM}/classify",
+                           json={"art_hash": "tis-1", "taxonomy": "nucls_super"})
+    assert r.status_code == 400
+
+
+def test_classifying_an_artifact_this_slide_does_not_have_is_a_404(nuclei_client, plan_seam):
+    plan_seam()
+    r = nuclei_client.post(f"{_BASE}/{_ITEM}/classify",
+                           json={"art_hash": "nope", "taxonomy": "nucls_super"})
     assert r.status_code == 404

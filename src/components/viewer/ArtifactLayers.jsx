@@ -41,8 +41,9 @@ import {
   tileParams as markerTileParams, withMarkerDefaults,
 } from '../workspace/markers.js';
 import {
-  classesOf as nucleiClassesOf, hasInstances, layerLevels as nucleiLevels,
-  layerSignature as nucleiSignature, levelOffsetFor as nucleiOffsetFor,
+  classesOf as nucleiClassesOf, hasInstances, hiddenIn as nucleiHiddenIn,
+  layerLevels as nucleiLevels, layerSignature as nucleiSignature,
+  levelOffsetFor as nucleiOffsetFor, resolveTaxonomy, taxonomyOf,
   tileParams as nucleiTileParams, withNucleiDefaults,
 } from '../workspace/nuclei.js';
 import { clearMarkerLayers, setMarkersBase, syncMarkerLayer } from './markerLayers.js';
@@ -165,8 +166,12 @@ function NucleiTileLayer({ viewer, itemId, hash }) {
   const mountedSig = useRef(null);
 
   const p = useMemo(() => withNucleiDefaults(stored), [stored]);
-  const classes = useMemo(() => nucleiClassesOf(meta), [meta]);
-  const shown = useMemo(() => classes.filter((c) => !p.hidden[c]), [classes, p.hidden]);
+  // The naming to draw, resolved against what this artifact has: a selection made on a classified
+  // artifact must not blank the mask on one that has only ever been segmented.
+  const tax = useMemo(() => resolveTaxonomy(meta, p.taxonomy), [meta, p.taxonomy]);
+  const classes = useMemo(() => nucleiClassesOf(meta, tax), [meta, tax]);
+  const hidden = useMemo(() => nucleiHiddenIn(p, tax), [p, tax]);
+  const shown = useMemo(() => classes.filter((c) => !hidden[c]), [classes, hidden]);
 
   // An artifact built before the instance raster existed has no per-cell layer until its next run
   // redraws it, so asking for that view falls back rather than mounting a pyramid of holes.
@@ -174,10 +179,16 @@ function NucleiTileLayer({ viewer, itemId, hash }) {
 
   // Coverage is in the tile URL, so growing coverage is a different picture and OSD fetches it.
   // Unchanged coverage means an unchanged URL, so a poll that found nothing new costs nothing.
-  const rev = meta?.coverage?.n_tiles;
+  //
+  // Which coverage depends on the plane. The instance raster is shared, so it grows when the
+  // outlines do; a class plane grows when *its naming* is run, and must not be re-fetched because
+  // some other naming caught up.
+  const rev = render === 'instances'
+    ? meta?.coverage?.n_tiles
+    : taxonomyOf(meta, tax)?.coverage?.n_tiles;
   const params = useMemo(
-    () => nucleiTileParams(render, { show: shown, opacity: 1, classes, rev }),
-    [render, shown, classes, rev],
+    () => nucleiTileParams(render, { show: shown, opacity: 1, classes, rev, taxonomy: tax }),
+    [render, shown, classes, rev, tax],
   );
 
   // A build that has run but not yet drawn reports no levels. Mounting then would ask for tiles

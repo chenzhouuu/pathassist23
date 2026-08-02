@@ -22,6 +22,29 @@ _CONTROL_TIMEOUT = 30.0
 _TILE_TIMEOUT = 30.0
 
 
+async def get_nuclei_json(
+    *, base_url: str, path: str, params: dict | None = None,
+    client: httpx.AsyncClient | None = None,
+) -> dict | None:
+    """GET a control-plane JSON document (the taxonomy catalog); None on 404.
+
+    The tissue map client's function of the same shape, arrived at here for the same reason: which
+    models a deployment has is a deployment fact, and the frontend asks the service rather than
+    carrying a list that can quietly stop matching the weights on disk.
+    """
+    owns = client is None
+    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
+    try:
+        resp = await client.get(path, params=params or {})
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    finally:
+        if owns:
+            await client.aclose()
+
+
 async def get_nuclei_meta(
     *, base_url: str, item: str, art_hash: str, client: httpx.AsyncClient | None = None,
 ) -> dict:

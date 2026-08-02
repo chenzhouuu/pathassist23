@@ -10,44 +10,106 @@
 // Every number is read back from the stored artifact (summary + coverage), never carried over from
 // the call that produced it. That is Inc 5's claim and it still holds: reload the page and the same
 // numbers come back, because they were on disk, not in a variable.
+//
+// **Inc 7: one artifact, several namings.** The outlines are shared; the classes are not. So every
+// function that used to take `meta` and answer about "the" classes now takes a taxonomy id too,
+// and the class list, the colours, the counts and the *coverage* all come from that taxonomy's
+// entry in meta. A naming reaches the cores it has been run over, which can be fewer than the ones
+// with outlines — reporting its counts against the artifact's tile list would be a count over an
+// area the reader assumes is bigger than it is.
 
+/** PanNuke's order, kept as the fallback for an artifact whose meta predates the taxonomy list. */
 export const PANNUKE_ORDER = Object.freeze([
   'Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial',
 ]);
 
-/** How much of the slide the artifact covers, from its own coverage record. */
-export function coverageSummary(meta) {
-  const n = meta?.coverage?.n_tiles;
-  if (!n) return null;
-  const mm2 = Number(meta?.summary?.area_mm2);
-  return { tiles: n, mm2: Number.isFinite(mm2) ? mm2 : null };
+export const DEFAULT_TAXONOMY = 'pannuke';
+
+/** Every naming this artifact has, in the order the service listed them (PanNuke first). */
+export function taxonomiesOf(meta) {
+  const list = meta?.taxonomies;
+  return Array.isArray(list) ? list : [];
+}
+
+/** One naming's entry, falling back to the default and then to nothing at all. */
+export function taxonomyOf(meta, taxonomy) {
+  const list = taxonomiesOf(meta);
+  return list.find((t) => t.id === (taxonomy || DEFAULT_TAXONOMY))
+    || list.find((t) => t.id === DEFAULT_TAXONOMY)
+    || null;
+}
+
+/** The id actually in use — what was asked for if the artifact has it, else what it does have. */
+export function resolveTaxonomy(meta, taxonomy) {
+  return taxonomyOf(meta, taxonomy)?.id || DEFAULT_TAXONOMY;
 }
 
 /**
- * The class histogram as rows, in PanNuke's own order, with the fraction of the total.
- * Classes the build found none of are omitted — a zero here would be a claim about biology that
- * the number cannot support at region scale.
+ * How much of the slide *this naming* covers.
+ *
+ * The taxonomy's own tile count and its own area, not the artifact's. They are usually the same
+ * number and the case where they are not is the one worth being right about: a region segmented
+ * after a classify run has outlines nobody has named.
  */
-export function classRows(summary) {
-  const counts = summary?.counts_by_class || {};
+export function coverageSummary(meta, taxonomy) {
+  const entry = taxonomyOf(meta, taxonomy);
+  const n = entry?.coverage?.n_tiles;
+  if (!n) return null;
+  // `area_mm2` is null when the slide never reported an mpp, and `Number(null)` is 0 — which would
+  // turn "this cannot be measured" into "it measures nothing".
+  const raw = entry?.summary?.area_mm2;
+  const mm2 = raw == null ? NaN : Number(raw);
+  return { tiles: n, mm2: Number.isFinite(mm2) ? mm2 : null };
+}
+
+/** How many cores have outlines — the number a naming's coverage is measured against. */
+export function outlineTiles(meta) {
+  const n = Number(meta?.coverage?.n_tiles);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Cores with outlines that this naming has not reached. 0 when it is caught up. */
+export function unlabelledTiles(meta, taxonomy) {
+  const entry = taxonomyOf(meta, taxonomy);
+  return Math.max(0, outlineTiles(meta) - (Number(entry?.coverage?.n_tiles) || 0));
+}
+
+/** This naming's stored summary — counts, total, area — or an empty one. */
+export function summaryOf(meta, taxonomy) {
+  return taxonomyOf(meta, taxonomy)?.summary || {};
+}
+
+/**
+ * The class histogram as rows, in the taxonomy's own order, with the fraction of the total.
+ * Classes the run found none of are omitted — a zero here would be a claim about biology that the
+ * number cannot support at region scale.
+ */
+export function classRows(meta, taxonomy) {
+  const counts = summaryOf(meta, taxonomy)?.counts_by_class || {};
+  const order = classesOf(meta, taxonomy);
+  const display = taxonomyOf(meta, taxonomy)?.display || {};
   const total = Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0);
-  const named = PANNUKE_ORDER.filter((n) => counts[n]);
-  const extra = Object.keys(counts).filter((n) => !PANNUKE_ORDER.includes(n) && counts[n]);
+  const named = order.filter((n) => counts[n]);
+  const extra = Object.keys(counts).filter((n) => !order.includes(n) && counts[n]);
   return [...named, ...extra].map((name) => ({
     name,
+    // The stored name is the key everything else in the row is looked up by; the readable one is
+    // for the eye. Keeping them apart is what lets `nonTILnonMQ_stromal` read as a sentence
+    // without a hidden-class toggle keying on a string that could be re-worded.
+    label: display[name] || name,
     count: Number(counts[name]) || 0,
     fraction: total ? (Number(counts[name]) || 0) / total : 0,
   }));
 }
 
-export function totalNuclei(summary) {
-  const n = Number(summary?.n_nuclei);
+export function totalNuclei(meta, taxonomy) {
+  const n = Number(summaryOf(meta, taxonomy)?.n_nuclei);
   return Number.isFinite(n) ? n : 0;
 }
 
 /** Area covered, as mm² with two decimals. '' when the slide never reported an mpp. */
-export function formatArea(summary) {
-  const a = Number(summary?.area_mm2);
+export function formatArea(meta, taxonomy) {
+  const a = Number(summaryOf(meta, taxonomy)?.area_mm2);
   return Number.isFinite(a) && a > 0 ? `${a.toFixed(2)} mm²` : '';
 }
 
@@ -73,35 +135,50 @@ export const RENDER_LABEL = Object.freeze({ classes: 'Class', instances: 'Each c
 export const NUCLEI_LAYER_DEFAULTS = Object.freeze({
   render: 'classes',
   opacity: DEFAULT_OPACITY,
-  hidden: Object.freeze({}),           // { [className]: true }
+  // Which naming is drawn. PanNuke because it is the one every artifact has — segmentation
+  // produces it, so there is no state in which this default points at nothing.
+  taxonomy: DEFAULT_TAXONOMY,
+  // Per taxonomy: a class name hidden in one naming is not a class name in another, and one flat
+  // map would have `Other` hide three unrelated things at once.
+  hidden: Object.freeze({}),           // { [taxonomy]: { [className]: true } }
 });
 
 export function withNucleiDefaults(patch) {
   return { ...NUCLEI_LAYER_DEFAULTS, ...(patch || {}) };
 }
 
-/** The class list this artifact actually has — from its own meta, then PanNuke as a fallback. */
-export function classesOf(meta) {
-  const c = meta?.classes;
+/** What is hidden in one naming. Always an object, so a caller never guards for it. */
+export function hiddenIn(layer, taxonomy) {
+  return layer?.hidden?.[taxonomy || DEFAULT_TAXONOMY] || {};
+}
+
+/** The class list this naming has — from the artifact's own meta, then PanNuke as a fallback. */
+export function classesOf(meta, taxonomy) {
+  const c = taxonomyOf(meta, taxonomy)?.classes;
   return Array.isArray(c) && c.length ? c : [...PANNUKE_ORDER];
 }
 
 /** Class → '#rrggbb', from the artifact's own palette so a swatch can never drift from the map. */
-export function colorsOf(meta) {
-  return meta?.colors && Object.keys(meta.colors).length ? meta.colors : {};
+export function colorsOf(meta, taxonomy) {
+  const c = taxonomyOf(meta, taxonomy)?.colors;
+  return c && Object.keys(c).length ? c : {};
 }
 
 /** Query params for a tile URL. Fixed key order: OSD caches by URL string. */
-export function tileParams(render, { show, opacity, classes, rev } = {}) {
+export function tileParams(render, { show, opacity, classes, rev, taxonomy } = {}) {
   const params = {};
   const all = classes || [];
   // The instance view has no class filter — its colours say which cell, not which kind, so
-  // hiding a class there would remove cells without saying what they had in common.
-  if (render !== 'instances' && show && all.length && show.length && show.length < all.length) {
-    params.show = [...show].sort().join(',');
+  // hiding a class there would remove cells without saying what they had in common. It has no
+  // taxonomy either: an outline is an outline whatever it is called.
+  if (render !== 'instances') {
+    if (taxonomy && taxonomy !== DEFAULT_TAXONOMY) params.taxonomy = taxonomy;
+    if (show && all.length && show.length && show.length < all.length) {
+      params.show = [...show].sort().join(',');
+    }
   }
   if (opacity != null && opacity !== 1) params.alpha = String(Math.round(opacity * 1000) / 1000);
-  // How many cores the artifact covers. The worker ignores it; it is in the URL because a tile is
+  // How many cores this naming covers. The worker ignores it; it is in the URL because a tile is
   // only immutable for a *given* coverage. Without it, the transparent tiles fetched before a
   // region was computed would stay in the browser's cache — a build that grew would keep showing
   // the emptiness it had when you first looked at it.

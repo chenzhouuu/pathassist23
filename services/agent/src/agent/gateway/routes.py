@@ -11,7 +11,7 @@ from ..loop.artifact_admin import artifact_usage, delete_artifact
 from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
 from ..loop.biomarker_map_client import get_map_json, get_tile
 from ..loop.events import RunFinished
-from ..loop.nuclei_client import get_nuclei_meta, get_nuclei_tile
+from ..loop.nuclei_client import get_nuclei_json, get_nuclei_meta, get_nuclei_tile
 from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_chain
 from ..loop.preprocess_client import get_contours, get_prediction, list_tasks
 from ..loop.tissue_map_client import get_tissue_json, get_tissue_tile
@@ -1314,6 +1314,114 @@ async def start_nuclei(
             "segmentation": {},
         },
     )
+
+
+class ClassifyRequest(BaseModel):
+    """Which built artifact to name, and with which head."""
+
+    art_hash: str
+    taxonomy: str
+
+
+@router.get("/nuclei/catalog")
+async def nuclei_catalog(
+    user: dict = Depends(require_user),
+    cellvit_url: str | None = Depends(get_cellvit_url),
+) -> dict:
+    """The namings this deployment can produce, their classes and their palettes (Inc 7).
+
+    The tissue map's `/tissue/catalog` in a second copy, and for its reason: which models a box
+    actually has is a deployment fact, so the form asks rather than hardcoding a list that can
+    quietly stop matching the weights on disk.
+    """
+    try:
+        doc = await get_nuclei_json(base_url=_need_cellvit(cellvit_url), path="/nuclei/catalog")
+    except httpx.HTTPError as exc:
+        raise _nuclei_error(exc) from exc
+    if doc is None:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "nuclei catalog unavailable")
+    return doc
+
+
+@router.post("/slides/{item}/classify")
+async def start_classify(
+    item: str,
+    body: ClassifyRequest,
+    mode: str = Query("run", pattern="^(run|plan|next)$"),
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    cellvit_url: str | None = Depends(get_cellvit_url),
+    plugin_url: str | None = Depends(get_plugin_url),
+) -> dict:
+    """Queue step 2: name an existing nuclei artifact's outlines with a classifier head (Inc 7).
+
+    **Not planned, dispatched.** Every other kind goes through `_plan_and_dispatch`, which addresses
+    the run, drops what this slide already has and queues the rest. That is exactly wrong here: the
+    input is a *built* artifact, so its address is already in `have` and the planner would answer
+    `ready` and run nothing. There is also nothing to address — the run writes into the artifact it
+    was handed, under the hash it was handed, which is why this takes an `art_hash` rather than
+    computing one.
+
+    **No new row, by construction.** The step carries the artifact's own hash, so the driver's
+    terminal report updates the row that already exists and the Workspace shows one Nuclei row with
+    a second naming on it. It is the same reason the Runs list shows this run's progress on that
+    row: `runJoin` unions artifacts and jobs on `art_hash`.
+
+    **`mode` is answered here even though there is nothing to plan.** Every native form asks what a
+    submission would cost by calling its own submit with `mode="plan"`, debounced, on every change.
+    A route that took the parameter and dispatched anyway would run the job while the user was
+    still picking the model — which is exactly what this one did until a browser E2E counted the
+    jobs. There is no `ready` answer to give: unlike a content-addressed build, re-running a naming
+    is meaningful work (it is how a naming catches up with a segmentation that has since grown).
+    """
+    if not plugin_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "analysis runs go on the Girder job queue, which this deployment has not configured",
+        )
+    _need_cellvit(cellvit_url)
+
+    row = await artifacts.get_artifact(item=item, art_hash=body.art_hash)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "no such artifact on this slide",
+        )
+    if row.get("kind") != "nuclei":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"cell classification names nuclei outlines; {body.art_hash} is a "
+            f"{row.get('kind')} artifact",
+        )
+
+    step = {
+        "kind": "classify", "artHash": body.art_hash, "title": TITLES["classify"],
+        "params": {"art_hash": body.art_hash, "taxonomy": body.taxonomy},
+    }
+    if mode == "plan":
+        # The same shape `_plan_and_dispatch` answers a plan with, so the form's cost sentence is
+        # rendered by the same code for every tool. One step, and it is never already built.
+        return {
+            "kind": "classify", "art_hash": body.art_hash, "status": "planned",
+            "steps": [{"kind": "classify", "art_hash": body.art_hash,
+                       "title": TITLES["classify"]}],
+            "plan": [{"kind": "classify", "art_hash": body.art_hash,
+                      "title": TITLES["classify"], "built": False}],
+            "reused": False,
+        }
+    try:
+        ack = await dispatch_chain(
+            plugin_url=plugin_url, item=item, token=token,
+            label=f"Cell classification · {body.taxonomy}", steps=[step],
+        )
+    except DispatchUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return {
+        "kind": "classify", "art_hash": body.art_hash, "status": "queued",
+        "taxonomy": body.taxonomy, "steps": [step],
+        "chain_id": ack.get("chainId"), "girder_job_id": ack.get("jobId"),
+    }
 
 
 @router.get("/slides/{item}/nuclei/{art_hash}/meta")

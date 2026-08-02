@@ -29,8 +29,9 @@ import {
   phenotypeLegend, presetChannels, presetNames, separableMarkers, withMarkerDefaults,
 } from './markers.js';
 import {
-  RENDERS, RENDER_LABEL, classRows, colorsOf, coverageSummary, formatArea, formatCount,
-  hasInstances, layerLevels, totalNuclei, withNucleiDefaults,
+  DEFAULT_TAXONOMY, RENDERS, RENDER_LABEL, classRows, colorsOf, coverageSummary, formatArea,
+  formatCount, hasInstances, hiddenIn, layerLevels, resolveTaxonomy, taxonomiesOf, totalNuclei,
+  unlabelledTiles, withNucleiDefaults,
 } from './nuclei.js';
 import {
   describePrediction, otherClass, withPredictionDefaults,
@@ -41,10 +42,17 @@ import {
   coverageSummary as tissueCoverage, tsrOf, withTissueDefaults,
 } from './tissue.js';
 
-/** The name a class is stored and displayed under has to be the same string, or hiding breaks. */
-const segment = (name, count, fraction, colors, hidden) => ({
+/**
+ * One class row. `key` is the name the class is *stored* under and is what hiding and colouring
+ * both key on; `label` is what a reader sees, and defaults to the same string.
+ *
+ * They are separate since Inc 7, where a taxonomy's stored names are upstream's own —
+ * `nonTILnonMQ_stromal` is the key a count is filed under and "Stromal (non-TIL, non-macrophage)"
+ * is the sentence. Rewording the second must not silently un-hide the first.
+ */
+const segment = (name, count, fraction, colors, hidden, label = null) => ({
   key: name,
-  label: name,
+  label: label || name,
   colorHex: colors[name] || '#888888',
   count,
   fraction,
@@ -52,6 +60,26 @@ const segment = (name, count, fraction, colors, hidden) => ({
 });
 
 const modes = (values, labels) => values.map(v => ({ value: v, label: labels[v] }));
+
+/**
+ * The one line under the nuclei controls, when there is something a number alone would not say.
+ *
+ * A naming behind the outlines wins over the instance-view explanation, because it is the one that
+ * changes how the counts above should be read: they are an account of a smaller area than the row
+ * heading implies.
+ */
+function _nucleiNote(layer, meta, behind) {
+  if (layer.render !== 'instances' && behind > 0) {
+    return `${behind} ${behind === 1 ? 'core has' : 'cores have'} outlines this labelling has `
+      + 'not reached — the counts above are for the tiles it covers. Run Cell classification '
+      + 'again to catch up.';
+  }
+  if (layer.render === 'instances' && hasInstances(meta)) {
+    return 'A colour per cell, not per class — so touching nuclei read as separate. '
+      + 'The colours carry no meaning of their own.';
+  }
+  return null;
+}
 
 /** The H&E under a dense layer. Every drawable kind but nuclei has one, and it is the same slider. */
 const heFadeSlider = (v) => ({ key: 'heFade', label: 'H&E', value: v, min: 0, max: 1, step: 0.05 });
@@ -66,15 +94,22 @@ const DETAILS = Object.freeze({
     withDefaults: withNucleiDefaults,
 
     detail(meta, layer) {
-      const summary = meta?.summary || null;
-      const cov = coverageSummary(meta);
-      const n = totalNuclei(summary);
-      const colors = colorsOf(meta);
-      const area = formatArea(summary);
+      // Which naming is being shown. Resolved against what the artifact actually has rather than
+      // taken from the store: a selection made on one artifact must not blank the panel on another
+      // that has never been classified.
+      const tax = resolveTaxonomy(meta, layer.taxonomy);
+      const namings = taxonomiesOf(meta);
+      const cov = coverageSummary(meta, tax);
+      const n = totalNuclei(meta, tax);
+      const colors = colorsOf(meta, tax);
+      const area = formatArea(meta, tax);
+      const hidden = hiddenIn(layer, tax);
+      const behind = unlabelledTiles(meta, tax);
 
       const stats = [];
       // Coverage first, because it is what everything under it is a complete account *of*: a count
-      // over 3 % of a slide and a count over all of it are not the same claim.
+      // over 3 % of a slide and a count over all of it are not the same claim. Since Inc 7 this is
+      // *this naming's* coverage, which can be smaller than the artifact's.
       if (cov) {
         stats.push({
           key: 'covered',
@@ -93,7 +128,9 @@ const DETAILS = Object.freeze({
         // Hiding a class removes it from the *picture*. Its count stays in this list either way —
         // hiding a class from the map must not hide it from the arithmetic.
         segments: n > 0
-          ? classRows(summary).map(c => segment(c.name, c.count, c.fraction, colors, layer.hidden))
+          ? classRows(meta, tax).map(
+              c => segment(c.name, c.count, c.fraction, colors, hidden, c.label),
+            )
           : [],
         config: {
           // Offered only once the per-cell plane exists: an artifact built before ticket 08 has
@@ -101,20 +138,29 @@ const DETAILS = Object.freeze({
           modes: hasInstances(meta) ? modes(RENDERS, RENDER_LABEL) : [],
           mode: layer.render,
           opacity: layer.opacity,
+          // The naming selector, offered only when there is a choice and only in the view a naming
+          // changes — the instance plane colours by *which* cell, which no taxonomy affects.
+          choices: layer.render !== 'instances' && namings.length > 1
+            ? [{
+                key: 'taxonomy', label: 'Labels', value: tax,
+                options: namings.map(t => ({ value: t.id, label: t.label, note: t.organ })),
+              }]
+            : [],
           // Nothing to tune until there is a picture to tune. `layerLevels` is 0 while a build has
           // stored polygons but not yet rasterised them.
           drawn: layerLevels(meta) > 0,
-          note: layer.render === 'instances' && hasInstances(meta)
-            ? 'A colour per cell, not per class — so touching nuclei read as separate. '
-              + 'The colours carry no meaning of their own.'
-            : null,
+          note: _nucleiNote(layer, meta, behind),
         },
       };
     },
 
     /** Turning a segment's eye into a layer patch. The store holds `hidden`, the row shows `visible`. */
     toggleSegment(layer, key) {
-      return { hidden: { ...layer.hidden, [key]: !layer.hidden[key] } };
+      // Per naming: `Other` means three unrelated things across the six, and one flat map would
+      // hide all of them together.
+      const tax = layer.taxonomy || DEFAULT_TAXONOMY;
+      const mine = hiddenIn(layer, tax);
+      return { hidden: { ...layer.hidden, [tax]: { ...mine, [key]: !mine[key] } } };
     },
 
     patch(layer, key, value) {

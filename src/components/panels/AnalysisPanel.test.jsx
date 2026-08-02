@@ -85,7 +85,7 @@ describe('one list, two sources', () => {
   it('counts both sources together', async () => {
     render();
     await screen.findByText('Nuclei Detection');
-    expect(screen.getByText('7 / 7 algorithms')).toBeTruthy();
+    expect(screen.getByText('8 / 8 algorithms')).toBeTruthy();
   });
 
   it('searches across both sources with the one box', async () => {
