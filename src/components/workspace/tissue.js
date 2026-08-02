@@ -1,7 +1,15 @@
-// src/components/panels/tissueUtils.js — pure helpers for the Tissue panel (Inc 4, Route B).
-// Everything here is a pure function of its arguments so the panel's logic is testable without a
-// viewer, a network or a GPU. The React shell is TissuePanel.jsx; the OSD plumbing is
-// overlayLayers.js.
+// src/components/workspace/tissue.js — the tissue map: its composition, and how it is drawn.
+//
+// Was `panels/tissueUtils.js` until Inc 6 · 06, when the Tissue tab went. Its panel half — is a
+// build running, what does its Stop button say, how far along is it — went with the tab, because
+// a run is a Girder job now and the Runs list is where a job is watched. What is here is the
+// artifact half, which has two readers and belongs to neither: `workspace/artifactDetail.js` turns
+// it into the expanded row, and `viewer/ArtifactLayers.jsx` turns it into the raster on the slide.
+// It followed `workspace/nuclei.js` for the same reason, one ticket later.
+//
+// Everything is a pure function of its arguments, so it is testable without a viewer, a network or
+// a GPU; and every number is read off the stored artifact rather than carried over from the call
+// that produced it, which is what makes the numbers survive a reload.
 
 // The three looks D7 asked for. `classes` is the default: colour by argmax with alpha following
 // confidence, so an out-of-focus or ambiguous field renders faint instead of looking as decided as
@@ -43,7 +51,7 @@ export function withTissueDefaults(patch) {
 }
 
 /** Query params for a tile URL. Fixed key order: OSD caches by URL string. */
-export function tileParams(render, { show, opacity, conf = true, confFloor, classes } = {}) {
+export function tileParams(render, { show, opacity, conf = true, confFloor, classes, rev } = {}) {
   const params = {};
   const all = classes || [];
   // Omit `show` when nothing is filtered — a shorter URL is a better cache key.
@@ -58,6 +66,12 @@ export function tileParams(render, { show, opacity, conf = true, confFloor, clas
     }
   }
   if (render === 'outline') params.width = '2';
+  // How many cores the artifact covers. The worker ignores it; it is in the URL because a tile is
+  // only immutable for a *given* coverage (the same reason `workspace/nuclei.js` carries one).
+  // Without it, the transparent tiles fetched while a whole-slide build was still working would
+  // stay in the browser's cache, and the map would keep showing the emptiness it had when you
+  // first looked at it.
+  if (Number.isFinite(Number(rev)) && Number(rev) > 0) params.rev = String(rev);
   return params;
 }
 
@@ -99,71 +113,6 @@ export function colorsOf(meta, catalog, backendName) {
   return catalog?.backends?.[name]?.colors || {};
 }
 
-export function backendNames(catalog) {
-  return Object.keys(catalog?.backends || {});
-}
-
-/** The artifact row for this slide's tissue map (the panel shows at most one). */
-export function findTissueRow(rows = []) {
-  return rows.find((r) => r.kind === 'tissue') || null;
-}
-
-export function findReadySegmentation(rows = []) {
-  return rows.find((r) => r.kind === 'segmentation' && r.status === 'ready') || null;
-}
-
-export function isRunning(row) {
-  return !!row && (row.status === 'queued' || row.status === 'running');
-}
-
-/** A build was stopped part-way and can be picked up again — coverage makes resuming free. */
-export function isStopped(row) {
-  return row?.status === 'cancelled';
-}
-
-/**
- * Whether Stop should be offered, and whether it has already been pressed.
- *
- * The request is already in flight while the worker finishes its current core tile, so the button
- * has to disable itself for that window rather than invite a second click that does nothing.
- */
-export function canStop(row) {
-  return isRunning(row) && !!row.job_id && row.stage !== 'stopping';
-}
-
-export function isStopping(row) {
-  return isRunning(row) && row.stage === 'stopping';
-}
-
-/** A resumable build labels its start button honestly. */
-export function startLabel(row, whole) {
-  if (!whole) return 'Segment region';
-  return isStopped(row) ? 'Resume whole slide' : 'Segment whole slide';
-}
-
-/** Panel copy for a build's state. Concrete enough to tell the job is alive. */
-export function describeStage(row) {
-  if (!row) return 'Not built';
-  if (row.status === 'failed') return `Failed — ${row.error || 'unknown error'}`;
-  if (row.status === 'ready') {
-    const n = row.result?.n_core_tiles ?? row.n_items;
-    return n ? `Ready — ${Number(n).toLocaleString()} tiles` : 'Ready';
-  }
-  // A stopped build is not a failed one: it holds a complete map of a smaller area, so it says
-  // what it covered and what is left rather than reporting an error.
-  if (isStopped(row)) {
-    const n = row.result?.n_core_tiles ?? row.n_items;
-    const left = row.result?.remaining;
-    const covered = n ? `${Number(n).toLocaleString()} tiles` : 'part of the slide';
-    return left ? `Stopped — ${covered}, ${Number(left).toLocaleString()} left`
-                : `Stopped — ${covered}`;
-  }
-  if (isStopping(row)) return 'Stopping — finishing the current tile';
-  const pct = Math.round((row.progress || 0) * 100);
-  const stage = { tiles: 'Segmenting tiles', pyramid: 'Building pyramid',
-                  starting: 'Starting' }[row.stage] || 'Working';
-  return `${stage} ${pct}%`;
-}
 
 /**
  * Legend rows: class, colour, hard fraction and the soft (probability-weighted) one.

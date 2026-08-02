@@ -362,28 +362,11 @@ def _with_biomarker(client):
     return client
 
 
-@pytest.mark.anyio
-async def test_a_phenotype_map_records_the_cells_it_is_a_map_of_as_its_parent(
-    client, art_store, monkeypatch,
-):
-    """Not the segmentation. A phenotype is an attribute of a nucleus: change the cells and every
-    number changes, whereas the tissue mask only decided which tiles were worth visiting."""
-    seen = []
-
-    async def enqueue(*, base_url, item, seg_hash, bbox, token, nuclei_hash=None, client=None):
-        seen.append({"seg_hash": seg_hash, "nuclei_hash": nuclei_hash})
-        return {"art_hash": "b1", "job_id": "j1", "status": "queued", "scope": "slide"}
-    monkeypatch.setattr(routes_mod, "enqueue_map", enqueue)
-    _with_biomarker(client)
-
-    r = client.post(f"{_BASE}/item9/biomarker",
-                    json={"seg_hash": "s1", "nuclei_hash": "n1", "bbox": None})
-    assert r.status_code == 200
-    assert seen[0] == {"seg_hash": "s1", "nuclei_hash": "n1"}
-    row = r.json()
-    assert row["parent_hash"] == "n1"
-    # The segmentation is still recorded — as provenance, where it belongs.
-    assert row["params"]["seg_hash"] == "s1"
+# The two tests that used to sit here — "a map's parent is its nuclei" and "a map built before
+# the switch still names a parent" — moved to `test_biomarker_routes.py` in Inc 6 · 06 with the
+# route itself. The first is now asserted on the driver's report, which is where the row is
+# written; the second described a map submitted with no `nuclei_hash`, which is refused outright
+# now rather than parented on the segmentation instead.
 
 
 @pytest.mark.anyio
@@ -401,17 +384,3 @@ async def test_deleting_the_nuclei_a_phenotype_map_stands_on_is_refused(
     assert r.status_code == 409
     dependants = r.json()["detail"]["dependants"]
     assert [d["kind"] for d in dependants] == ["biomarker"]
-
-
-@pytest.mark.anyio
-async def test_a_map_built_before_the_switch_still_names_a_parent(
-    client, art_store, monkeypatch,
-):
-    """Old rows point at the segmentation and keep working; only new builds take the new path."""
-    async def enqueue(*, base_url, item, seg_hash, bbox, token, nuclei_hash=None, client=None):
-        return {"art_hash": "b2", "job_id": "j2", "status": "queued", "scope": "region"}
-    monkeypatch.setattr(routes_mod, "enqueue_map", enqueue)
-    _with_biomarker(client)
-
-    r = client.post(f"{_BASE}/item9/biomarker", json={"seg_hash": "s1"})
-    assert r.json()["parent_hash"] == "s1"

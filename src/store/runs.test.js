@@ -5,6 +5,7 @@
 // function, one row at a time.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useRunsStore } from './runs.js';
+import { STATUS } from '../components/panels/analysis/runsUtils.js';
 
 const RUN = {
   id: 'j1', status: 2, created: '2026-08-01T19:48:34Z', updated: '2026-08-01T19:48:35Z',
@@ -103,5 +104,33 @@ describe('the order rows come back in', () => {
       { ...RUN, id: 'new', created: '2026-08-01T11:00:00Z' },
     ]);
     expect(useRunsStore.getState().runs().map(r => r.id)).toEqual(['new', 'old']);
+  });
+});
+
+describe('the local Stop intent', () => {
+  it('ends when the run settles, rather than outliving it', () => {
+    // Found running 06 on DEMO: a marker map that had genuinely stopped went on reading
+    // "Stopping…" because the intent only expired with the row. The server is the authority once
+    // the run is terminal.
+    const s = useRunsStore.getState();
+    s.applyJobEvent({ id: 'j1', status: STATUS.RUNNING, updated: '1' });
+    s.markStopping('j1');
+    expect(useRunsStore.getState().stopping.j1).toBe(true);
+
+    s.applyJobEvent({ id: 'j1', status: STATUS.CANCELING, updated: '2', started: true });
+    expect(useRunsStore.getState().stopping.j1).toBe(true);   // still stopping — it holds the GPU
+
+    s.applyJobEvent({ id: 'j1', status: STATUS.CANCELED, updated: '3' });
+    expect(useRunsStore.getState().stopping.j1).toBeUndefined();
+  });
+
+  it("leaves other runs' intents alone", () => {
+    const s = useRunsStore.getState();
+    s.applyJobEvent({ id: 'a', status: STATUS.RUNNING, updated: '1' });
+    s.applyJobEvent({ id: 'b', status: STATUS.RUNNING, updated: '1' });
+    s.markStopping('a');
+    s.markStopping('b');
+    s.applyJobEvent({ id: 'a', status: STATUS.SUCCESS, updated: '2' });
+    expect(useRunsStore.getState().stopping).toEqual({ b: true });
   });
 });

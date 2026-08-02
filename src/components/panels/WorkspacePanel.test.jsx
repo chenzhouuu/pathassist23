@@ -13,6 +13,11 @@ vi.mock('../../api/preprocessApi.js', () => ({
   deleteArtifact: vi.fn(),
 }));
 vi.mock('../../api/nucleiApi.js', () => ({ getNucleiMeta: vi.fn() }));
+// Tissue and biomarker joined the same registry in Inc 6 · 06, so the panel now reads three kinds'
+// meta — and the marker map's one catalog, whose palette is the deployed model's rather than any
+// artifact's.
+vi.mock('../../api/tissueApi.js', () => ({ getTissueMeta: vi.fn() }));
+vi.mock('../../api/biomarkerApi.js', () => ({ getBiomarkerMeta: vi.fn(), getCatalog: vi.fn() }));
 // The panel shares the Analysis poller's query key (Inc 6 · 04), so the runs feed has to answer
 // here too — the list is artifacts *union* the runs in flight for this slide.
 vi.mock('../../api/index.js', () => ({ listRuns: vi.fn(), cancelJob: vi.fn() }));
@@ -20,6 +25,8 @@ vi.mock('../../api/index.js', () => ({ listRuns: vi.fn(), cancelJob: vi.fn() }))
 import WorkspacePanel from './WorkspacePanel.jsx';
 import { deleteArtifact, getArtifactUsage, listArtifacts } from '../../api/preprocessApi.js';
 import { getNucleiMeta } from '../../api/nucleiApi.js';
+import { getTissueMeta } from '../../api/tissueApi.js';
+import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
 import { listRuns } from '../../api/index.js';
 import { useStore } from '../../store/index.js';
 import { useRunsStore } from '../../store/runs.js';
@@ -55,11 +62,17 @@ const ROWS = [
 
 describe('WorkspacePanel', () => {
   beforeEach(() => {
-    useStore.setState({ activeItem: SLIDE, visibleArtifacts: {}, nucleiLayerParams: {} });
+    useStore.setState({
+      activeItem: SLIDE, visibleArtifacts: {},
+      nucleiLayerParams: {}, tissueLayerParams: {}, markerLayerParams: {},
+    });
     useRunsStore.setState({ byId: {}, loaded: false, stopping: {} });
     listArtifacts.mockResolvedValue([]);
     listRuns.mockResolvedValue([]);
     getNucleiMeta.mockResolvedValue(null);
+    getTissueMeta.mockResolvedValue(null);
+    getBiomarkerMeta.mockResolvedValue(null);
+    getCatalog.mockResolvedValue(CATALOG);
     getArtifactUsage.mockResolvedValue({ bytes: 0, dependants: [] });
     deleteArtifact.mockResolvedValue({ deleted: true, dependants: [] });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -296,6 +309,150 @@ const NUCLEI_META = {
   layers: { classes: { levels: 5 }, instances: { levels: 5 } },
 };
 
+// ── the two kinds that joined the registry in Inc 6 · 06 ───────────────────────────────
+
+const CATALOG = {
+  presets: { Lineage: [{ marker: 'CK', color: '00ffff' }, { marker: 'CD3', color: 'ff0000' }] },
+  markers: ['CK', 'CD3', 'CD8'],
+  equivalents: {},
+  phenotype_colors: { Tumour: '#e94560', 'Cytotoxic T': '#4da6ff' },
+};
+
+const TISSUE_META = {
+  backend: 'bcss_fcn_unet',
+  classes: ['Tumour', 'Stroma', 'Others'],
+  colors: { Tumour: '#D55E00', Stroma: '#0072B2', Others: '#999999' },
+  coverage: { n_tiles: 43 },
+  layers: { classes: { levels: 4 }, probs: { levels: 4 } },
+  summary: {
+    covered_mm2: 11.28, tsr: 0.4212,
+    fraction: { Tumour: 0.5, Stroma: 0.45, Others: 0.05 },
+    fraction_soft: { Tumour: 0.5, Stroma: 0.45, Others: 0.05 },
+    pixels: { Tumour: 500, Stroma: 450, Others: 50 },
+  },
+};
+
+const BIO_ROW = {
+  kind: 'biomarker', art_hash: 'bio1', status: 'ready',
+  params: {}, result: { n_cells: 222412, n_tiles: 4 }, created_at: iso(30_000),
+};
+
+const BIO_META = {
+  coverage: { core: 2048, n_tiles: 4 },
+  slide: { mpp: 0.25 },
+  thresholds: { CK: 0.42, CD3: null },
+  summary: { n_cells: 222412, counts_by_phenotype: { Tumour: 900, 'Cytotoxic T': 120 } },
+  layers: { markers: { levels: 4 }, pheno: { levels: 6 } },
+};
+
+/** These blocks sit outside `describe('WorkspacePanel')`, so they set their own world up. */
+const freshSlide = () => {
+  useStore.setState({
+    activeItem: SLIDE, visibleArtifacts: {},
+    nucleiLayerParams: {}, tissueLayerParams: {}, markerLayerParams: {},
+  });
+  useRunsStore.setState({ byId: {}, loaded: false, stopping: {} });
+  listRuns.mockResolvedValue([]);
+  getArtifactUsage.mockResolvedValue({ bytes: 0, dependants: [] });
+};
+
+describe('an opened tissue map', () => {
+  beforeEach(() => {
+    freshSlide();
+    listArtifacts.mockResolvedValue(ROWS);
+    getTissueMeta.mockResolvedValue(TISSUE_META);
+  });
+
+  const open = async () => {
+    render(<WorkspacePanel />);
+    await userEvent.click(await screen.findByText('Tissue map'));
+    await screen.findByTestId('artifact-config');
+  };
+
+  it('reads its composition off the artifact, not off the row that started it', async () => {
+    await open();
+    expect(screen.getByText('43 tiles · 11.28 mm²')).toBeInTheDocument();
+    expect(screen.getByText('0.421')).toBeInTheDocument();          // TSR, as a number
+    expect(screen.getByText('50.0%')).toBeInTheDocument();          // Tumour's share
+    expect(getTissueMeta).toHaveBeenCalledWith('item-1', 'tis1');
+  });
+
+  it('puts the confidence ramp and the H&E fade in the store, where the layer reads them',
+    async () => {
+      await open();
+      expect(screen.getByTestId('heFade-value')).toHaveTextContent('1.00');
+      await userEvent.click(screen.getByTestId('artifact-toggle-conf'));
+      expect(useStore.getState().tissueLayerParams.conf).toBe(false);
+    });
+
+  it('drops the confidence controls in a mode that has no confidence', async () => {
+    await open();
+    expect(screen.getByTestId('artifact-toggle-conf')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Probability' }));
+    expect(useStore.getState().tissueLayerParams.render).toBe('probs');
+    await waitFor(() =>
+      expect(screen.queryByTestId('artifact-toggle-conf')).not.toBeInTheDocument());
+  });
+
+  it('hides a class from the map without hiding it from the arithmetic', async () => {
+    await open();
+    const classRow = screen.getByText('Tumour').closest('[data-cy="data-row"]');
+    await userEvent.click(within(classRow).getByRole('button', { name: 'Hide' }));
+    expect(useStore.getState().tissueLayerParams.hidden.Tumour).toBe(true);
+    expect(screen.getByText('50.0%')).toBeInTheDocument();
+  });
+
+  it('still offers the composition as a file, now that the panel is gone', async () => {
+    await open();
+    expect(screen.getByTestId('artifact-action-csv')).toBeInTheDocument();
+  });
+});
+
+describe('an opened marker map', () => {
+  beforeEach(() => {
+    freshSlide();
+    listArtifacts.mockResolvedValue([BIO_ROW, ...ROWS]);
+    getBiomarkerMeta.mockResolvedValue(BIO_META);
+    getCatalog.mockResolvedValue(CATALOG);
+  });
+
+  const open = async () => {
+    render(<WorkspacePanel />);
+    await userEvent.click(await screen.findByText('Biomarker map'));
+    await screen.findByTestId('artifact-config');
+  };
+
+  it('lists the channels being composited, from the service\'s own vocabulary', async () => {
+    await open();
+    await waitFor(() => expect(screen.getByText('CK')).toBeInTheDocument());
+    expect(screen.getByText('CD3')).toBeInTheDocument();
+    expect(getCatalog).toHaveBeenCalled();
+  });
+
+  it('swaps the whole list when the mode changes — the two pictures are exclusive', async () => {
+    await open();
+    await waitFor(() => expect(screen.getByText('CK')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Phenotype' }));
+    expect(useStore.getState().markerLayerParams.mode).toBe('pheno');
+    await waitFor(() => expect(screen.getByText('Cytotoxic T')).toBeInTheDocument());
+    expect(screen.queryByText('CD3')).not.toBeInTheDocument();
+  });
+
+  it('appends a marker the composite does not have, keeping the ones it does', async () => {
+    await open();
+    await screen.findByText('CK');
+    await userEvent.selectOptions(screen.getByLabelText('Add'), 'CD8');
+    expect(useStore.getState().markerLayerParams.channels.map((c) => c.marker))
+      .toEqual(['CK', 'CD3', 'CD8']);
+  });
+
+  it('says on the row that these are predictions, not stains', async () => {
+    await open();
+    expect(screen.getByText(/not a stain/)).toBeInTheDocument();
+  });
+});
+
 describe('an opened artifact row', () => {
   beforeEach(() => {
     listArtifacts.mockResolvedValue([NUCLEI_ROW, ...ROWS]);
@@ -360,10 +517,13 @@ describe('an opened artifact row', () => {
     await waitFor(() => expect(screen.queryByTestId('artifact-config')).not.toBeInTheDocument());
   });
 
-  it('does not open a kind whose controls have not moved across yet', async () => {
+  it('does not open a kind that has nothing to draw', async () => {
+    // A `features` row is listed — it answers "what has this slide cost me" — but it has no
+    // picture, no palette and no controls, so a row that opened onto nothing would be worse than
+    // one that does not open. Tissue and biomarker stopped being examples of this in 06.
     render(<WorkspacePanel />);
-    await screen.findByText('Tissue map');
-    await userEvent.click(screen.getByText('Tissue map'));
+    await screen.findByText('Features');
+    await userEvent.click(screen.getByText('Features'));
     expect(screen.queryByTestId('artifact-detail')).not.toBeInTheDocument();
   });
 

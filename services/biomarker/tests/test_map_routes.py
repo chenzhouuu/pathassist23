@@ -127,6 +127,71 @@ def test_the_cells_a_map_was_built_on_are_part_of_its_identity():
     assert art_hash(**common) != art_hash(**common, nuclei_hash="a")
 
 
+# ── the content address, without enqueuing anything (Inc 6 · 06) ───────────────────
+
+def test_the_hash_route_answers_with_the_address_a_run_would_store_under():
+    """The gateway dispatches onto a Celery queue and never sees the run again, so it has to know
+    the address first. It must be the *same* string the enqueue path computes."""
+    app = _app_with_fakes()
+    client = app.test_client()
+    addressed = client.post(
+        "/biomarker/hash", json={"seg_hash": SEG, "nuclei_hash": NUC},
+    ).get_json()
+    assert addressed["kind"] == "biomarker"
+    assert addressed["nuclei_hash"] == NUC
+    assert addressed["art_hash"] == _run(client, app)
+
+
+def test_the_hash_route_enqueues_nothing():
+    app = _app_with_fakes()
+    client = app.test_client()
+    client.post("/biomarker/hash", json={"seg_hash": SEG, "nuclei_hash": NUC})
+    assert client.get("/biomarker/status/anything").status_code == 404
+
+
+def test_the_hash_route_refuses_the_same_missing_inputs_the_enqueue_route_does():
+    client = _app_with_fakes().test_client()
+    assert client.post("/biomarker/hash", json={}).status_code == 400
+    assert client.post("/biomarker/hash", json={"seg_hash": SEG}).status_code == 400
+
+
+# ── stopping a build (Inc 6 · 06) ──────────────────────────────────────────────────
+
+def test_cancelling_an_unknown_job_is_a_404_not_a_silent_ok():
+    assert _app_with_fakes().test_client().post("/biomarker/cancel/nope").status_code == 404
+
+
+def test_cancel_reports_the_job_status_it_actually_left_behind():
+    """A running job stays running until it reaches its own core-tile boundary — the route says so
+    rather than reporting a stop that has not happened yet. Stop in the Runs list reaches here."""
+    import threading
+
+    app = _app_with_fakes()
+    client = app.test_client()
+    started = threading.Event()
+
+    def work(report):
+        started.set()
+        while not report.stopping():
+            threading.Event().wait(0.01)
+        return {"stopped": True}
+
+    job_id = app.config["JOBS"].submit(work)
+    assert started.wait(5)
+
+    body = client.post(f"/biomarker/cancel/{job_id}").get_json()
+    assert body["status"] == "running"
+    assert body["stage"] == "stopping"
+
+    for _ in range(500):
+        st = client.get(f"/biomarker/status/{job_id}").get_json()
+        if st["status"] == "cancelled":
+            break
+        threading.Event().wait(0.01)
+    assert st["status"] == "cancelled"
+    assert st["result"] == {"stopped": True}
+
+
 def test_art_hash_is_the_same_for_two_different_bboxes():
     app = _app_with_fakes()
     client = app.test_client()

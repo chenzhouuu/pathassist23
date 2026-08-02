@@ -226,15 +226,28 @@ export function isEnabled(param, values) {
  * Reported as one sentence rather than per-field marks because the native forms are short and the
  * failures are about missing *upstream work* ("no nuclei run on this slide yet"), which is a
  * sentence, not a red outline.
+ *
+ * A missing upstream has two quite different causes and they get two different sentences (Inc 6 ·
+ * 06). "You have not picked one" is answered by opening the dropdown; "this slide has none" is
+ * answered by running a different tool first, and telling someone to pick from an empty list is
+ * the kind of instruction that gets read as a bug. The marker map is the entry that made this
+ * worth separating — it needs both a segmentation and a nuclei run, and on a fresh slide it has
+ * neither.
  */
-export function firstProblem(tool, values, { roi } = {}) {
+export function firstProblem(tool, values, { roi, artifacts } = {}) {
   for (const p of toolParams(tool)) {
     if (!isEnabled(p, values)) continue;
     if (p.tag === 'pa-region' && values.scope === 'region' && !roi) {
       return 'Draw a region on the slide, or switch to the whole slide.';
     }
     const needed = p.required || (p.requiredWhen ? p.requiredWhen(values) : false);
-    if (needed && !values[p.name]) return `${p.label} is required.`;
+    if (!needed || values[p.name]) continue;
+    // `artifacts` undefined means the list has not loaded, which is not the same as empty — so
+    // the generic sentence stands until we actually know.
+    if (artifacts && !artifacts.some(a => a.kind === p.artifactKind)) {
+      return `This slide has no ${p.artifactKind} yet — run it first, then come back.`;
+    }
+    return `${p.label} is required.`;
   }
   return null;
 }

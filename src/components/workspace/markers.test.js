@@ -1,7 +1,14 @@
+// The panel half of these tests went with the panel in Inc 6 · 06. "Which row is this slide's
+// marker map", "is it running", "what stage is it at" and "which nuclei artifact may it be built
+// on" are all questions the catalog form and the Runs list answer now — the upstream picker
+// against this slide's artifact rows, the run state against the Girder job. What is left here is
+// the artifact half: its channels, its cells, and how it is drawn.
 import { describe, it, expect } from 'vitest';
 import {
-  channelParam, coverageSummary, DAPI_WEIGHT, DEFAULT_DISPLAY, describeStage, findBiomarkerRow, findReadyNuclei, findReadySegmentation, layerLevels, layerSignature, levelOffsetFor, markerLabel, phenotypeLegend, presetChannels, presetNames, separableMarkers, tileParams,
-} from './markerUtils.js';
+  channelParam, coverageSummary, DAPI_WEIGHT, DEFAULT_DISPLAY, layerLevels, layerSignature,
+  levelOffsetFor, markerLabel, phenotypeLegend, presetChannels, presetNames, separableMarkers,
+  tileParams,
+} from './markers.js';
 
 const CATALOG = {
   presets: {
@@ -56,6 +63,20 @@ describe('tileParams', () => {
     expect(tileParams('pheno', { show: ['Tumour', 'Cytotoxic T'] }))
       .toEqual({ show: 'Tumour,Cytotoxic T' });
     expect(tileParams('pheno', {})).toEqual({});
+  });
+});
+
+describe('coverage in the tile URL', () => {
+  it('makes a growing map a different picture, in both modes', () => {
+    expect(tileParams('markers', { channels: [], rev: 4 }).rev).toBe('4');
+    expect(tileParams('pheno', { rev: 4 }).rev).toBe('4');
+    expect(tileParams('markers', { channels: [] }).rev).toBeUndefined();
+  });
+
+  it('survives the stored channels being null, which is what a preset means', () => {
+    // `channels: null` is "whatever this preset says" and is only resolved once the catalog has
+    // been fetched — one render with an empty composite, not a crash.
+    expect(tileParams('markers', { channels: null }).ch).toBe('');
   });
 });
 
@@ -124,30 +145,6 @@ describe('markerLabel', () => {
   });
 });
 
-describe('artifact rows', () => {
-  const rows = [
-    { kind: 'segmentation', status: 'ready', art_hash: 'seg1' },
-    { kind: 'biomarker', status: 'running', progress: 0.42, stage: 'tiles' },
-  ];
-
-  it('finds the map row and the ready segmentation it needs', () => {
-    expect(findBiomarkerRow(rows).kind).toBe('biomarker');
-    expect(findReadySegmentation(rows).art_hash).toBe('seg1');
-    expect(findReadySegmentation([{ kind: 'segmentation', status: 'running' }])).toBe(null);
-    expect(findBiomarkerRow([])).toBe(null);
-  });
-
-  it('describes a build concretely enough to tell it is alive', () => {
-    expect(describeStage(null)).toBe('Not built');
-    expect(describeStage(rows[1])).toBe('Analysing tiles 42%');
-    expect(describeStage({ status: 'running', stage: 'sampling', progress: 0.03 }))
-      .toBe('Sampling thresholds 3%');
-    expect(describeStage({ status: 'ready', result: { n_cells: 12345 } }))
-      .toBe('Ready — 12,345 cells');
-    expect(describeStage({ status: 'failed', error: 'no tissue' })).toContain('no tissue');
-  });
-});
-
 describe('meta readers', () => {
   const meta = {
     slide: { mpp: 0.25 },
@@ -174,22 +171,5 @@ describe('meta readers', () => {
     // 4 tiles x (2048 * 0.25 / 1000 mm)^2 = 4 * 0.512^2 ≈ 1.05 mm²
     expect(coverageSummary(meta)).toEqual({ tiles: 4, mm2: 1.05 });
     expect(coverageSummary({})).toBe(null);
-  });
-});
-
-// ── the map is built on the cells (Inc 5 · 09) ─────────────────────────────────────
-
-describe('findReadyNuclei', () => {
-  it('picks the slide\'s ready nuclei artifact', () => {
-    const rows = [{ kind: 'segmentation', status: 'ready', art_hash: 's1' },
-                  { kind: 'nuclei', status: 'ready', art_hash: 'n1' }];
-    expect(findReadyNuclei(rows).art_hash).toBe('n1');
-  });
-
-  it('will not accept one that is still building', () => {
-    // A half-built artifact would hand the map a set of cells about to change under it.
-    expect(findReadyNuclei([{ kind: 'nuclei', status: 'running', art_hash: 'n1' }])).toBe(null);
-    expect(findReadyNuclei([{ kind: 'segmentation', status: 'ready' }])).toBe(null);
-    expect(findReadyNuclei()).toBe(null);
   });
 });

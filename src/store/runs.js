@@ -10,6 +10,7 @@
 // `applyJobEvent` and then drops the ids the page no longer carries. The drop is the one thing an
 // event feed cannot do for itself — a run that aged off the finished page never emits anything.
 import { create } from 'zustand';
+import { isUnfinished } from '../components/panels/analysis/runsUtils.js';
 
 /** Fields whose change is worth a re-render. Everything else on a row is fixed at creation. */
 const VOLATILE = ['status', 'updated', 'reason'];
@@ -39,7 +40,17 @@ export const useRunsStore = create((set, get) => ({
     if (!run?.id) return;
     const before = get().byId[run.id];
     if (!changed(before, run)) return;
-    set(s => ({ byId: { ...s.byId, [run.id]: { ...before, ...run } } }));
+    set(s => {
+      const byId = { ...s.byId, [run.id]: { ...before, ...run } };
+      // The local Stop intent covers the gap between the click and the server's CANCELING, and
+      // ends the moment the run settles — the server is the authority from there. Without this a
+      // stopped run reads "Stopping…" for as long as it stays on the page, which is exactly the
+      // lie the intent exists to prevent at the other end (found running Inc 6 · 06 on DEMO).
+      if (!s.stopping[run.id] || isUnfinished(run)) return { byId };
+      const stopping = { ...s.stopping };
+      delete stopping[run.id];
+      return { byId, stopping };
+    });
   },
 
   /** A whole page from the poller: apply every row, then forget the ones it no longer lists. */

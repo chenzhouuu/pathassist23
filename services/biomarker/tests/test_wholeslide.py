@@ -6,7 +6,14 @@ review finding B1, and it is the difference between a map and a grid of chopped 
 
 import numpy as np
 
-from biomarker_service.artifacts import CORE, Coverage, cells_path, read_json, summary_path
+from biomarker_service.artifacts import (
+    CORE,
+    Coverage,
+    cells_path,
+    meta_path,
+    read_json,
+    summary_path,
+)
 from biomarker_service.markers import CHANNEL_INDEX, CHANNEL_NAMES
 from biomarker_service.pyramid import read_marker_tile, read_pheno_tile
 from biomarker_service.wholeslide import SlideInfo, run_region
@@ -172,6 +179,58 @@ def test_a_tile_with_no_nuclei_still_writes_tiles_and_covers(tmp_path):
     assert res["n_cells"] == 0
     assert Coverage.load(tmp_path).done == {(0, 0)}       # empty tissue is done, not pending
     assert read_marker_tile(tmp_path, 0, 0, 0, ["CK"])    # the marker map still exists there
+
+
+# ── stopping and resuming (Inc 6 · 06) ──────────────────────────────────────────────
+
+def _stop_after(n):
+    """A should_stop that lets `n` core tiles through, then asks the job to stop."""
+    seen = {"n": 0}
+
+    def should_stop():
+        if seen["n"] >= n:
+            return True
+        seen["n"] += 1
+        return False
+
+    return should_stop
+
+
+def test_a_stopped_job_leaves_a_complete_map_of_a_smaller_area(tmp_path):
+    """Not a damaged map of a larger one. The pyramids, the summary and the meta are written
+    either way, so what is covered is viewable and countable the moment the job stops."""
+    predict, _ = _predictor()
+    res = run_region(
+        root=tmp_path, art="art1", slide=SLIDE, bbox=None, tissue_tiles=[(0, 0), (1, 0)],
+        read_window=_reader(), tile_predict=predict,
+        fetch_nuclei=_nuclei([(500, 500), (CORE + 500, 500)]),
+        should_stop=_stop_after(1),
+    )
+    assert res["stopped"] is True
+    assert res["remaining"] == 1
+    assert res["n_tiles"] == 1                            # covered, not requested
+    assert res["n_cells"] == 1                            # the cells of the area actually analysed
+    assert Coverage.load(tmp_path).done == {(0, 0)}
+    assert read_json(meta_path(tmp_path)) is not None     # …and it is a viewable artifact
+    assert read_pheno_tile(tmp_path, 0, 500 // 256, 500 // 256) is not None
+
+
+def test_resuming_a_stopped_job_reproduces_the_uninterrupted_result(tmp_path):
+    predict, _ = _predictor()
+    common = dict(
+        art="art1", slide=SLIDE, bbox=None, tissue_tiles=[(0, 0), (1, 0)],
+        read_window=_reader(), tile_predict=predict,
+        fetch_nuclei=_nuclei([(500, 500), (CORE + 500, 500)]),
+    )
+    stopped = run_region(root=tmp_path / "part", **common, should_stop=_stop_after(1))
+    assert stopped["stopped"] is True
+
+    resumed = run_region(root=tmp_path / "part", **common)
+    clean = run_region(root=tmp_path / "clean", **common)
+    assert "stopped" not in resumed
+    assert resumed["n_new_tiles"] == 1                    # only what the stop left behind
+    assert resumed["n_tiles"] == clean["n_tiles"] == 2
+    assert resumed["n_cells"] == clean["n_cells"] == 2
 
 
 def test_chunks_are_feathered_so_the_chunk_pitch_leaves_no_seam():

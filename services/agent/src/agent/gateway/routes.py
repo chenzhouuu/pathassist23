@@ -9,12 +9,7 @@ from ..common.config import get_settings
 from ..loop import AgentLoop, StubAgentLoop
 from ..loop.artifact_admin import artifact_usage, delete_artifact
 from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
-from ..loop.biomarker_map_client import (
-    enqueue_map,
-    get_map_json,
-    get_tile,
-    map_job_status,
-)
+from ..loop.biomarker_map_client import get_map_json, get_tile
 from ..loop.events import RunFinished
 from ..loop.nuclei_client import get_nuclei_meta, get_nuclei_tile
 from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_run
@@ -26,13 +21,7 @@ from ..loop.preprocess_client import (
     trigger_preprocess,
     trigger_stage,
 )
-from ..loop.tissue_map_client import (
-    cancel_tissue,
-    enqueue_tissue,
-    get_tissue_json,
-    get_tissue_tile,
-    tissue_job_status,
-)
+from ..loop.tissue_map_client import get_tissue_json, get_tissue_tile
 from ..loop.tools import ToolContext
 from ..store import (
     ConversationStore,
@@ -488,71 +477,22 @@ _RESULT_KEYS = (
     "elapsed_ms",
 )
 
-# The tissue map's composition, carried on the artifact row for both a finished and a stopped
-# build. `stopped`/`remaining` ride along so the panel can offer Resume and say how much is left.
-# What a finished nuclei build has to say. `stopped`/`remaining` ride along for ticket 07's
-# Resume, the same way the tissue map's do.
-_NUCLEI_RESULT_KEYS = (
-    "art_hash", "n_nuclei", "counts_by_class", "n_tiles", "area_mm2", "stopped", "remaining",
-)
-
-_TISSUE_RESULT_KEYS = (
-    "art_hash", "n_tiles", "n_core_tiles", "fraction", "fraction_soft", "tsr", "covered_mm2",
-    "stopped", "remaining",
-)
-
-# Which of a worker's result keys survive onto the row, and which one the Workspace counts, per
-# kind. A stopped build has to be folded in with the same table as a finished one — reading a
-# stopped nuclei run through the tissue map's keys would drop its class histogram and leave the
-# row with no count at all.
-_RESULT_KEYS_BY_KIND = {"nuclei": _NUCLEI_RESULT_KEYS, "tissue": _TISSUE_RESULT_KEYS}
-_N_ITEMS_KEY_BY_KIND = {"nuclei": "n_nuclei", "tissue": "n_core_tiles", "biomarker": "n_cells"}
-
-
 async def _reconcile_artifact(
     store: PreprocessArtifactStore, item: str, art_hash: str, js: dict, kind: str | None = None,
 ) -> None:
-    """Fold a worker /status reply into the durable artifact row (only the gateway writes)."""
+    """Fold a worker /status reply into the durable artifact row (only the gateway writes).
+
+    Reached only by `_RECONCILED_KINDS` — the preprocess DAG. The three JobQueue kinds had their
+    own branches here until 05 and 06 moved them onto the driver's report, which is where a
+    JobQueue result is unpacked now (`report_artifact_result`); the branches went with them rather
+    than sitting unreachable. There is no `cancelled` case for the same reason: none of the four
+    kinds left has a cooperative stop.
+    """
     st = js.get("status")
-    if st == "cancelled":
-        # A stopped build is not a failed one: it left a smaller but complete artifact on disk,
-        # with coverage and tallies to match, so its numbers are carried exactly as a finished
-        # build's are. Progress stays where the worker left it — that fraction is the honest one.
-        res = js.get("result") or {}
-        keys = _RESULT_KEYS_BY_KIND.get(kind or "", _TISSUE_RESULT_KEYS)
-        await store.set_status(
-            item=item, art_hash=art_hash, status="cancelled", stage="stopped",
-            progress=js.get("progress"),
-            n_items=res.get(_N_ITEMS_KEY_BY_KIND.get(kind or "", "n_core_tiles")),
-            result={k: res[k] for k in keys if k in res} or None,
-        )
-    elif st == "ready":
+    if st == "ready":
         n_patches = js.get("n_patches")
         n_items = n_patches if n_patches is not None else js.get("n_contours")
-        result = None
-        if kind == "prediction":
-            result = {k: js[k] for k in _RESULT_KEYS if k in js}
-        elif kind == "biomarker":
-            # The biomarker worker reports through a JobQueue, so its payload sits under
-            # "result" rather than at the top level like the preprocess stages.
-            res = js.get("result") or {}
-            result = {k: res[k] for k in ("art_hash", "n_tiles", "n_new_tiles", "n_cells",
-                                          "seconds") if k in res}
-            n_items = res.get("n_cells", n_items)
-        elif kind == "nuclei":
-            # The nuclei worker reports through a JobQueue like the map workers, so its payload
-            # sits under "result". The counts ride on the row so the Workspace can render them
-            # straight from /artifacts, without a second call per row.
-            res = js.get("result") or {}
-            result = {k: res[k] for k in _NUCLEI_RESULT_KEYS if k in res}
-            n_items = res.get("n_nuclei", n_items)
-        elif kind == "tissue":
-            # Same JobQueue shape as the biomarker worker: the payload sits under "result".
-            # The composition is carried on the row so the panel can render numbers straight from
-            # /artifacts without a second round trip to the tissue worker.
-            res = js.get("result") or {}
-            result = {k: res[k] for k in _TISSUE_RESULT_KEYS if k in res}
-            n_items = res.get("n_core_tiles", n_items)
+        result = {k: js[k] for k in _RESULT_KEYS if k in js} if kind == "prediction" else None
         await store.set_status(
             item=item, art_hash=art_hash, status="ready", stage="done", progress=1.0,
             n_items=n_items, dim=js.get("dim"),
@@ -736,7 +676,8 @@ async def report_artifact_result(
                 "no such artifact for this slide, and the report does not say what kind to create",
             )
         await artifacts.upsert_artifact(
-            item=item, kind=body.kind, art_hash=art_hash, parent_hash=body.parent_hash,
+            item=item, kind=body.kind, art_hash=art_hash,
+            parent_hash=body.parent_hash or _parent_of(body.kind, body.params),
             params=body.params or {}, status=body.status, girder_job_id=body.girder_job_id,
         )
 
@@ -757,6 +698,26 @@ async def report_artifact_result(
         result=result or None,
     )
     return await artifacts.get_artifact(item=item, art_hash=art_hash)
+
+
+#: Which of a run's params is the artifact's DAG parent, per kind (Inc 6 · 06).
+#:
+#: Derived here rather than plumbed through the dispatch, because the parent is a fact about the
+#: DAG and the driver has no view of one — it dials a URL and forwards a result. The gateway is
+#: what refuses to delete an artifact something else stands on, so the gateway is what says which
+#: edges exist.
+#:
+#: `nuclei` is absent on purpose: a whole-slide run names a `seg_hash` to pick the tiles worth the
+#: GPU, which is coverage, not dependence — deleting the segmentation invalidates no nucleus.
+#: `biomarker` points at the nuclei rather than the segmentation for the mirror-image reason: a
+#: phenotype is an attribute of a cell, so different cells mean different numbers (Inc 5 · D9).
+_PARENT_PARAM_BY_KIND = {"tissue": "seg_hash", "biomarker": "nuclei_hash"}
+
+
+def _parent_of(kind: str | None, params: dict | None) -> str | None:
+    """The artifact this run's output depends on, off its own params. None when there is no edge."""
+    key = _PARENT_PARAM_BY_KIND.get(kind or "")
+    return (params or {}).get(key) if key else None
 
 
 @router.post("/slides/{item}/patch")
@@ -813,30 +774,28 @@ async def list_slide_artifacts(
 ) -> dict:
     """List a slide's DAG artifacts, reconciling the kinds still on the pre-Inc-6 path.
 
-    **Nuclei is not in this loop any more** (Inc 6 · 05). A kind that has moved has no in-flight
-    row to reconcile: its row is written once, by the run that produced the bytes. What is left
-    here is the three kinds that still write a row at dispatch, and this loop — with its
-    "nothing advances unless somebody has the list open" defect — goes with the last of them (07).
+    **Nuclei left this loop in 05; tissue and biomarker leave it in 06.** A kind that has moved has
+    no in-flight row to reconcile: its row is written once, by the run that produced the bytes.
+    What is left is the preprocess DAG — the four kinds that still write a row at dispatch — and
+    this loop, with its "nothing advances unless somebody has the list open" defect, goes with the
+    last of them (07).
     """
     rows = await artifacts.list_artifacts(item=item)
     dirty = False
     for row in rows:
         if row["status"] not in ("queued", "running") or not row.get("job_id"):
             continue
-        # Map builds run in DIFFERENT workers, so each kind is polled at its own base URL;
-        # everything else about the row is identical.
-        kind = row["kind"]
         base = _service_for(
-            kind, preprocess_url=preprocess_url, biomarker_url=biomarker_url,
+            row["kind"], preprocess_url=preprocess_url, biomarker_url=biomarker_url,
             tissue_url=tissue_url,
         )
-        if not base:
+        # A kind that has moved is not polled even if some old row of it is still marked running:
+        # its worker no longer owns that job id, and asking would settle the row on the wrong
+        # answer. Those rows are the migration's business, not this loop's.
+        if not base or row["kind"] not in _RECONCILED_KINDS:
             continue
-        poll = {
-            "biomarker": map_job_status, "tissue": tissue_job_status,
-        }.get(kind, get_job_status)
         try:
-            js = await poll(base_url=base, job_id=row["job_id"])
+            js = await get_job_status(base_url=base, job_id=row["job_id"])
         except httpx.HTTPError:
             continue  # worker unreachable — keep the last known state
         await _reconcile_artifact(artifacts, item, row["art_hash"], js, row["kind"])
@@ -844,6 +803,11 @@ async def list_slide_artifacts(
     if dirty:
         rows = await artifacts.list_artifacts(item=item)
     return {"artifacts": rows}
+
+
+#: The kinds whose row is still written at dispatch and advanced by polling their worker. Shrinks
+#: by one ticket at a time; when it empties, `_reconcile_artifact` and this whole loop go (07).
+_RECONCILED_KINDS = frozenset({"segmentation", "patching", "features", "prediction"})
 
 
 def _service_for(
@@ -1103,32 +1067,72 @@ async def start_biomarker(
     item: str,
     body: BiomarkerRequest,
     user: dict = Depends(require_user),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
     token: str | None = Depends(get_girder_token),
     biomarker_url: str | None = Depends(get_biomarker_url),
+    plugin_url: str | None = Depends(get_plugin_url),
 ) -> dict:
-    """Enqueue (or extend) this slide's marker/phenotype map and record its artifact row.
+    """Dispatch a marker/phenotype map run onto this box's queue (Inc 6 · 06). Writes no row.
+
+    The same shape nuclei took in 05: the address is computed before dispatch, the run becomes a
+    Girder job, and no artifact row is written here — under D9 a row is the claim that bytes exist
+    on disk, and at this moment none do. The row is written when the driver reports.
 
     The parent is the **nuclei** artifact, not the segmentation (Inc 5, D9). A phenotype is an
     attribute of a nucleus: change the cells and every number changes, whereas the tissue mask only
     ever decided which tiles were worth visiting. Recording it this way is what makes ticket 04
     refuse to delete nuclei that a phenotype map is standing on, and it is why the Workspace can
-    show the chain at all. The segmentation stays in `params`, where it is provenance.
+    show the chain at all. The segmentation stays in `params`, where it is provenance. The gateway
+    derives that edge at report time (`_parent_of`), because the driver knows nothing about the DAG.
     """
-    try:
-        run = await enqueue_map(
-            base_url=_need_biomarker(biomarker_url), item=item,
-            seg_hash=body.seg_hash, bbox=body.bbox, nuclei_hash=body.nuclei_hash, token=token,
+    if not plugin_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "marker maps go on the Girder job queue, which this deployment has not configured",
         )
+    # The worker refuses without it too, but a refusal that only exists inside a queued job is a
+    # refusal nobody sees until they go looking. Said here, in the words the form can show.
+    if not body.nuclei_hash:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "a marker map is built on a slide's nuclei — segment them first, so a phenotype is "
+            "attributed to cells that already exist rather than to cells found a second time",
+        )
+
+    addressed = await _biomarker_address(biomarker_url, body.seg_hash, body.nuclei_hash)
+    art_hash = addressed["art_hash"]
+    scope = "region" if body.bbox is not None else "slide"
+    params = {"bbox": body.bbox, "seg_hash": body.seg_hash, "nuclei_hash": body.nuclei_hash,
+              "scope": scope}
+
+    try:
+        ack = await dispatch_run(
+            plugin_url=plugin_url, kind="biomarker", item=item, art_hash=art_hash,
+            params=params, token=token,
+        )
+    except DispatchUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return {"kind": "biomarker", "art_hash": art_hash, "status": "queued", "scope": scope,
+            "girder_job_id": ack["jobId"]}
+
+
+async def _biomarker_address(biomarker_url: str | None, seg_hash: str, nuclei_hash: str) -> dict:
+    """What a marker map on these inputs would be called. Enqueues nothing.
+
+    Asked of the service for the reason `_content_address` gives for the preprocess DAG: the store
+    resolutions and the nucleus radius are deployment settings, they are in the hash, and a second
+    copy of `artifacts.art_hash` here would be free to drift from the one the service stores under.
+    """
+    base = _need_biomarker(biomarker_url)
+    try:
+        async with httpx.AsyncClient(base_url=base, timeout=15.0) as client:
+            resp = await client.post(
+                "/biomarker/hash", json={"seg_hash": seg_hash, "nuclei_hash": nuclei_hash},
+            )
+            resp.raise_for_status()
+            return resp.json()
     except httpx.HTTPError as exc:
         raise _map_error(exc) from exc
-    return await artifacts.upsert_artifact(
-        item=item, kind="biomarker", art_hash=run["art_hash"],
-        parent_hash=body.nuclei_hash or body.seg_hash,
-        params={"scope": run.get("scope"), "bbox": body.bbox, "seg_hash": body.seg_hash,
-                "nuclei_hash": body.nuclei_hash},
-        status="queued", job_id=run.get("job_id"),
-    )
 
 
 @router.get("/slides/{item}/biomarker/{art_hash}/meta")
@@ -1441,64 +1445,64 @@ async def start_tissue(
     item: str,
     body: TissueRequest,
     user: dict = Depends(require_user),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
     token: str | None = Depends(get_girder_token),
     tissue_url: str | None = Depends(get_tissue_url),
+    plugin_url: str | None = Depends(get_plugin_url),
 ) -> dict:
-    """Enqueue (or extend) this slide's tissue map and record its artifact row."""
-    try:
-        run = await enqueue_tissue(
-            base_url=_need_tissue(tissue_url), item=item, seg_hash=body.seg_hash,
-            bbox=body.bbox, backend=body.backend, token=token,
-        )
-    except httpx.HTTPError as exc:
-        raise _tissue_error(exc) from exc
-    return await artifacts.upsert_artifact(
-        item=item, kind="tissue", art_hash=run["art_hash"], parent_hash=body.seg_hash,
-        params={"scope": run.get("scope"), "bbox": body.bbox, "backend": run.get("backend")},
-        status="queued", job_id=run.get("job_id"),
-    )
+    """Dispatch a tissue-map run onto this box's queue (Inc 6 · 06). Writes no row.
 
+    Nuclei's shape from 05, with one difference that is the kind's own: a tissue map's parent
+    **is** its segmentation, for both scopes. The mask is not merely which tiles were worth
+    visiting — everything outside the contours is masked out of the raster, so the segmentation is
+    in the content address and deleting it later would invalidate this map. The gateway records
+    that edge when the driver reports (`_parent_of`).
 
-@router.post("/slides/{item}/tissue/{art_hash}/cancel")
-async def cancel_tissue_build(
-    item: str,
-    art_hash: str,
-    user: dict = Depends(require_user),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
-    tissue_url: str | None = Depends(get_tissue_url),
-) -> dict:
-    """Stop this slide's running tissue build at its next core-tile boundary.
-
-    A whole-slide map is hours of work holding the tissue service's only worker, so it has to be
-    interruptible. What is already computed stays: the artifact keeps its coverage and tallies, and
-    starting the same build again resumes from there rather than from the beginning.
-
-    The durable row is **not** written here — the worker owns the transition, and marking the row
-    stopped while the worker is still finishing a core would be undone by the next reconciliation.
+    There is no `cancel` route beside this one any more. A run is a Girder job now, and Stop in the
+    Runs list revokes the job; the driver forwards that to the tissue service's own cooperative
+    stop. A second stop button addressing a row would be a second answer to the same question.
     """
-    row = await artifacts.get_artifact(item=item, art_hash=art_hash)
-    if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no tissue build for that hash")
-    if not row.get("job_id"):
+    if not plugin_url:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "that tissue build has no running job to stop"
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "tissue maps go on the Girder job queue, which this deployment has not configured",
         )
+
+    addressed = await _tissue_address(tissue_url, body.seg_hash, body.backend)
+    art_hash = addressed["art_hash"]
+    scope = "region" if body.bbox is not None else "slide"
+    # `backend` as the service resolved it, not as it was asked for: an unnamed request lands on
+    # this deployment's default, and the row has to say which model produced the numbers.
+    params = {"bbox": body.bbox, "seg_hash": body.seg_hash, "scope": scope,
+              "backend": addressed.get("backend")}
+
     try:
-        return await cancel_tissue(base_url=_need_tissue(tissue_url), job_id=row["job_id"])
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code != status.HTTP_404_NOT_FOUND:
-            raise _tissue_error(exc) from exc
-        # The worker has never heard of this job — it was restarted out from under the row, which
-        # leaves the panel polling a build that will never move again. Stop is the right moment to
-        # settle that: the job is gone, so say so. Whatever it computed is still on disk and
-        # starting the build again resumes from there.
-        await artifacts.set_status(
-            item=item, art_hash=art_hash, status="cancelled", stage="stopped",
-            error=None,
+        ack = await dispatch_run(
+            plugin_url=plugin_url, kind="tissue", item=item, art_hash=art_hash,
+            params=params, token=token,
         )
-        return {"job_id": row["job_id"], "status": "cancelled", "stage": "stopped",
-                "detail": "the tissue worker restarted; this build is no longer running"}
+    except DispatchUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return {"kind": "tissue", "art_hash": art_hash, "status": "queued", "scope": scope,
+            "backend": addressed.get("backend"), "girder_job_id": ack["jobId"]}
+
+
+async def _tissue_address(tissue_url: str | None, seg_hash: str, backend: str | None) -> dict:
+    """What a tissue map with these params would be called, and with which model. Enqueues nothing.
+
+    Asked of the service, not computed here, for the reason `_content_address` gives: which
+    backends this box has and which one an unnamed request resolves to are deployment facts, both
+    are in the hash, and a second copy of `artifacts.art_hash` would be free to drift.
+    """
+    base = _need_tissue(tissue_url)
+    try:
+        async with httpx.AsyncClient(base_url=base, timeout=15.0) as client:
+            resp = await client.post(
+                "/tissue/hash",
+                json={"seg_hash": seg_hash, **({"backend": backend} if backend else {})},
+            )
+            resp.raise_for_status()
+            return resp.json()
     except httpx.HTTPError as exc:
         raise _tissue_error(exc) from exc
 

@@ -1,4 +1,11 @@
-"""Gateway control plane + authenticated tile proxy for the Inc 4 tissue map."""
+"""Gateway control plane + authenticated tile proxy for the Inc 4 tissue map.
+
+Since Inc 6 · 06 the control plane is a **dispatch**: the address is asked of the tissue service,
+the run becomes a Girder job, and no artifact row is written until the driver reports its bytes
+(D9). The stop button went with it — a run is stopped from the Runs list, which revokes the job.
+What is unchanged, and still covered here, is the read side: the catalog, the meta, the stats and
+the tile proxy.
+"""
 
 import httpx
 import pytest
@@ -8,6 +15,7 @@ from agent.gateway import routes as routes_mod
 from agent.gateway.app import create_app
 from agent.gateway.auth import require_user
 from agent.gateway.routes import (
+    get_plugin_url,
     get_preprocess_artifact_store,
     get_preprocess_url,
     get_tissue_url,
@@ -19,6 +27,7 @@ _USER = {"_id": "u1", "login": "tester"}
 _BASE = "/api/copilot/slides"
 _TISSUE = "http://tissue:8023"
 _PNG = b"\x89PNG\r\n\x1a\n-fake-"
+_REGION = {"x": 0, "y": 0, "width": 2048, "height": 2048}
 
 
 @pytest.fixture
@@ -33,6 +42,7 @@ def client(art_store):
     app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
     app.dependency_overrides[get_preprocess_url] = lambda: "http://preprocess:8030"
     app.dependency_overrides[get_tissue_url] = lambda: _TISSUE
+    app.dependency_overrides[get_plugin_url] = lambda: "http://girder:8080/api/v1"
     return TestClient(app)
 
 
@@ -42,46 +52,24 @@ def unconfigured_client(art_store):
     app.dependency_overrides[require_user] = lambda: _USER
     app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
     app.dependency_overrides[get_tissue_url] = lambda: None
+    app.dependency_overrides[get_plugin_url] = lambda: "http://girder:8080/api/v1"
     return TestClient(app)
 
 
-def _fake_enqueue(**ack):
-    async def enqueue(*, base_url, item, seg_hash, bbox, backend, token):
-        return {"art_hash": "tis0001", "job_id": "j1", "status": "queued",
-                "backend": backend or "bcss_fcn_unet",
-                "scope": "slide" if bbox is None else "region", **ack}
-    return enqueue
+def _address(art_hash="tis0001", backend="bcss_fcn_unet"):
+    """A `/tissue/hash` double: names the run and resolves the backend, enqueuing nothing."""
+    async def addressed(tissue_url, seg_hash, asked):
+        return {"kind": "tissue", "art_hash": art_hash, "backend": asked or backend}
+    return addressed
 
 
-def test_region_build_records_a_tissue_row_parented_on_the_segmentation(
-    client, art_store, monkeypatch,
-):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    r = client.post(f"{_BASE}/item1/tissue",
-                    json={"seg_hash": "seg9",
-                          "bbox": {"x": 0, "y": 0, "width": 2048, "height": 2048}})
-    assert r.status_code == 200
-    row = r.json()
-    assert row["kind"] == "tissue"
-    assert row["art_hash"] == "tis0001"
-    assert row["parent_hash"] == "seg9"          # the mask is what says where tissue is
-    assert row["params"]["scope"] == "region"
-    assert row["params"]["backend"] == "bcss_fcn_unet"
-
-
-def test_whole_slide_build_is_the_same_route_with_no_bbox(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    r = client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    assert r.json()["params"]["scope"] == "slide"
-
-
-def test_both_scopes_land_on_one_artifact_row(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    client.post(f"{_BASE}/item1/tissue",
-                json={"seg_hash": "seg9", "bbox": {"x": 0, "y": 0, "width": 10, "height": 10}})
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    rows = [r for r in _rows(art_store) if r["kind"] == "tissue"]
-    assert len(rows) == 1                        # extended, never forked
+def _dispatch(job_id="girder-job-4", seen=None):
+    async def dispatch(*, plugin_url, kind, item, art_hash, params, token, **kw):
+        if seen is not None:
+            seen.append({"kind": kind, "item": item, "art_hash": art_hash, "params": params})
+        return {"jobId": job_id, "celeryTaskId": "t1", "kind": kind,
+                "item": item, "artHash": art_hash, "queue": "pathassist"}
+    return dispatch
 
 
 def _rows(store, item="item1"):
@@ -89,17 +77,110 @@ def _rows(store, item="item1"):
     return asyncio.run(store.list_artifacts(item=item))
 
 
-def test_a_backend_can_be_named_and_travels_to_the_worker(client, monkeypatch):
+# ── dispatch (Inc 6 · 06) ──────────────────────────────────────────────────────────
+
+
+def test_a_dispatched_tissue_run_writes_no_row(client, monkeypatch):
+    """Same rule as nuclei: a row is the claim that bytes exist, and at submit none do."""
+    monkeypatch.setattr(routes_mod, "_tissue_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-4"))
+
+    r = client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9", "bbox": _REGION})
+    assert r.status_code == 200
+    assert r.json()["art_hash"] == "tis0001"
+    assert r.json()["scope"] == "region"
+    assert r.json()["girder_job_id"] == "girder-job-4"
+    assert client.get(f"{_BASE}/item1/artifacts").json()["artifacts"] == []
+
+
+def test_the_run_carries_the_backend_the_service_resolved_not_the_one_asked_for(
+    client, monkeypatch,
+):
+    """An unnamed backend lands on this deployment's default, and the row has to say which model
+    produced its numbers — so what travels is the service's answer."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_tissue_address", _address(backend="bcss_fcn_unet"))
+    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=seen))
+
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+    assert seen == [{"kind": "tissue", "item": "item1", "art_hash": "tis0001",
+                     "params": {"bbox": None, "seg_hash": "seg9", "scope": "slide",
+                                "backend": "bcss_fcn_unet"}}]
+
+
+def test_a_named_backend_reaches_the_service_that_computes_the_address(client, monkeypatch):
     seen = {}
 
-    async def enqueue(*, base_url, item, seg_hash, bbox, backend, token):
-        seen["backend"] = backend
-        return {"art_hash": "x", "job_id": "j", "status": "queued", "scope": "slide",
-                "backend": backend}
+    async def addressed(tissue_url, seg_hash, backend):
+        seen.update(seg_hash=seg_hash, backend=backend)
+        return {"kind": "tissue", "art_hash": "x", "backend": backend}
 
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", enqueue)
+    monkeypatch.setattr(routes_mod, "_tissue_address", addressed)
+    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
     client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "s", "backend": "uni_decoder"})
-    assert seen["backend"] == "uni_decoder"
+    assert seen == {"seg_hash": "s", "backend": "uni_decoder"}
+
+
+def test_the_row_appears_when_the_run_reports_its_bytes(client, art_store, monkeypatch):
+    """…and it is parented on the segmentation. Unlike nuclei's, a tissue map's mask is not merely
+    which tiles were worth visiting: everything outside the contours is masked out of the raster,
+    so deleting the segmentation would invalidate this map."""
+    monkeypatch.setattr(routes_mod, "_tissue_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-4"))
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+
+    r = client.post(
+        f"{_BASE}/item1/artifacts/tis0001/result",
+        json={"status": "ready", "kind": "tissue", "girder_job_id": "girder-job-4",
+              "params": {"scope": "slide", "seg_hash": "seg9", "backend": "bcss_fcn_unet"},
+              "result": {"art_hash": "tis0001", "n_core_tiles": 47, "covered_mm2": 12.4,
+                         "tsr": 0.418, "fraction": {"Tumour": 0.43}}},
+    )
+    assert r.status_code == 200
+
+    row = next(x for x in _rows(art_store) if x["kind"] == "tissue")
+    assert row["parent_hash"] == "seg9"
+    assert row["n_items"] == 47
+    assert row["result"]["tsr"] == 0.418
+    assert row["girder_job_id"] == "girder-job-4"
+
+
+def test_a_stopped_run_creates_its_row_too(client, art_store, monkeypatch):
+    """It left a smaller but complete map, so its numbers are carried exactly as a finished
+    build's are — and `remaining` is what makes starting again a resume."""
+    monkeypatch.setattr(routes_mod, "_tissue_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+
+    client.post(
+        f"{_BASE}/item1/artifacts/tis0001/result",
+        json={"status": "cancelled", "kind": "tissue", "params": {"seg_hash": "seg9"},
+              "result": {"n_core_tiles": 140, "covered_mm2": 36.9, "tsr": 0.51,
+                         "stopped": True, "remaining": 294}},
+    )
+    row = next(x for x in _rows(art_store) if x["kind"] == "tissue")
+    assert row["status"] == "cancelled"
+    assert row["error"] is None
+    assert row["n_items"] == 140
+    assert row["result"]["remaining"] == 294
+    assert row["parent_hash"] == "seg9"
+
+
+def test_there_is_no_stop_route_on_the_row_any_more(client):
+    """Stop is the Runs list revoking the Girder job. A second stop button addressing the artifact
+    would be a second answer to the same question, and one of them would be stale."""
+    assert client.post(f"{_BASE}/item1/tissue/tis0001/cancel").status_code == 404
+
+
+def test_tissue_without_the_job_queue_is_refused(art_store):
+    app = create_app()
+    app.dependency_overrides[require_user] = lambda: _USER
+    app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
+    app.dependency_overrides[get_tissue_url] = lambda: _TISSUE
+    app.dependency_overrides[get_plugin_url] = lambda: None
+
+    r = TestClient(app).post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
+    assert r.status_code == 503
 
 
 def test_unconfigured_service_is_a_503_with_the_env_var_named(unconfigured_client):
@@ -108,25 +189,32 @@ def test_unconfigured_service_is_a_503_with_the_env_var_named(unconfigured_clien
     assert "AGENT_TISSUE_SERVICE_URL" in r.json()["detail"]
 
 
-def test_worker_without_weights_is_forwarded_as_503_not_a_502(client, monkeypatch):
-    async def enqueue(**_kw):
-        raise httpx.HTTPStatusError(
-            "no weights", request=httpx.Request("POST", "/tissue"),
-            response=httpx.Response(503, json={"detail": "tissue segmentation needs the GPU"}),
-        )
+def test_a_worker_refusal_keeps_the_workers_own_words():
+    """The address call reaches the same service, so its refusals still have to arrive as its
+    own. Asserted on the mapping rather than through the route, because the route's httpx client
+    is constructed inside `_tissue_address` and doubling that seam would double the mapping too."""
+    exc = httpx.HTTPStatusError(
+        "no weights", request=httpx.Request("POST", "/tissue/hash"),
+        response=httpx.Response(503, json={"detail": "tissue segmentation needs the GPU"}),
+    )
+    mapped = routes_mod._tissue_error(exc)
+    assert mapped.status_code == 503
+    assert "GPU" in mapped.detail
 
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", enqueue)
-    r = client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    assert r.status_code == 503
-    assert "GPU" in r.json()["detail"]
 
+def test_a_tissue_service_that_is_down_dispatches_nothing(client, monkeypatch):
+    """Nothing can name the artifact, so nothing is queued — the same order `start_segment` uses,
+    and the reason a job nobody will ever pick up cannot be created."""
+    dispatched = []
 
-def test_an_unreachable_worker_is_a_502(client, monkeypatch):
-    async def enqueue(**_kw):
+    async def addressed(*_a, **_kw):
         raise httpx.ConnectError("refused")
 
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", enqueue)
-    assert client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "s"}).status_code == 502
+    monkeypatch.setattr(routes_mod, "_tissue_address", addressed)
+    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=dispatched))
+    with pytest.raises(httpx.ConnectError):
+        client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "s"})
+    assert dispatched == []
 
 
 def test_catalog_is_proxied(client, monkeypatch):
@@ -189,120 +277,3 @@ def test_a_worker_400_reaches_the_browser_as_a_400(client, monkeypatch):
     monkeypatch.setattr(routes_mod, "get_tissue_tile", get_tile)
     r = client.get(f"{_BASE}/item1/tissue/abc/tile/classes/0/0/0.png?show=Tumor")
     assert r.status_code == 400          # a typo must not surface as a gateway failure
-
-
-def test_a_running_row_is_reconciled_against_the_tissue_worker(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-
-    async def status(*, base_url, job_id, client=None):
-        assert base_url == _TISSUE          # polled at the tissue worker, not preprocess
-        return {"status": "ready",
-                "result": {"art_hash": "tis0001", "n_core_tiles": 47, "covered_mm2": 12.4,
-                           "tsr": 0.418, "fraction": {"Tumour": 0.43}}}
-
-    monkeypatch.setattr(routes_mod, "tissue_job_status", status)
-    rows = client.get(f"{_BASE}/item1/artifacts").json()["artifacts"]
-    row = next(r for r in rows if r["kind"] == "tissue")
-    assert row["status"] == "ready"
-    assert row["result"]["tsr"] == 0.418
-    assert row["result"]["covered_mm2"] == 12.4
-    assert row["n_items"] == 47
-
-
-# ── stopping a build ───────────────────────────────────────────────────────────────
-
-def test_stop_reaches_the_worker_with_the_row_s_own_job_id(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-
-    seen = {}
-
-    async def cancel(*, base_url, job_id, client=None):
-        seen.update(base_url=base_url, job_id=job_id)
-        return {"job_id": job_id, "status": "running", "stage": "stopping"}
-
-    monkeypatch.setattr(routes_mod, "cancel_tissue", cancel)
-    r = client.post(f"{_BASE}/item1/tissue/tis0001/cancel")
-    assert r.status_code == 200
-    assert seen == {"base_url": _TISSUE, "job_id": "j1"}
-    # still running: the worker finishes the core it is on, and saying otherwise would be a lie
-    assert r.json()["stage"] == "stopping"
-
-
-def test_stopping_a_build_that_was_never_started_is_a_404(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "cancel_tissue", _unused_cancel)
-    assert client.post(f"{_BASE}/item1/tissue/nope/cancel").status_code == 404
-
-
-async def _unused_cancel(**_kw):
-    raise AssertionError("the worker must not be called for an unknown artifact")
-
-
-def test_a_stopped_build_is_recorded_as_stopped_not_failed(client, art_store, monkeypatch):
-    """It left a smaller but complete map, so its numbers are carried exactly as a finished
-    build's are — a `failed` row would throw away real measurements."""
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-
-    async def status(*, base_url, job_id, client=None):
-        return {"status": "cancelled", "stage": "stopped", "progress": 0.32,
-                "result": {"art_hash": "tis0001", "n_core_tiles": 140, "covered_mm2": 36.9,
-                           "tsr": 0.51, "fraction": {"Tumour": 0.4},
-                           "stopped": True, "remaining": 294}}
-
-    monkeypatch.setattr(routes_mod, "tissue_job_status", status)
-    rows = client.get(f"{_BASE}/item1/artifacts").json()["artifacts"]
-    row = next(r for r in rows if r["kind"] == "tissue")
-    assert row["status"] == "cancelled"
-    assert row["error"] is None
-    assert row["result"]["covered_mm2"] == 36.9
-    assert row["result"]["remaining"] == 294          # so the panel can say what is left
-    assert row["n_items"] == 140
-    assert row["progress"] == 0.32                    # not 1.0: it did not finish
-
-
-def test_a_stopped_row_is_not_polled_again(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    polls = {"n": 0}
-
-    async def status(*, base_url, job_id, client=None):
-        polls["n"] += 1
-        return {"status": "cancelled", "stage": "stopped", "progress": 0.5, "result": {}}
-
-    monkeypatch.setattr(routes_mod, "tissue_job_status", status)
-    client.get(f"{_BASE}/item1/artifacts")
-    client.get(f"{_BASE}/item1/artifacts")
-    assert polls["n"] == 1
-
-
-def test_resuming_a_stopped_build_reuses_the_same_artifact_row(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue(job_id="j2"))
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-    rows = [r for r in _rows(art_store) if r["kind"] == "tissue"]
-    assert len(rows) == 1
-    assert rows[0]["job_id"] == "j2"
-    assert rows[0]["status"] == "queued"
-
-
-def test_stopping_a_build_whose_worker_restarted_settles_the_row(client, art_store, monkeypatch):
-    """A worker restart leaves the row polling a job that will never move again — Stop is the
-    right moment to settle it, not to raise a confusing 'unknown artifact'."""
-    monkeypatch.setattr(routes_mod, "enqueue_tissue", _fake_enqueue())
-    client.post(f"{_BASE}/item1/tissue", json={"seg_hash": "seg9"})
-
-    async def cancel(*, base_url, job_id, client=None):
-        raise httpx.HTTPStatusError(
-            "unknown job", request=httpx.Request("POST", "/tissue/cancel/j1"),
-            response=httpx.Response(404, json={"detail": "unknown job"}),
-        )
-
-    monkeypatch.setattr(routes_mod, "cancel_tissue", cancel)
-    r = client.post(f"{_BASE}/item1/tissue/tis0001/cancel")
-    assert r.status_code == 200
-    assert r.json()["status"] == "cancelled"
-    row = next(x for x in _rows(art_store) if x["kind"] == "tissue")
-    assert row["status"] == "cancelled"
-    assert row["error"] is None            # a restart is not a failure of the build

@@ -317,9 +317,16 @@ def ensure_thresholds(
 def run_region(
     *, root: Path, art: str, slide: SlideInfo, bbox: dict | None,
     tissue_tiles: list[tuple[int, int]], read_window, tile_predict, fetch_nuclei,
-    nucleus_radius_um: float = 4.0, report=None, core: int = CORE,
+    nucleus_radius_um: float = 4.0, report=None, core: int = CORE, should_stop=None,
 ) -> dict:
-    """Compute (or extend) this artifact over ``bbox``; ``None`` ⇒ every tissue tile."""
+    """Compute (or extend) this artifact over ``bbox``; ``None`` ⇒ every tissue tile.
+
+    ``should_stop`` is polled once per core tile — the same boundary the tissue map stops at, and
+    for the same reason: coverage has just been persisted, so a stopped job leaves a *complete* map
+    of a smaller area rather than a damaged map of a larger one, and starting the same build again
+    resumes from there. Everything before the loop (threshold sampling) is uninterruptible, so a
+    stop asked for during it lands on the first tile instead.
+    """
     root.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
 
@@ -345,7 +352,13 @@ def run_region(
 
     radius_px = max(1.0, nucleus_radius_um / max(slide.mpp, 1e-6))
     n_cells_total = 0
+    done = 0
+    stopped = False
     for i, (tx, ty) in enumerate(todo):
+        if should_stop is not None and should_stop():
+            stopped = True
+            logger.info("biomarker job stopped after %d of %d tiles", done, len(todo))
+            break
         win = haloed_read_window(tx, ty, slide.width, slide.height, core=core, halo=HALO)
         if win is None:
             continue
@@ -355,9 +368,12 @@ def run_region(
         )
         cov.add(tx, ty)
         cov.save(root)                       # crash-resumable: coverage is durable per tile
+        done += 1
         if report:
             report("tiles", 0.05 + 0.85 * (i + 1) / max(len(todo), 1))
 
+    # A stopped job finalises too: the pyramid is what makes the covered area viewable at all, and
+    # it costs a fraction of one core.
     if report:
         report("pyramid", 0.92)
     build_levels(root, "markers", slide.width // MARKER_DOWNSCALE, slide.height // MARKER_DOWNSCALE)
@@ -384,13 +400,22 @@ def run_region(
         "phenotype_order": PHENOTYPE_ORDER,
     })
     write_json(meta_path(root), meta)
-    if report:
-        report("done", 1.0)
 
-    return {
-        "art_hash": art, "n_tiles": len(cov.done), "n_new_tiles": len(todo),
+    result = {
+        "art_hash": art, "n_tiles": len(cov.done), "n_new_tiles": done,
         "n_cells": summary["n_cells"], "seconds": round(time.time() - t0, 1),
     }
+    if stopped:
+        # `remaining` is what the next run has left to do, which is the number that makes a stopped
+        # build resumable rather than merely unfinished. Progress stays where the job left it: a
+        # stopped job reporting 100 % would misdescribe the map now on disk.
+        result.update(stopped=True, remaining=len(todo) - done)
+        if report:
+            report("stopped", done / max(1, len(todo)))
+    elif report:
+        report("done", 1.0)
+
+    return result
 
 
 def _process_core(

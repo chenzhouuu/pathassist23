@@ -137,20 +137,29 @@ def test_cancel_is_delivered_where_the_service_has_a_stop():
         seen.append((request.method, str(request.url)))
         return json_response(200, {"status": "running", "stage": "stopping"})
 
+    # All three JobQueue kinds have a cooperative stop since Inc 6 · 06 — biomarker's was written
+    # for this ticket, because Stop in the Runs list has to mean the same thing for every kind
+    # that can be started from the catalog.
     with client_for(handler) as c:
         assert request_cancel(c, "nuclei", "j1") is True
-    assert seen == [("POST", "http://svc/nuclei/cancel/j1")]
+        assert request_cancel(c, "tissue", "j2") is True
+        assert request_cancel(c, "biomarker", "j3") is True
+    assert seen == [
+        ("POST", "http://svc/nuclei/cancel/j1"),
+        ("POST", "http://svc/tissue/cancel/j2"),
+        ("POST", "http://svc/biomarker/cancel/j3"),
+    ]
 
 
 def test_cancel_is_refused_where_the_service_has_none():
     """False, and no request. Faking it would let the Runs list report a job that still holds the
-    GPU as stopped."""
+    GPU as stopped. The preprocess DAG has no stop until 07."""
     def handler(request):  # pragma: no cover — must not be called
         raise AssertionError("no cancel route exists for this kind")
 
     with client_for(handler) as c:
         assert request_cancel(c, "segmentation", "j1") is False
-        assert request_cancel(c, "biomarker", "j1") is False
+        assert request_cancel(c, "features", "j1") is False
 
 
 # ── drive ─────────────────────────────────────────────────────────────────────────────

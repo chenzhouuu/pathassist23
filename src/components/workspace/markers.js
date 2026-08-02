@@ -1,7 +1,14 @@
-// src/components/panels/markerUtils.js — pure helpers for the Markers panel (Inc 3b).
-// Everything here is a pure function of its arguments so the panel's logic is testable without a
-// viewer, a network or a GPU. The React shell is MarkersPanel.jsx; the OSD plumbing is
-// markerLayers.js.
+// src/components/workspace/markers.js — the marker map: its channels, its cells, how it is drawn.
+//
+// Was `panels/markerUtils.js` until Inc 6 · 06, when the Markers tab went — the same move
+// `workspace/nuclei.js` made in 05 and `workspace/tissue.js` makes beside this file. The panel
+// half (is a build running, how far along) went with the tab, because a run is a Girder job now
+// and the Runs list is where a job is watched. What is here is the artifact half, read by
+// `workspace/artifactDetail.js` for the expanded row and by `viewer/ArtifactLayers.jsx` for the
+// picture on the slide.
+//
+// Everything is a pure function of its arguments, so it is testable without a viewer, a network or
+// a GPU.
 
 // Display transfer function defaults. `lo` sits above the noise floor of a sigmoid probability
 // map and `gamma < 1` lifts mid-range signal, which is what makes a composite read like
@@ -45,14 +52,24 @@ export const MARKER_LAYER_DEFAULTS = Object.freeze({
   heFade: 0,                          // the composite is opaque, so the H&E goes dark under it
 });
 
-export function withMarkerDefaults(patch) {
-  return { ...MARKER_LAYER_DEFAULTS, ...(patch || {}) };
+/**
+ * The stored patch over the defaults, with `channels: null` resolved when a catalog is at hand.
+ *
+ * Null means "whatever this preset says", which is what lets a layer switched on from the
+ * Workspace draw correctly before anyone has picked channels. Resolving it here rather than at
+ * each call site is what keeps the swatch list and the picture reading the same list.
+ */
+export function withMarkerDefaults(patch, catalog) {
+  const p = { ...MARKER_LAYER_DEFAULTS, ...(patch || {}) };
+  return catalog ? { ...p, channels: p.channels || presetChannels(catalog, p.preset) } : p;
 }
 
 // `ch=` is the compositing spec: ordered marker:colour pairs. Colours are stored without '#'
 // because they ride in a URL.
-export function channelParam(channels = []) {
-  return channels
+export function channelParam(channels) {
+  // Tolerates `null`, which is the stored "whatever this preset says" before a catalog has been
+  // fetched to resolve it — one render with an empty composite, not a crash.
+  return (channels || [])
     .filter((c) => c && c.marker && c.enabled !== false)
     .map((c) => `${c.marker}:${String(c.color || 'ffffff').replace('#', '')}`)
     .join(',');
@@ -61,8 +78,12 @@ export function channelParam(channels = []) {
 // Query params are built in a FIXED key order. OSD caches tiles by URL string, so a differently
 // ordered but equivalent query would look like a whole new pyramid and refetch every visible
 // tile on any unrelated state change.
-export function tileParams(mode, { channels, display, dapi, dapiWeight, show, alpha } = {}) {
+export function tileParams(mode, { channels, display, dapi, dapiWeight, show, alpha, rev } = {}) {
   const d = { ...DEFAULT_DISPLAY, ...(display || {}) };
+  // How many cores the artifact covers. The worker ignores it; it is in the URL because a tile is
+  // only immutable for a *given* coverage, so a map that grows while you watch it has to look
+  // like a different picture or the browser keeps serving the empty tiles it already has.
+  const coverage = Number.isFinite(Number(rev)) && Number(rev) > 0 ? { rev: String(rev) } : {};
   if (mode === 'markers') {
     const params = { ch: channelParam(channels) };
     // colour:weight — DAPI is a dim structural underlay, not a channel competing for attention
@@ -70,12 +91,12 @@ export function tileParams(mode, { channels, display, dapi, dapiWeight, show, al
     params.lo = String(d.lo);
     params.hi = String(d.hi);
     params.gamma = String(d.gamma);
-    return params;
+    return { ...params, ...coverage };
   }
   const params = {};
   if (show && show.length) params.show = show.join(',');
   if (alpha != null && alpha !== 1) params.alpha = String(alpha);
-  return params;
+  return { ...params, ...coverage };
 }
 
 // A stable signature for "the picture the current controls describe". The layer manager remounts
@@ -123,39 +144,6 @@ export function markerLabel(catalog, marker) {
   return eq ? `${marker} · ${eq}` : marker;
 }
 
-// The artifact row for this slide's map, newest first (the panel shows at most one).
-export function findBiomarkerRow(rows = []) {
-  return rows.find((r) => r.kind === 'biomarker') || null;
-}
-
-/** The nuclei artifact a phenotype map is built on. Ready only: a half-built one would give the
- *  map a set of cells that is about to change under it (Inc 5 · D9). */
-export function findReadyNuclei(rows = []) {
-  return rows.find((r) => r.kind === 'nuclei' && r.status === 'ready') || null;
-}
-
-export function findReadySegmentation(rows = []) {
-  return rows.find((r) => r.kind === 'segmentation' && r.status === 'ready') || null;
-}
-
-export function isRunning(row) {
-  return !!row && (row.status === 'queued' || row.status === 'running');
-}
-
-// Panel copy for a build's state. Deliberately concrete: "Sampling thresholds 12%" tells the user
-// the job is alive, "Building" does not.
-export function describeStage(row) {
-  if (!row) return 'Not built';
-  if (row.status === 'failed') return `Failed — ${row.error || 'unknown error'}`;
-  if (row.status === 'ready') {
-    const n = row.result?.n_cells;
-    return n ? `Ready — ${n.toLocaleString()} cells` : 'Ready';
-  }
-  const pct = Math.round((row.progress || 0) * 100);
-  const stage = { sampling: 'Sampling thresholds', tiles: 'Analysing tiles',
-                  pyramid: 'Building pyramid', starting: 'Starting' }[row.stage] || 'Working';
-  return `${stage} ${pct}%`;
-}
 
 // Lineage counts from the artifact's summary, largest first — the legend's data.
 export function phenotypeLegend(meta) {

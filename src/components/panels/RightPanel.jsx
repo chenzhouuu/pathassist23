@@ -9,8 +9,6 @@ import PathChatPanel from './PathChatPanel.jsx';
 import CopilotPanel from './CopilotPanel.jsx';
 import PreprocessPanel from './PreprocessPanel.jsx';
 import TaskPanel from './TaskPanel.jsx';
-import MarkersPanel from './MarkersPanel.jsx';
-import TissuePanel from './TissuePanel.jsx';
 import WorkspacePanel from './WorkspacePanel.jsx';
 
 const MIN_W = 248;
@@ -85,15 +83,6 @@ export default function RightPanel() {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
         <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-      </svg> },
-    { id:'markers',     label:'Markers', show: hasRole('ai-users'), icon:
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="8" cy="9" r="3"/><circle cx="15" cy="14" r="3"/><circle cx="16" cy="7" r="2"/>
-      </svg> },
-    { id:'tissue',      label:'Tissue', show: hasRole('ai-users'), icon:
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M3 12c3-4 6-4 9 0s6 4 9 0"/><path d="M3 6c3-4 6-4 9 0s6 4 9 0"/>
-        <path d="M3 18c3-4 6-4 9 0s6 4 9 0"/>
       </svg> },
     { id:'task',        label:'Task', show: hasRole('ai-users'), icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -173,8 +162,6 @@ export default function RightPanel() {
         {activeTab === 'copilot'     && <CopilotPanel/>}
         {activeTab === 'preprocess'  && <PreprocessPanel/>}
         {activeTab === 'task'        && <TaskPanel/>}
-        {activeTab === 'markers'     && <MarkersPanel/>}
-        {activeTab === 'tissue'      && <TissuePanel/>}
         {activeTab === 'workspace'   && <WorkspacePanel/>}
       </div>
     </div>

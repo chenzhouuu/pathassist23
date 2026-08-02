@@ -133,6 +133,7 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
                 read_window=reader, tile_predict=app.config["TILE_PREDICT"],
                 fetch_nuclei=app.config["FETCH_NUCLEI_FACTORY"](slide_ref, token, nuclei_hash),
                 nucleus_radius_um=s.nucleus_radius_um, report=report,
+                should_stop=getattr(report, "stopping", None),
             )
 
         job_id = app.config["JOBS"].submit(work)
@@ -142,9 +143,51 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
             "nuclei_hash": nuclei_hash,
         })
 
+    @app.post("/biomarker/hash")
+    def biomarker_artifact_hash():
+        """The `art_hash` a marker map with these inputs would produce. Enqueues nothing.
+
+        The same shape as the cellvit service's `POST /nuclei/hash` and the preprocess service's
+        `POST /hash`, and for the same reason (Inc 6 · 05): since a run is dispatched onto a Celery
+        queue and never comes back through the gateway, the gateway needs the content address
+        *before* it dispatches. Computing it there would put a second copy of `artifacts.art_hash`
+        in the tree, free to drift from this one — which is how `conch_v1` came to mean two
+        different embeddings.
+
+        The store resolutions and the nucleus radius are deployment settings and they are in the
+        hash, which is the other half of why only this service can answer.
+        """
+        body = request.get_json(force=True, silent=True) or {}
+        seg_hash = body.get("seg_hash")
+        nuclei_hash = body.get("nuclei_hash")
+        if not seg_hash or not nuclei_hash:
+            return jsonify({"detail": "seg_hash and nuclei_hash are required"}), 400
+        s = get_settings()
+        return jsonify({
+            "kind": "biomarker",
+            "art_hash": art_hash(
+                seg_hash=seg_hash, marker_mpp=s.marker_mpp, pheno_mpp=s.pheno_mpp,
+                nucleus_radius_um=s.nucleus_radius_um, nuclei_hash=nuclei_hash,
+            ),
+            "nuclei_hash": nuclei_hash,
+        })
+
     @app.get("/biomarker/status/<job_id>")
     def job_status(job_id: str):
         st = app.config["JOBS"].status(job_id)
+        if st is None:
+            return jsonify({"detail": "unknown job"}), 404
+        return jsonify(st)
+
+    @app.post("/biomarker/cancel/<job_id>")
+    def job_cancel(job_id: str):
+        """Ask a job to stop at its next core-tile boundary.
+
+        Returns immediately with the job's *current* status — a running job is still running until
+        it finishes the core it is on. Whatever it has already computed stays on disk and
+        re-running the same request resumes from there.
+        """
+        st = app.config["JOBS"].cancel(job_id)
         if st is None:
             return jsonify({"detail": "unknown job"}), 404
         return jsonify(st)

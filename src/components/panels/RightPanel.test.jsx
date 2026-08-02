@@ -23,9 +23,11 @@ const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [
 
 // Nuclei left in Inc 6 · 05: the run is a Girder job started from Analysis and watched in Runs,
 // and everything the tab used to show about the artifact opens on its Workspace row.
+// Markers and Tissue left in Inc 6 · 06, the way Nuclei left in 05: submitting a run is the
+// Analysis catalog's, watching it is the Runs list's, and reading the artifact is the Workspace's.
+// Preprocess and Task follow in 07 — 12 tabs down to 9 so far.
 const EXPECTED_TABS = [
-  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess',
-  'Markers', 'Tissue', 'Task', 'Panels',
+  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess', 'Task', 'Panels',
 ];
 
 describe('RightPanel tab bar', () => {

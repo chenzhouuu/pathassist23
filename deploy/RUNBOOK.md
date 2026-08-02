@@ -335,6 +335,38 @@ curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://localhost:802
 This lives in the container's writable layer, so it survives `docker restart` and dies with
 `docker compose up -d --force-recreate girder`. Rebuild the image for anything meant to persist.
 
+### Four services ship two images each — check which one is running first
+
+`preprocess`, `tissue`, `biomarker` and `cellvit` each have a small GPU-free base image and a
+~8 GB torch one. The base is what `docker-compose.yml` alone builds, and it is deliberate: the
+whole DAG stays deployable and browser-testable with no GPU. It is also what a run looks like when
+it comes back suspiciously fast, or refuses with *"needs the GPU worker"*, or produces a
+placeholder that reads exactly like a real result (the preprocess stub's synthetic 4096 px tissue
+square is the one that has cost the most time).
+
+**Check before diagnosing anything else:**
+
+```bash
+curl -s localhost:8030/health                       # preprocess → {"model":"trident"} or "stub"
+docker exec agent-tissue-1    python -c "import torch;print(torch.cuda.is_available())"
+docker exec agent-biomarker-1 python -c "import torch;print(torch.cuda.is_available())"
+docker logs agent-tissue-1 2>&1 | grep -i "load failed"
+```
+
+Selecting the GPU image is an opt-in compose override, one per service. Name the service, or the
+others get recreated back onto their base images:
+
+```bash
+cd services/agent
+docker compose -f docker-compose.yml -f docker-compose.trident.yml   up -d --build preprocess
+docker compose -f docker-compose.yml -f docker-compose.tissue.yml    up -d --build tissue
+docker compose -f docker-compose.yml -f docker-compose.biomarker.yml up -d --build biomarker
+```
+
+Layers cache, so a rebuild is seconds once it has been built on this host. Weights are pre-seeded
+on data2 and mounted read-only by the base compose — nothing downloads. **A recreate drops any
+`docker cp`'d source**, so re-copy the plugin afterwards if you had been iterating on it.
+
 ### Update docker-compose.yml
 ```bash
 # Edit locally

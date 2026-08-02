@@ -11,8 +11,9 @@
 //
 // What it reads:
 //   visibleArtifacts    { [art_hash]: { kind } }  — the Workspace's eye, the only writer
-//   tissueLayerParams   the Tissue panel's controls, in the store because the layer outlives it
-//   markerLayerParams   the same, for the Markers panel
+//   tissueLayerParams   the tissue map's controls, in the store because the layer outlives the
+//                       row that edits them
+//   markerLayerParams   the same, for the marker/phenotype layer
 //
 // Four pictures, one per drawable kind, each in its own layer slot so they stack (Inc 4 D4):
 //   tissue        a class/probability pyramid, under everything
@@ -31,11 +32,11 @@ import { getSegmentationContours } from '../../api/preprocessApi.js';
 import {
   LAYER_FOR_RENDER, classesOf, layerLevels, layerSignature, levelOffsetFor, tileParams,
   withTissueDefaults,
-} from '../panels/tissueUtils.js';
+} from '../workspace/tissue.js';
 import {
-  layerSignature as markerSignature, phenotypeLegend, presetChannels,
+  layerSignature as markerSignature, phenotypeLegend,
   tileParams as markerTileParams, withMarkerDefaults,
-} from '../panels/markerUtils.js';
+} from '../workspace/markers.js';
 import {
   classesOf as nucleiClassesOf, hasInstances, layerLevels as nucleiLevels,
   layerSignature as nucleiSignature, levelOffsetFor as nucleiOffsetFor,
@@ -58,6 +59,19 @@ const BUILD_REFRESH_MS = 5000;
 export function visibleHashOf(visibleArtifacts, kind) {
   const hit = Object.entries(visibleArtifacts || {}).find(([, v]) => v?.kind === kind);
   return hit ? hit[0] : null;
+}
+
+/**
+ * Whether a run is still filling this artifact in.
+ *
+ * Asked of the runs store rather than of the artifact rows (Inc 6 · 05, 06). A kind on the D9
+ * shape has **no row** until its bytes exist, so the only thing that knows a picture is still
+ * growing is the job — and once every drawable kind is dispatched the same way, this is one
+ * question with one answer.
+ */
+function useBuilding(hash) {
+  return useRunsStore((s) => Object.values(s.byId)
+    .some((r) => r.artHash === hash && isUnfinished(r)));
 }
 
 /**
@@ -88,7 +102,8 @@ function useArtifactMeta(fetcher, itemId, hash, refreshMs = 0) {
 
 function TissueTileLayer({ viewer, itemId, hash }) {
   const stored = useStore((s) => s.tissueLayerParams);
-  const meta = useArtifactMeta(getTissueMeta, itemId, hash);
+  const building = useBuilding(hash);
+  const meta = useArtifactMeta(getTissueMeta, itemId, hash, building ? BUILD_REFRESH_MS : 0);
   const mountedSig = useRef(null);
 
   const p = useMemo(() => withTissueDefaults(stored), [stored]);
@@ -96,9 +111,12 @@ function TissueTileLayer({ viewer, itemId, hash }) {
   const shown = useMemo(() => classes.filter((c) => !p.hidden[c]), [classes, p.hidden]);
 
   const layer = LAYER_FOR_RENDER[p.render];
+  // Coverage is in the tile URL, so a growing map is a different picture and OSD fetches it;
+  // unchanged coverage means an unchanged URL, so a poll that found nothing new costs nothing.
+  const rev = meta?.coverage?.n_tiles;
   const params = useMemo(() => tileParams(p.render, {
-    show: shown, opacity: 1, conf: p.conf, confFloor: p.confFloor, classes,
-  }), [p.render, shown, p.conf, p.confFloor, classes]);
+    show: shown, opacity: 1, conf: p.conf, confFloor: p.confFloor, classes, rev,
+  }), [p.render, shown, p.conf, p.confFloor, classes, rev]);
 
   const visible = !!hash && !!meta;
   const signature = visible ? layerSignature(p.render, hash, params) : 'none';
@@ -139,15 +157,7 @@ function TissueTileLayer({ viewer, itemId, hash }) {
 
 function NucleiTileLayer({ viewer, itemId, hash }) {
   const stored = useStore((s) => s.nucleiLayerParams);
-  // A whole-slide run fills in core by core over minutes or hours. While it does, re-read the
-  // artifact's coverage so the mask catches up on its own; once it stops, stop asking.
-  //
-  // Asked of the runs store, not of `artifactRuns` (Inc 6 · 05). `artifactRuns` is filled by the
-  // panels from the artifact rows they poll, and a nuclei build has **no row** until its bytes
-  // exist — so the one thing that knows a mask is still growing is the job. The other kinds keep
-  // the old source until they move too, which is why both exist here.
-  const building = useRunsStore((s) => Object.values(s.byId)
-    .some((r) => r.artHash === hash && isUnfinished(r)));
+  const building = useBuilding(hash);
   const meta = useArtifactMeta(getNucleiMeta, itemId, hash, building ? BUILD_REFRESH_MS : 0);
   const mountedSig = useRef(null);
 
@@ -204,7 +214,8 @@ function NucleiTileLayer({ viewer, itemId, hash }) {
 
 function MarkerTileLayer({ viewer, itemId, hash }) {
   const stored = useStore((s) => s.markerLayerParams);
-  const meta = useArtifactMeta(getBiomarkerMeta, itemId, hash);
+  const building = useBuilding(hash);
+  const meta = useArtifactMeta(getBiomarkerMeta, itemId, hash, building ? BUILD_REFRESH_MS : 0);
   const [catalog, setCatalog] = useState(null);
   const mountedSig = useRef(null);
 
@@ -217,11 +228,10 @@ function MarkerTileLayer({ viewer, itemId, hash }) {
     return () => { live = false; };
   }, [hash]);
 
-  const p = useMemo(() => withMarkerDefaults(stored), [stored]);
-  const channels = useMemo(
-    () => p.channels || presetChannels(catalog, p.preset),
-    [p.channels, catalog, p.preset],
-  );
+  // `withMarkerDefaults` resolves `channels: null` against the catalog, so this and the Workspace
+  // row read exactly the same channel list.
+  const p = useMemo(() => withMarkerDefaults(stored, catalog), [stored, catalog]);
+  const channels = p.channels;
   const legend = useMemo(() => phenotypeLegend(meta), [meta]);
   const allShown = legend.every((l) => !p.hidden[l.name]);
   const shownLineages = useMemo(
@@ -229,13 +239,15 @@ function MarkerTileLayer({ viewer, itemId, hash }) {
     [legend, p.hidden],
   );
 
+  const rev = meta?.coverage?.n_tiles;
   const params = useMemo(() => markerTileParams(p.mode, {
     channels,
     display: p.display,
     dapi: p.dapiOn ? (catalog?.dapi_color || '808080') : null,
     dapiWeight: p.dapiW,
     show: allShown ? null : shownLineages,
-  }), [p.mode, channels, p.display, p.dapiOn, p.dapiW, catalog, allShown, shownLineages]);
+    rev,
+  }), [p.mode, channels, p.display, p.dapiOn, p.dapiW, catalog, allShown, shownLineages, rev]);
 
   const visible = !!hash && !!meta;
   const signature = markerSignature(p.mode, visible ? hash : null, params);

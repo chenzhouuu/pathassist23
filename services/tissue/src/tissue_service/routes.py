@@ -130,6 +130,36 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
             "scope": "slide" if bbox is None else "region",
         })
 
+    @app.post("/tissue/hash")
+    def tissue_artifact_hash():
+        """The `art_hash` a tissue map with these params would produce. Enqueues nothing.
+
+        The same shape as the cellvit service's `POST /nuclei/hash` and the preprocess service's
+        `POST /hash`, and for the same reason (Inc 6 · 05): a dispatched run goes onto a Celery
+        queue and never comes back through the gateway, so the gateway needs the content address
+        before it dispatches — and computing it there would put a second copy of
+        `artifacts.art_hash` in the tree, free to drift from this one.
+
+        `backend` is the other half of why the answer has to come from the service: which model
+        this box has, and which one an unnamed request resolves to, are deployment facts, and both
+        the name and the store resolution are in the hash.
+        """
+        body = request.get_json(force=True, silent=True) or {}
+        seg_hash = body.get("seg_hash")
+        if not seg_hash:
+            return jsonify({"detail": "seg_hash is required"}), 400
+        try:
+            backend = get_backend(body.get("backend"))
+        except KeyError as exc:
+            return jsonify({"detail": str(exc)}), 400
+        s = get_settings()
+        return jsonify({
+            "kind": "tissue",
+            "art_hash": art_hash(seg_hash=seg_hash, backend=backend.name,
+                                 store_mpp=s.store_mpp, overlap=s.overlap),
+            "backend": backend.name,
+        })
+
     @app.get("/tissue/status/<job_id>")
     def job_status(job_id: str):
         st = app.config["JOBS"].status(job_id)

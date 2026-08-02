@@ -28,40 +28,11 @@ class TileResponse:
     status_code: int = 200
 
 
-async def enqueue_map(
-    *, base_url: str, item: str, seg_hash: str, bbox: dict | None, token: str | None,
-    nuclei_hash: str | None = None, client: httpx.AsyncClient | None = None,
-) -> dict:
-    """POST /biomarker → {art_hash, job_id, status, scope}. ``bbox=None`` means whole slide.
-
-    ``nuclei_hash`` names the cells the map is built on (Inc 5, D9). The worker refuses without it:
-    a phenotype is an attribute of a nucleus, so the nuclei have to exist first.
-    """
-    payload = {"slide_ref": item, "seg_hash": seg_hash, "bbox": bbox,
-               "nuclei_hash": nuclei_hash, "girder_token": token}
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
-    try:
-        resp = await client.post("/biomarker", json=payload)
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
-
-
-async def map_job_status(
-    *, base_url: str, job_id: str, client: httpx.AsyncClient | None = None,
-) -> dict:
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
-    try:
-        resp = await client.get(f"/biomarker/status/{job_id}")
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
+# There is no enqueue or status here any more. Since Inc 6 · 06 a marker-map run is dispatched onto
+# this box's Celery queue and driven by `girder_pathassist`, which dials the service directly — so
+# the gateway's half of a run is the content address (`POST /biomarker/hash`, called inline) and
+# the driver's report. What is left is the read side: the catalog, the meta, the cells and the
+# tiles.
 
 
 async def get_map_json(

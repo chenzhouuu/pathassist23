@@ -2,7 +2,7 @@
 
 Same two shapes of traffic as the biomarker map client, for the same reasons:
 
-- **control** (enqueue, status, catalog, meta, stats) — small JSON, ordinary awaits;
+- **control** (catalog, meta, stats) — small JSON, ordinary awaits;
 - **tiles** — binary imagery, hundreds of requests per viewport, proxied through the gateway so
   the browser's Girder session is checked once and the tissue service is never publicly exposed.
   That is why this module returns raw bytes plus the headers worth forwarding, and nothing else.
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import httpx
 
-# An enqueue returns immediately (the worker queues it), so these stay short.
+# Small JSON reads off disk, so these stay short.
 _CONTROL_TIMEOUT = 30.0
 # Tiles are read off disk and rendered in-process; slow only when the disk is cold.
 _TILE_TIMEOUT = 30.0
@@ -31,55 +31,11 @@ class TileResponse:
     status_code: int = 200
 
 
-async def enqueue_tissue(
-    *, base_url: str, item: str, seg_hash: str, bbox: dict | None, backend: str | None,
-    token: str | None, client: httpx.AsyncClient | None = None,
-) -> dict:
-    """POST /tissue → {art_hash, job_id, status, scope, backend}. ``bbox=None`` ⇒ whole slide."""
-    payload = {"slide_ref": item, "seg_hash": seg_hash, "bbox": bbox,
-               "backend": backend, "girder_token": token}
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
-    try:
-        resp = await client.post("/tissue", json=payload)
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
-
-
-async def tissue_job_status(
-    *, base_url: str, job_id: str, client: httpx.AsyncClient | None = None,
-) -> dict:
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
-    try:
-        resp = await client.get(f"/tissue/status/{job_id}")
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
-
-
-async def cancel_tissue(
-    *, base_url: str, job_id: str, client: httpx.AsyncClient | None = None,
-) -> dict:
-    """Ask a running build to stop at its next clean boundary; returns its current status.
-
-    Returns rather than waits: the worker finishes the core tile it is on first, so the honest
-    answer here is "still running, stopping" and the panel learns the rest from its next poll.
-    """
-    owns = client is None
-    client = client or httpx.AsyncClient(base_url=base_url, timeout=_CONTROL_TIMEOUT)
-    try:
-        resp = await client.post(f"/tissue/cancel/{job_id}")
-        resp.raise_for_status()
-        return resp.json()
-    finally:
-        if owns:
-            await client.aclose()
+# There is no enqueue, status or cancel here any more. Since Inc 6 · 06 a tissue run is dispatched
+# onto this box's Celery queue and driven by `girder_pathassist`, which dials the service directly
+# — so the gateway's half of a run is the content address (`POST /tissue/hash`, called inline) and
+# the driver's report. What is left is the read side: the catalog, the meta, the stats and the
+# tiles, which the browser still reaches through this authenticated proxy.
 
 
 async def get_tissue_json(

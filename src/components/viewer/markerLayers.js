@@ -7,7 +7,7 @@
 // neither readable. Either may now be stacked with the tissue map, which is areal and sits under
 // both.
 import { tileAjaxHeaders, tileUrl } from '../../api/biomarkerApi.js';
-import { layerLevels, levelOffsetFor } from '../panels/markerUtils.js';
+import { layerLevels, levelOffsetFor } from '../workspace/markers.js';
 import {
   buildTileSource, removeLayer, setBasePreference, syncLayer,
 } from './overlayLayers.js';

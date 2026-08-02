@@ -75,7 +75,7 @@ ROUTES: dict[str, Route] = {
     "biomarker": Route(
         env="PATHASSIST_BIOMARKER_URL", default="http://localhost:8022",
         submit="/biomarker", status="/biomarker/status/{job_id}",
-        cancel=None, nested_result=True, item_key="slide_ref",
+        cancel="/biomarker/cancel/{job_id}", nested_result=True, item_key="slide_ref",
     ),
 }
 

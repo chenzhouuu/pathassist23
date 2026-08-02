@@ -393,7 +393,9 @@ export default function AnalysisPanel() {
   // ──────────────────────────────────────────────────────────────────────────
   // RENDER: FORM view
   // ──────────────────────────────────────────────────────────────────────────
-  const problem = isNative && meta ? firstProblem(meta, formValues, { roi: region.roi }) : null;
+  const problem = isNative && meta
+    ? firstProblem(meta, formValues, { roi: region.roi, artifacts })
+    : null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

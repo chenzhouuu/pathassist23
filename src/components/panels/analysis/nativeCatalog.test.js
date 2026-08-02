@@ -84,6 +84,32 @@ describe('scope and region are one decision in two fields', () => {
       .toMatch(/nuclei is required/i);
     expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: 'n1' }, {})).toBeNull();
   });
+
+  it('distinguishes "you have not picked one" from "this slide has none"', () => {
+    // Two different answers: one is fixed by opening the dropdown, the other by running a
+    // different tool first. Telling someone to pick from an empty list reads as a bug.
+    const t = tool('biomarker');
+    const nothing = [];
+    const some = [{ kind: 'segmentation', art_hash: 's1' }, { kind: 'nuclei', art_hash: 'n1' }];
+
+    expect(firstProblem(t, { scope: 'whole', seg_hash: '', nuclei_hash: '' },
+                        { artifacts: nothing }))
+      .toMatch(/no segmentation yet — run it first/i);
+    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' },
+                        { artifacts: nothing }))
+      .toMatch(/no nuclei yet — run it first/i);
+    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' },
+                        { artifacts: some }))
+      .toMatch(/nuclei is required/i);
+  });
+
+  it('says nothing new while the artifact list has not loaded', () => {
+    // `undefined` is "we do not know yet", which is not "there are none" — claiming a slide has
+    // no nuclei before asking would be a refusal invented out of a loading state.
+    const t = tool('biomarker');
+    expect(firstProblem(t, { scope: 'whole', seg_hash: 's1', nuclei_hash: '' }, {}))
+      .toMatch(/nuclei is required/i);
+  });
 });
 
 describe('submit hands each endpoint what it already expects', () => {

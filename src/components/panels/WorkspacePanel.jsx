@@ -21,10 +21,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store/index.js';
 import { deleteArtifact, getArtifactUsage, listArtifacts } from '../../api/preprocessApi.js';
 import { getNucleiMeta } from '../../api/nucleiApi.js';
+import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
+import { getTissueMeta } from '../../api/tissueApi.js';
 import { TooltipProvider } from '../ui/tooltip.tsx';
 import { PanelSection } from '../workspace/vendor/ohif/PanelSection.tsx';
 import { DataRow } from '../workspace/vendor/ohif/DataRow.tsx';
-import ArtifactConfig from '../workspace/ArtifactConfig.jsx';
+import ArtifactConfig, { ACTION } from '../workspace/ArtifactConfig.jsx';
 import ArtifactSegments from '../workspace/ArtifactSegments.jsx';
 import { detailFor, hasDetail, layerBinding } from '../workspace/artifactDetail.js';
 import { joinRuns } from '../workspace/runJoin.js';
@@ -37,9 +39,19 @@ import {
 
 const POLL_MS = 2500;
 
-//: Which kinds can fetch their stored meta. One entry per kind that has moved its controls across;
-//: tissue and biomarker join it in 06, beside their entries in `artifactDetail`.
-const META_LOADERS = { nuclei: getNucleiMeta };
+//: Which kinds can fetch their stored meta. One entry per kind that has moved its controls across,
+//: beside its entry in `artifactDetail`.
+const META_LOADERS = {
+  nuclei: getNucleiMeta,
+  tissue: getTissueMeta,
+  biomarker: getBiomarkerMeta,
+};
+
+//: …and which kinds need their service's vocabulary as well as their own meta. Only the marker
+//: map: its phenotype palette and its marker list are the deployed model's, not any artifact's,
+//: so an artifact alone cannot say what colour a lineage is. Fetched once, from the same call
+//: `ArtifactLayers` makes, so a swatch here and the composite on the slide agree by construction.
+const CATALOG_LOADERS = { biomarker: getCatalog };
 
 export default function WorkspacePanel() {
   const activeItem = useStore((s) => s.activeItem);
@@ -54,6 +66,7 @@ export default function WorkspacePanel() {
   const [deleting, setDeleting] = useState(null); // the hash currently being removed
   const [openKey, setOpenKey] = useState(null);   // the art_hash whose detail is showing
   const [meta, setMeta] = useState({});           // art_hash → the artifact's stored meta
+  const [catalogs, setCatalogs] = useState({});   // kind → its service's vocabulary
   const pollRef = useRef(null);
 
   // The same query key the Analysis panel uses, so this is the one poller either way.
@@ -66,6 +79,15 @@ export default function WorkspacePanel() {
   const loadMeta = useCallback(async (key, kind) => {
     const load = META_LOADERS[kind];
     if (!key || !load || !itemId) return;
+    // The catalog is per kind and never changes, so it is fetched once and kept. Failing to get it
+    // is not fatal: the detail falls back to the artifact's own meta and a default swatch.
+    const catalog = CATALOG_LOADERS[kind];
+    if (catalog) {
+      setCatalogs((prev) => (kind in prev ? prev : { ...prev, [kind]: null }));
+      catalog()
+        .then((c) => setCatalogs((prev) => ({ ...prev, [kind]: c })))
+        .catch(() => {});
+    }
     try {
       const m = await load(itemId, key);
       setMeta((prev) => ({ ...prev, [key]: m }));
@@ -248,6 +270,7 @@ export default function WorkspacePanel() {
                     <ArtifactDetail
                       view={view}
                       meta={meta[view.key]}
+                      catalog={catalogs[view.kind] ?? null}
                       loaded={meta[view.key] !== undefined}
                     />
                   )}
@@ -265,17 +288,18 @@ export default function WorkspacePanel() {
  * The inside of an opened row: the numbers the artifact stores, then its classes, then the
  * controls its layer is drawn with.
  *
- * It reads and writes the store slice `artifactDetail` names for this kind. That indirection is
- * what lets 06 add tissue and biomarker as two more table entries instead of two more branches
- * here — the panel never learns which slice it is editing.
+ * It reads and writes the store slice `artifactDetail` names for this kind, and turns every
+ * control into a patch through that kind's own `patch`. That indirection is what let 06 add
+ * tissue and biomarker as two more table entries instead of two more branches here — the panel
+ * never learns which slice it is editing, or what `heFade` or `display.gamma` mean.
  */
-function ArtifactDetail({ view, meta, loaded }) {
+function ArtifactDetail({ view, meta, catalog, loaded }) {
   const binding = layerBinding(view.kind);
   // The hook order is fixed because `binding` is a function of `view.kind`, and a row cannot
   // change kind — this component unmounts when a different row is opened.
   const layer = useStore((s) => s[binding.layerKey]);
   const setLayer = useStore((s) => s[binding.setterKey]);
-  const detail = detailFor(view.kind, meta, layer);
+  const detail = detailFor(view.kind, meta, layer, catalog);
 
   if (!loaded) {
     return (
@@ -290,7 +314,19 @@ function ArtifactDetail({ view, meta, loaded }) {
     );
   }
 
-  const resolved = binding.withDefaults(layer);
+  const resolved = binding.withDefaults(layer, catalog);
+
+  // One handler for every control. `ACTION` is the reserved key for the ones that do something
+  // rather than set something — today only an export, which is the one thing here the store
+  // cannot hold, because saving a file is a DOM act.
+  const onChange = (key, value) => {
+    if (key === ACTION) {
+      if (value?.download) download(view, value.download);
+      return;
+    }
+    const patch = binding.patch(resolved, key, value, catalog);
+    if (patch) setLayer(patch);
+  };
 
   return (
     <div data-cy="artifact-detail">
@@ -311,13 +347,25 @@ function ArtifactDetail({ view, meta, loaded }) {
         onToggle={detail.config.drawn
           ? (key) => setLayer(binding.toggleSegment(resolved, key))
           : undefined}
+        onColor={binding.recolourSegment
+          ? (key, hex) => {
+              const patch = binding.recolourSegment(resolved, key, hex);
+              if (patch) setLayer(patch);
+            }
+          : undefined}
       />
 
-      <ArtifactConfig
-        config={detail.config}
-        onMode={(render) => setLayer({ render })}
-        onOpacity={(opacity) => setLayer({ opacity })}
-      />
+      <ArtifactConfig config={detail.config} onChange={onChange} />
     </div>
   );
+}
+
+/** An artifact's own measurements, saved out. Named for the artifact so two exports cannot mix. */
+function download(view, { name, type, text }) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${view.kind}-${String(view.key).slice(0, 8)}-${name}`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }

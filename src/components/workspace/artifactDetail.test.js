@@ -25,11 +25,12 @@ const META = {
 const detail = (over = {}, layer = {}) => detailFor('nuclei', { ...META, ...over }, layer);
 
 describe('which kinds have moved across', () => {
-  it('is nuclei, and only nuclei, in this ticket', () => {
+  it('is the three drawable raster kinds, after 06', () => {
+    // Added as entries in the same table, not as a second copy of the module — which is why the
+    // panel that renders them never learns what `heFade` or `display.gamma` mean.
     expect(hasDetail('nuclei')).toBe(true);
-    // 06 adds these two as entries in the same table, not as a second copy of the module.
-    expect(hasDetail('tissue')).toBe(false);
-    expect(hasDetail('biomarker')).toBe(false);
+    expect(hasDetail('tissue')).toBe(true);
+    expect(hasDetail('biomarker')).toBe(true);
   });
 
   it('never has detail for a kind with nothing to draw', () => {
@@ -146,6 +147,237 @@ describe('an eye on a class row', () => {
     expect(layerBinding('nuclei')).toMatchObject({
       layerKey: 'nucleiLayerParams', setterKey: 'setNucleiLayerParams',
     });
-    expect(layerBinding('tissue')).toBeNull();
+    expect(layerBinding('features')).toBeNull();
+  });
+});
+
+// ── tissue (Inc 6 · 06) ─────────────────────────────────────────────────────────────
+//
+// The meta below is what the tissue service really stores: hard and soft fractions, a TSR, a
+// palette, and a coverage record that says how much of the slide the numbers describe.
+
+const TISSUE_META = {
+  backend: 'bcss_fcn_unet',
+  classes: ['Tumour', 'Stroma', 'Inflammatory', 'Necrosis', 'Others'],
+  colors: { Tumour: '#D55E00', Stroma: '#0072B2', Inflammatory: '#009E73',
+            Necrosis: '#CC79A7', Others: '#999999' },
+  coverage: { n_tiles: 43 },
+  layers: { classes: { levels: 4, level_offset: 2 }, probs: { levels: 4, level_offset: 2 } },
+  summary: {
+    covered_mm2: 11.28, tsr: 0.4212,
+    fraction: { Tumour: 0.5, Stroma: 0.3, Inflammatory: 0.15, Others: 0.05 },
+    fraction_soft: { Tumour: 0.46, Stroma: 0.3, Inflammatory: 0.15, Others: 0.09 },
+    pixels: { Tumour: 500, Stroma: 300, Inflammatory: 150, Others: 50 },
+  },
+};
+
+const tissue = (over = {}, layer = {}) => detailFor('tissue', { ...TISSUE_META, ...over }, layer);
+
+describe('a tissue map, opened', () => {
+  it('says what area the fractions under it are fractions of', () => {
+    // A composition over 3 % of a slide and one over all of it are not the same claim, so the
+    // coverage is the first line and the numbers sit underneath it.
+    expect(tissue().stats).toEqual([
+      { key: 'covered', label: 'Covered', value: '43 tiles · 11.28 mm²' },
+      { key: 'tsr', label: 'TSR', value: '0.421' },
+    ]);
+  });
+
+  it('reports TSR as a number, never as a category', () => {
+    expect(tissue({ summary: { ...TISSUE_META.summary, tsr: undefined } }).stats)
+      .not.toContainEqual(expect.objectContaining({ key: 'tsr' }));
+  });
+
+  it('keeps the class order fixed so the legend does not reshuffle as coverage grows', () => {
+    expect(tissue().segments.map((s) => s.key))
+      .toEqual(['Tumour', 'Stroma', 'Inflammatory', 'Others']);   // Necrosis: no fraction, no row
+  });
+
+  it('carries the soft fraction only where it says something the hard one does not', () => {
+    const [tumour, stroma] = tissue().segments;
+    expect(tumour.note).toBe('soft 46.0%');       // 0.50 hard vs 0.46 soft — real uncertainty
+    expect(stroma.note).toBe(null);               // identical to three places: nothing to add
+  });
+
+  it('takes its swatches from the artifact so a colour cannot drift from the picture', () => {
+    expect(tissue().segments[0].colorHex).toBe('#D55E00');
+  });
+
+  it('offers the three looks, the confidence ramp and the H&E fade', () => {
+    const { config } = tissue();
+    expect(config.modes.map((m) => m.value)).toEqual(['classes', 'probs', 'outline']);
+    expect(config.toggles.map((t) => t.key)).toEqual(['conf']);
+    expect(config.sliders.map((s) => s.key)).toEqual(['confFloor', 'heFade']);
+  });
+
+  it('drops the confidence controls in a mode that has no confidence to ramp', () => {
+    const { config } = tissue({}, { render: 'probs' });
+    expect(config.toggles).toEqual([]);
+    expect(config.sliders.map((s) => s.key)).toEqual(['heFade']);
+  });
+
+  it('hides the faintest slider when alpha is not following confidence at all', () => {
+    expect(tissue({}, { conf: false }).config.sliders.map((s) => s.key)).toEqual(['heFade']);
+  });
+
+  it('offers the composition as a file, carrying the area it was measured over', () => {
+    const [csv] = tissue().config.actions;
+    expect(csv.key).toBe('csv');
+    expect(csv.download.text.split('\n')[0])
+      .toBe('class,pixels,fraction,fraction_soft,covered_mm2,core_tiles,backend');
+    expect(csv.download.text).toContain('11.28,43,bcss_fcn_unet');
+  });
+
+  it('offers no export before there is anything to export', () => {
+    expect(tissue({ coverage: null }).config.actions).toEqual([]);
+  });
+
+  it('offers controls exactly when the viewer has something to point them at', () => {
+    // The service writes its meta only after the pyramid, so meta existing is a raster existing —
+    // and `ArtifactLayers` mounts on the same test.
+    expect(tissue().config.drawn).toBe(true);
+    expect(detailFor('tissue', null, {}).config.drawn).toBe(false);
+  });
+
+  it('hides a class from the picture, and turns it back on', () => {
+    const { toggleSegment, patch } = layerBinding('tissue');
+    expect(toggleSegment({ hidden: {} }, 'Others')).toEqual({ hidden: { Others: true } });
+    expect(patch({}, 'mode', 'outline')).toEqual({ render: 'outline' });
+    expect(patch({}, 'heFade', 0.4)).toEqual({ heFade: 0.4 });
+  });
+
+  it("has no editable colours — a class's colour is the artifact's", () => {
+    expect(layerBinding('tissue').recolourSegment).toBeNull();
+  });
+});
+
+// ── biomarker (Inc 6 · 06) ──────────────────────────────────────────────────────────
+
+const CATALOG = {
+  presets: {
+    Lineage: [{ marker: 'CK', color: '00ffff' }, { marker: 'CD3', color: 'ff0000' }],
+    Immune: [{ marker: 'CD8', color: '8000ff' }],
+  },
+  markers: ['CK', 'CD3', 'CD8', 'FOXP3'],
+  equivalents: { Transgelin: 'SM22α — near-equivalent of α-SMA' },
+  phenotype_colors: { Tumour: '#e94560', 'Cytotoxic T': '#4da6ff' },
+  dapi_color: '808080',
+};
+
+const BIO_META = {
+  coverage: { core: 2048, n_tiles: 4 },
+  slide: { mpp: 0.25 },
+  thresholds: { CK: 0.42, CD3: null },
+  summary: { n_cells: 222412, counts_by_phenotype: { Tumour: 900, 'Cytotoxic T': 120 } },
+  layers: { markers: { levels: 4, level_offset: 2 }, pheno: { levels: 6, level_offset: 0 } },
+};
+
+const bio = (layer = {}) => detailFor('biomarker', BIO_META, layer, CATALOG);
+
+describe('a marker map, opened', () => {
+  it('says how much was analysed and how many cells it found', () => {
+    expect(bio().stats).toEqual([
+      { key: 'covered', label: 'Covered', value: '4 tiles · 1.05 mm²' },
+      { key: 'cells', label: 'Cells', value: '222,412' },
+    ]);
+  });
+
+  it('lists the channels being composited when it is showing markers', () => {
+    // The mode decides what the segment list is a list *of* — the two pictures are mutually
+    // exclusive (Inc 3b · D8), so there is one list, not two.
+    expect(bio().segments.map((s) => s.key)).toEqual(['CK', 'CD3']);   // the Lineage preset
+    expect(bio().segments[0].colorHex).toBe('#00ffff');
+  });
+
+  it('says which markers had no separable positive population on this slide', () => {
+    // A null threshold is "not measurable here", which is a different statement from "all
+    // negative" — and the channel is still viewable, so it stays in the list.
+    expect(bio().segments.map((s) => s.note))
+      .toEqual([null, 'no separable positive population']);
+  });
+
+  it('lists the lineages instead once it is showing phenotypes', () => {
+    const { segments } = bio({ mode: 'pheno' });
+    expect(segments.map((s) => s.key)).toEqual(['Tumour', 'Cytotoxic T']);
+    expect(segments[0]).toMatchObject({ count: 900, colorHex: '#e94560' });
+    expect(segments[1].fraction).toBeCloseTo(120 / 1020, 5);
+  });
+
+  it('offers the panel preset and the display transfer function in markers mode only', () => {
+    const markers = bio().config;
+    expect(markers.choices.map((c) => c.key)).toEqual(['preset', 'addMarker']);
+    expect(markers.toggles.map((t) => t.key)).toEqual(['dapiOn']);
+    expect(markers.sliders.map((s) => s.key))
+      .toEqual(['dapiW', 'display.lo', 'display.hi', 'display.gamma', 'heFade']);
+
+    const pheno = bio({ mode: 'pheno' }).config;
+    expect(pheno.choices).toEqual([]);
+    expect(pheno.sliders.map((s) => s.key)).toEqual(['heFade']);
+  });
+
+  it('only offers markers this deployment has and this composite does not', () => {
+    const [, add] = bio().config.choices;
+    expect(add.options.map((o) => o.value)).toEqual(['', 'CD8', 'FOXP3']);
+  });
+
+  it('has no opacity — the composite is tuned by its transfer function, not by an alpha', () => {
+    expect(bio().config.opacity).toBeNull();
+  });
+
+  it('says on the row itself that the numbers are predictions', () => {
+    // The panel that used to carry this sentence is gone, and a positivity that reads as a stain
+    // is the one misreading this feature cannot afford.
+    expect(bio().config.note).toContain('not a stain');
+  });
+
+  it('replaces the whole channel set when a preset is picked', () => {
+    // The colours in a preset were chosen to be separable *together*, so half of one carried
+    // across is how a composite becomes illegible.
+    const { patch } = layerBinding('biomarker');
+    expect(patch({ mode: 'markers' }, 'preset', 'Immune', CATALOG)).toEqual({
+      preset: 'Immune',
+      channels: [{ marker: 'CD8', color: '#8000ff', enabled: true }],
+    });
+  });
+
+  it('appends an added marker rather than replacing anything', () => {
+    const { patch } = layerBinding('biomarker');
+    const layer = { mode: 'markers', channels: [{ marker: 'CK', color: '#00ffff', enabled: true }] };
+    expect(patch(layer, 'addMarker', 'CD8', CATALOG).channels.map((c) => c.marker))
+      .toEqual(['CK', 'CD8']);
+    // …and adding one it already has, or nothing at all, is not a change
+    expect(patch(layer, 'addMarker', 'CK', CATALOG)).toBeNull();
+    expect(patch(layer, 'addMarker', '', CATALOG)).toBeNull();
+  });
+
+  it('writes a display slider back into the nested transfer function', () => {
+    const { patch } = layerBinding('biomarker');
+    const out = patch({ mode: 'markers', display: { lo: 0.15, hi: 0.95, gamma: 0.8 } },
+                      'display.gamma', 1.4);
+    expect(out).toEqual({ display: { lo: 0.15, hi: 0.95, gamma: 1.4 } });
+  });
+
+  it('hides a channel in one mode and a lineage in the other, from the same eye', () => {
+    const { toggleSegment } = layerBinding('biomarker');
+    const channels = [{ marker: 'CK', color: '#00ffff', enabled: true }];
+    expect(toggleSegment({ mode: 'markers', channels }, 'CK').channels[0].enabled).toBe(false);
+    expect(toggleSegment({ mode: 'pheno', hidden: {} }, 'Tumour'))
+      .toEqual({ hidden: { Tumour: true } });
+  });
+
+  it("lets a channel be recoloured, but only where a colour is the user's choice", () => {
+    const { recolourSegment } = layerBinding('biomarker');
+    const layer = { mode: 'markers', channels: [{ marker: 'CK', color: '#00ffff' }] };
+    expect(recolourSegment(layer, 'CK', '#ff00ff').channels[0].color).toBe('#ff00ff');
+    // A phenotype's colour is the artifact's own — the swatch has to stay a reliable key.
+    expect(recolourSegment({ mode: 'pheno' }, 'Tumour', '#fff')).toBeNull();
+  });
+
+  it("resolves the preset's channels so the row and the picture read the same list", () => {
+    // `channels: null` in the store means "whatever this preset says". Resolved from the same
+    // catalog `ArtifactLayers` resolves it from, or a swatch could disagree with the composite.
+    expect(detailFor('biomarker', BIO_META, { channels: null }, CATALOG).segments)
+      .toHaveLength(2);
+    expect(detailFor('biomarker', BIO_META, { channels: null }, null).segments).toEqual([]);
   });
 });

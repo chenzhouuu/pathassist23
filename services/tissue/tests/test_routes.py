@@ -221,6 +221,36 @@ def test_an_undeterminable_volume_never_blocks_a_job(client, monkeypatch):
     assert client.post("/tissue", json={"slide_ref": ITEM, "seg_hash": SEG}).status_code == 200
 
 
+# ── the content address, without enqueuing anything (Inc 6 · 06) ───────────────────
+
+def test_the_hash_route_answers_with_the_address_a_run_would_store_under(client, app):
+    """The gateway dispatches onto a Celery queue and never sees the run again, so it has to know
+    the address first. It must be the *same* string the enqueue path computes, or the row and the
+    bytes end up in different places."""
+    addressed = client.post("/tissue/hash", json={"seg_hash": SEG}).get_json()
+    assert addressed["kind"] == "tissue"
+    assert addressed["backend"] == BCSS.name
+    assert addressed["art_hash"] == art_hash(
+        seg_hash=SEG, backend=BCSS.name, store_mpp=1.0, overlap=0,
+    )
+
+    enqueued = client.post("/tissue", json={"slide_ref": ITEM, "seg_hash": SEG}).get_json()
+    app.config["JOBS"].join()
+    assert enqueued["art_hash"] == addressed["art_hash"]
+
+
+def test_the_hash_route_enqueues_nothing(client, app):
+    client.post("/tissue/hash", json={"seg_hash": SEG})
+    # No job to poll: asking what something would be called must not start it.
+    assert client.get("/tissue/status/anything").status_code == 404
+
+
+def test_the_hash_route_refuses_what_the_enqueue_route_refuses(client):
+    assert client.post("/tissue/hash", json={}).status_code == 400
+    r = client.post("/tissue/hash", json={"seg_hash": SEG, "backend": "no-such-model"})
+    assert r.status_code == 400
+
+
 # ── stopping a build ───────────────────────────────────────────────────────────────
 
 def test_cancelling_an_unknown_job_is_a_404_not_a_silent_ok(client):

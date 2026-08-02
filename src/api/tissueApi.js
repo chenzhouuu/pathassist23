@@ -40,8 +40,10 @@ export async function getTissueCatalog() {
   return asJson(r, 'Load tissue catalog');
 }
 
-// Enqueue a build. `bbox: null` means the whole slide — the same route, the same pipeline, the
-// same artifact. Returns the durable artifact row to poll via listArtifacts().
+// Dispatch a build onto this box's job queue. `bbox: null` means the whole slide — the same
+// route, the same pipeline, the same artifact. Returns `{art_hash, girder_job_id, ...}` and no
+// row: since Inc 6 · 06 the artifact row is written when the run reports its bytes, and the run
+// itself is watched in the Runs list.
 export async function startTissue(itemId, { seg_hash, bbox = null, backend = null } = {}) {
   const r = await fetch(`${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/tissue`, {
     method: 'POST',
@@ -51,17 +53,9 @@ export async function startTissue(itemId, { seg_hash, bbox = null, backend = nul
   return asJson(r, 'Start tissue segmentation');
 }
 
-// Ask a running build to stop at its next core-tile boundary. Returns the job's *current* status:
-// the worker finishes the tile it is on first, so this resolves while the job is still `running`
-// with stage `stopping`, and the panel learns the rest from its next poll. Everything already
-// computed stays on disk — starting the same build again resumes from there.
-export async function cancelTissue(itemId, artHash) {
-  const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/tissue/${encodeURIComponent(artHash)}/cancel`,
-    { method: 'POST', headers: authHeaders() },
-  );
-  return asJson(r, 'Stop tissue segmentation');
-}
+// There is no `cancelTissue`. Since Inc 6 · 06 a build is a Girder job and Stop lives in the Runs
+// list, which revokes it; the driver forwards that to the tissue service's own cooperative stop.
+// The gateway route it used to call is gone with the panel that called it.
 
 // Backend, class list, layer geometry, coverage and composition for a built artifact.
 export async function getTissueMeta(itemId, artHash) {
@@ -73,18 +67,9 @@ export async function getTissueMeta(itemId, artHash) {
   return asJson(r, 'Load tissue map metadata');
 }
 
-// Class composition for a sub-rectangle (bbox = {x, y, width, height}) or the whole artifact.
-export async function getTissueStats(itemId, artHash, bbox = null) {
-  const qs = bbox
-    ? `?bbox=${[bbox.x, bbox.y, bbox.width, bbox.height].map((n) => Math.round(n)).join(',')}`
-    : '';
-  const r = await fetch(
-    `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/tissue/${encodeURIComponent(artHash)}/stats${qs}`,
-    { headers: authHeaders() },
-  );
-  if (r.status === 404) return null;
-  return asJson(r, 'Load tissue composition');
-}
+// Nor a `getTissueStats`. Measuring the composition of a *drawn rectangle* was the Tissue panel's,
+// and the Workspace row has no region picker — what it reports is the artifact's own coverage,
+// which is the honest denominator for the numbers beside it. The gateway route still serves it.
 
 // The tile URL OpenSeadragon fetches directly. No token in the query string: the layer is mounted
 // with `loadTilesWithAjax` + `ajaxHeaders`, so tiles authenticate with the same header as every

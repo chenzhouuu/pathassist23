@@ -1,29 +1,24 @@
+// The panel half of these tests went with the panel in Inc 6 · 06 — a build's stage, its Stop
+// button and its "which row is this slide's tissue map" lookup are the Runs list's questions now,
+// and are covered against the runs feed in `panels/analysis/runsUtils.test.js`. What is left is
+// the artifact half: what the map is made of, and how it is drawn.
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CONF_FLOOR,
   DEFAULT_HIDDEN,
   LAYER_FOR_RENDER,
-  backendNames,
-  canStop,
   classesOf,
   colorsOf,
   compositionCsv,
   compositionRows,
   coverageSummary,
-  describeStage,
-  findReadySegmentation,
-  findTissueRow,
   formatPercent,
-  isRunning,
-  isStopped,
-  isStopping,
   layerLevels,
   layerSignature,
   levelOffsetFor,
-  startLabel,
   tileParams,
   tsrOf,
-} from './tissueUtils.js';
+} from './tissue.js';
 
 const CLASSES = ['Tumour', 'Stroma', 'Inflammatory', 'Necrosis', 'Others'];
 
@@ -84,6 +79,15 @@ describe('tileParams', () => {
     expect(tileParams('probs', { opacity: 0.45 }).alpha).toBe('0.45');
   });
 
+  it('carries the coverage, so a map that grows is a different picture', () => {
+    // Without it the transparent tiles fetched while a whole-slide build was still working would
+    // stay in the browser's cache, and the map would keep showing the emptiness it had when you
+    // first looked at it (the same reason `workspace/nuclei.js` carries one).
+    expect(tileParams('classes', { rev: 43 }).rev).toBe('43');
+    expect(tileParams('classes', {}).rev).toBeUndefined();
+    expect(tileParams('classes', { rev: 0 }).rev).toBeUndefined();
+  });
+
   it('asks for a thicker outline so the line survives downsampling', () => {
     expect(tileParams('outline', {}).width).toBe('2');
   });
@@ -135,44 +139,9 @@ describe('catalog readers', () => {
     expect(colorsOf(null, null)).toEqual({});
   });
 
-  it('lists the available backends', () => {
-    expect(backendNames(CATALOG)).toEqual(['bcss_fcn_unet']);
-    expect(backendNames(null)).toEqual([]);
-  });
-
   it('hides the grab-bag class by default but keeps it in the class list', () => {
     expect(DEFAULT_HIDDEN).toEqual(['Others']);
     expect(classesOf(META, CATALOG)).toContain('Others');
-  });
-});
-
-describe('artifact rows', () => {
-  const rows = [
-    { kind: 'segmentation', status: 'ready', art_hash: 'seg1' },
-    { kind: 'tissue', status: 'running', progress: 0.42, stage: 'tiles' },
-  ];
-
-  it('finds the map row and the ready segmentation it needs', () => {
-    expect(findTissueRow(rows).kind).toBe('tissue');
-    expect(findReadySegmentation(rows).art_hash).toBe('seg1');
-    expect(findReadySegmentation([{ kind: 'segmentation', status: 'running' }])).toBe(null);
-    expect(findTissueRow([])).toBe(null);
-  });
-
-  it('knows when to poll', () => {
-    expect(isRunning(rows[1])).toBe(true);
-    expect(isRunning({ status: 'ready' })).toBe(false);
-    expect(isRunning(null)).toBe(false);
-  });
-
-  it('describes a build concretely enough to tell it is alive', () => {
-    expect(describeStage(null)).toBe('Not built');
-    expect(describeStage(rows[1])).toBe('Segmenting tiles 42%');
-    expect(describeStage({ status: 'running', stage: 'pyramid', progress: 0.9 }))
-      .toBe('Building pyramid 90%');
-    expect(describeStage({ status: 'ready', result: { n_core_tiles: 1234 } }))
-      .toBe('Ready — 1,234 tiles');
-    expect(describeStage({ status: 'failed', error: 'no tissue' })).toContain('no tissue');
   });
 });
 
@@ -224,54 +193,5 @@ describe('csv export', () => {
     expect(lines[1]).toContain('12.43');
     expect(lines[1]).toContain('bcss_fcn_unet');
     expect(lines[1].startsWith('Tumour,100,0.5,0.46')).toBe(true);
-  });
-});
-
-describe('stopping a build', () => {
-  const RUNNING = { kind: 'tissue', status: 'running', stage: 'tiles', progress: 0.32,
-                    job_id: 'j1' };
-  const STOPPED = { kind: 'tissue', status: 'cancelled', stage: 'stopped', progress: 0.32,
-                    n_items: 140, result: { n_core_tiles: 140, remaining: 294 } };
-
-  it('offers Stop only while there is a job to stop', () => {
-    expect(canStop(RUNNING)).toBe(true);
-    expect(canStop({ ...RUNNING, status: 'queued' })).toBe(true);
-    expect(canStop({ ...RUNNING, status: 'ready' })).toBe(false);
-    expect(canStop(STOPPED)).toBe(false);
-    expect(canStop(null)).toBe(false);
-    // a row the gateway never got a job id for cannot be stopped, so the button must not pretend
-    expect(canStop({ ...RUNNING, job_id: null })).toBe(false);
-  });
-
-  it('disables Stop once it has been pressed, because the request is already in flight', () => {
-    const stopping = { ...RUNNING, stage: 'stopping' };
-    expect(isStopping(stopping)).toBe(true);
-    expect(canStop(stopping)).toBe(false);
-    expect(describeStage(stopping)).toBe('Stopping — finishing the current tile');
-  });
-
-  it('reports a stopped build as stopped rather than as failed', () => {
-    expect(isStopped(STOPPED)).toBe(true);
-    expect(describeStage(STOPPED)).toBe('Stopped — 140 tiles, 294 left');
-    // …and never as an error, which would imply the numbers on disk are not to be trusted
-    expect(describeStage(STOPPED)).not.toContain('Failed');
-  });
-
-  it('says what it covered even when the worker did not report what is left', () => {
-    expect(describeStage({ ...STOPPED, result: { n_core_tiles: 12 } }))
-      .toBe('Stopped — 12 tiles');
-    expect(describeStage({ status: 'cancelled', stage: 'stopped' }))
-      .toBe('Stopped — part of the slide');
-  });
-
-  it('labels the start button Resume once a build has been stopped', () => {
-    expect(startLabel(null, true)).toBe('Segment whole slide');
-    expect(startLabel(RUNNING, true)).toBe('Segment whole slide');
-    expect(startLabel(STOPPED, true)).toBe('Resume whole slide');
-    expect(startLabel(STOPPED, false)).toBe('Segment region');
-  });
-
-  it('does not treat a stopped build as still running', () => {
-    expect(isRunning(STOPPED)).toBe(false);
   });
 });
