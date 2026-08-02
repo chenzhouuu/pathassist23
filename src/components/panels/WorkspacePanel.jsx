@@ -207,7 +207,10 @@ export default function WorkspacePanel() {
 
   return (
     <TooltipProvider>
-      <div className="p-2">
+      {/* The panel is the scroll region, not the tab shell: `RightPanel` gives every tab a
+          `flex-1 overflow-hidden` slot, so a tab that does not scroll itself is simply clipped —
+          which is what happened once a slide could carry all seven artifact kinds at once. */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-2">
         <PanelSection>
           <PanelSection.Header>
             <span>Artifacts{described.length ? ` (${described.length})` : ''}</span>
