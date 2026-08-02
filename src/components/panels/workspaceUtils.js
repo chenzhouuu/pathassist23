@@ -22,6 +22,11 @@ export const KIND_LABEL = Object.freeze({
   tissue: 'Tissue map',
   biomarker: 'Biomarker map',
   nuclei: 'Nuclei',
+  // Not an artifact kind — no `classify` row is ever written, because a classification names the
+  // cells of the nuclei artifact it was handed. It is here because a *run* of that kind can still
+  // reach this table through `describeGhost`, and a row reading "classify" would be the only place
+  // in the UI where a raw route name is shown to a user.
+  classify: 'Cell classification',
 });
 
 // Kinds with something to put on the slide. The rest are still listed — they answer "what has this

@@ -115,3 +115,33 @@ describe('when nothing is running', () => {
     expect(joinRuns(views, [], FILE)).toEqual(views);
   });
 });
+
+describe('when two runs share one address (Inc 7)', () => {
+  // A classification names the cells of an existing nuclei artifact, so it is dispatched under
+  // that artifact's hash. Two of them in flight at once is one address with two unfinished runs —
+  // and a row list is keyed by address, so this has to collapse to one row or React is handed a
+  // duplicate key and starts duplicating and dropping children.
+  const classify = (over = {}) => run({
+    kind: 'classify', artHash: 'nuc1', title: 'Cell classification', ...over,
+  });
+
+  it('makes one ghost row, not one per run', () => {
+    const ghosts = joinRuns([], [classify({ id: 'a' }), classify({ id: 'b' })], FILE);
+    expect(ghosts).toHaveLength(1);
+    expect(ghosts[0].key).toBe('nuc1');
+  });
+
+  it('makes no ghost at all once the artifact it names has a row', () => {
+    const joined = joinRuns(
+      [view({ key: 'nuc1', kind: 'nuclei', title: 'Nuclei' })],
+      [classify({ id: 'a' }), classify({ id: 'b' })],
+      FILE,
+    );
+    expect(joined).toHaveLength(1);
+    expect(joined[0].ghost).toBeUndefined();
+  });
+
+  it('names the run rather than showing the route it took', () => {
+    expect(joinRuns([], [classify()], FILE)[0].title).toBe('Cell classification');
+  });
+});

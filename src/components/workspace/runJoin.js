@@ -54,7 +54,11 @@ export function joinRuns(views, runs, slideKey) {
     };
   });
 
-  const ghosts = mine
+  // `byHash`, not `mine` — one row per address. Two unfinished runs can share an address (Inc 7
+  // labels an existing artifact, so a classification carries the hash of the nuclei run it names),
+  // and mapping over `mine` would then emit two rows under one React key. React's answer to that is
+  // to duplicate or drop children, which showed up as a "Starting…" row that outlived its run.
+  const ghosts = [...byHash.values()]
     .filter(r => !seen.has(r.artHash) && isUnfinished(r))
     .map(describeGhost);
 
