@@ -67,6 +67,11 @@ fetched out-of-band (D4).
 |---|---|---|
 | `2026-08-01-…-inc6-analysis-consolidation-design.md` | **Inc 6**: Preprocess / Markers / Tissue / Nuclei / Task collapse into one Analysis algorithm catalog beside the HistomicsTK CLIs (12 → 7 tabs); job management moves from four hand-rolled in-process queues onto **girder_worker / Celery** with thin-driver tasks (models stay put); `preprocess_artifact` sheds its job columns so a row means "bytes exist". 11 decisions | 🟡 plan — 9 tickets in `.scratch/inc6-analysis-consolidation/`, no code yet |
 
+### Increment 7 — cell classification as a second step
+| Doc | What it is | State |
+|---|---|---|
+| `2026-08-02-…-inc7-cell-classification-design.md` | **Inc 7**: segmentation and cell typing split into two steps. Segmentation persists CellViT's per-nucleus 1280-d token; a new `Cell classification` tool then relabels a stored artifact with any of five CellViT++ heads (NuCLS super/main, PanopTILs, MIDOG, OCELOT) at no GPU cost, as a sidecar under the same artifact. PanNuke stops being special and becomes one taxonomy of six. 14 decisions | 🟡 design — awaiting sign-off, no code yet |
+
 ### Superseded / historical
 | Doc | What it is | Superseded by |
 |---|---|---|
