@@ -39,6 +39,10 @@ TITLES = {
     "features": "Feature extraction",
     "prediction": "Downstream task",
     "nuclei": "Nuclei segmentation",
+    # Step 2 of nuclei (Inc 7). Not in this planner's dependency table and deliberately so: it
+    # takes a built artifact as its input rather than producing one, so there is nothing upstream
+    # to address and nothing to skip as already-built. It dispatches directly.
+    "classify": "Cell classification",
     "tissue": "Tissue map",
     "biomarker": "Marker map",
 }
@@ -80,6 +84,21 @@ DEPENDS_ON: dict[str, tuple[Need, ...]] = {
 #: nuclei *in that rectangle*, not over the whole slide — planning the upstream at the wrong scope
 #: is either an hour of GPU nobody asked for or a run that refuses at the first uncovered tile.
 SCOPED_KINDS = frozenset({"nuclei", "tissue", "biomarker"})
+
+#: Kinds whose artifact **grows**. Their address is computed from the model and the resolution and
+#: not from the rectangle, on purpose: two runs over different regions of one slide share an
+#: address so they can share a coverage set, and the second one resumes where the first stopped.
+#:
+#: That is exactly why "its bytes exist" cannot mean "there is nothing left to run" for them. It
+#: means the artifact covers *something*, which says nothing about whether it covers what was just
+#: asked for. Treating them like an immutable index made every region after the first, and every
+#: resume of a stopped whole-slide build, a silent no-op: the submission was answered `ready`, no
+#: job was queued, and the mask on screen stayed where it was. The panel's own description promises
+#: the opposite ("stopped … and resumed by starting the same run again").
+#:
+#: Only as the **target** of a submission. As an upstream — the nuclei under a marker map — reuse
+#: is still right, and is what stops a marker map from re-running an hour of nuclei.
+GROWABLE_KINDS = frozenset({"nuclei", "tissue", "biomarker"})
 
 
 @dataclass(frozen=True)
@@ -173,20 +192,27 @@ def missing(steps: list[Step], have) -> list[Step]:
     Marked backwards from the target: a step is needed when its own bytes are absent, and so is
     every step it depends on that is also absent. A step that exists only to feed one already on
     disk is dropped — bytes are the artifact, so the hole below it is not refilled.
+
+    The target is the one step `have` does not get to veto when its kind is in `GROWABLE_KINDS`:
+    for those, existing bytes mean the artifact covers something, not that it covers this request.
+    Its upstreams are still skipped normally — a second region does not rebuild the segmentation.
     """
     if not steps:
         return []
     by_hash = {s.art_hash: s for s in steps}
     needed: set[str] = set()
 
-    def mark(art_hash: str) -> None:
-        if art_hash in have or art_hash in needed or art_hash not in by_hash:
+    def mark(art_hash: str, *, regardless: bool = False) -> None:
+        if art_hash in needed or art_hash not in by_hash:
+            return
+        if art_hash in have and not regardless:
             return
         needed.add(art_hash)
         for parent in by_hash[art_hash].needs:
             mark(parent)
 
-    mark(steps[-1].art_hash)
+    target = steps[-1]
+    mark(target.art_hash, regardless=target.kind in GROWABLE_KINDS)
     return [s for s in steps if s.art_hash in needed]
 
 

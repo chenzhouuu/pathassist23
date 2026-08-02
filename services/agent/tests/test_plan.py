@@ -176,6 +176,46 @@ class TestWhatIsMissing:
         # map, which names them directly and finds them there.
         assert [s.kind for s in missing(steps, {"n", "s"})] == ["biomarker"]
 
+    # ── the kinds whose artifact grows ────────────────────────────────────────────────
+    #
+    # A nuclei, tissue or marker artifact is addressed by its model and resolution and not by the
+    # rectangle, so two regions of one slide share an address and share a coverage set. Existing
+    # bytes therefore mean it covers *something* — never that it covers this request. Reading them
+    # as "already built" made every region after the first, and every resume of a stopped build, a
+    # silent no-op: answered `ready`, nothing queued, the mask on screen unchanged.
+
+    @staticmethod
+    def _region():
+        return [
+            Step(kind="segmentation", art_hash="s"),
+            Step(kind="nuclei", art_hash="n", needs=("s",)),
+        ]
+
+    def test_a_second_region_on_a_slide_that_already_has_nuclei_still_runs(self):
+        assert [s.kind for s in missing(self._region(), {"s", "n"})] == ["nuclei"]
+
+    def test_and_it_does_not_drag_its_upstream_back_with_it(self):
+        """The contours are immutable and already on disk. Only the growing thing re-runs."""
+        assert [s.kind for s in missing(self._region(), {"s", "n"})] == ["nuclei"]
+        assert [s.kind for s in missing(self._region(), {"n"})] == ["segmentation", "nuclei"]
+
+    def test_every_growable_kind_is_treated_the_same_way(self):
+        for kind in ("nuclei", "tissue", "biomarker"):
+            steps = [Step(kind=kind, art_hash="a")]
+            assert [s.kind for s in missing(steps, {"a"})] == [kind], kind
+
+    def test_an_immutable_index_is_still_reused(self):
+        """The exemption is about coverage, not about re-running everything twice."""
+        assert missing(self.chain(), {"pred"}) == []
+
+    def test_a_growable_kind_as_an_upstream_is_still_reused(self):
+        """A marker map over cells that exist must not re-run an hour of nuclei to reach them."""
+        steps = [
+            Step(kind="nuclei", art_hash="n"),
+            Step(kind="biomarker", art_hash="b", needs=("n",)),
+        ]
+        assert [s.kind for s in missing(steps, {"n"})] == ["biomarker"]
+
     @pytest.mark.asyncio
     async def test_plan_returns_the_whole_shape_and_the_part_left_to_do(self):
         everything, todo = await plan(
