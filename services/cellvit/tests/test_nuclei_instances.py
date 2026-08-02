@@ -10,6 +10,7 @@ import time
 
 import numpy as np
 import pytest
+from support import segmented
 
 from cellvit_service.app import create_app
 from cellvit_service.artifacts import CORE, TILE, artifact_dir, cells_path, read_cells
@@ -21,6 +22,7 @@ from cellvit_service.pyramid import (
     unpack_instances,
 )
 from cellvit_service.region import RegionImage
+from cellvit_service.taxonomy import DEFAULT
 from cellvit_service.tiles import colourise_instances
 
 
@@ -52,7 +54,7 @@ def _app(placed):
     def segment(pixels, mpp):
         win = app.config["_WIN"]
         pts = [[x - win["x"], y - win["y"]] for x, y, _ in placed]
-        return pts, [c for _, _, c in placed], [_blob(*p) for p in pts]
+        return segmented(pts, [c for _, _, c in placed], [_blob(*p) for p in pts])
 
     app.config["READ_REGION"] = read_region
     app.config["SEGMENT"] = segment
@@ -124,7 +126,7 @@ def test_touching_nuclei_do_not_merge_into_one_blob(cache_root):
     left, right = _id_at(root, 392, 400), _id_at(root, 420, 400)
     assert left and right and left != right
     # …while the class raster, correctly, cannot tell them apart.
-    cls = read_class_tile(root, 0, 400 // TILE, 400 // TILE)
+    cls = read_class_tile(root, DEFAULT, 0, 400 // TILE, 400 // TILE)
     assert cls[400 % TILE, 392 % TILE] == cls[400 % TILE, 420 % TILE] == 1
 
 
@@ -135,7 +137,8 @@ def test_the_two_rasters_agree_on_which_pixels_are_nucleus(cache_root):
     root = artifact_dir(cache_root, "item1", ah)
     for tx in range(2):
         for ty in range(2):
-            cls, ids = read_class_tile(root, 0, tx, ty), read_instance_tile(root, 0, tx, ty)
+            cls = read_class_tile(root, DEFAULT, 0, tx, ty)
+            ids = read_instance_tile(root, 0, tx, ty)
             if cls is None:
                 continue
             assert ((cls != 0) == (ids != 0)).all()

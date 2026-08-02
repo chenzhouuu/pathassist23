@@ -9,6 +9,7 @@ import time
 
 import numpy as np
 import pytest
+from support import segmented
 
 from cellvit_service.app import create_app
 from cellvit_service.artifacts import (
@@ -17,8 +18,11 @@ from cellvit_service.artifacts import (
     art_hash,
     artifact_dir,
     cells_path,
+    labels_path,
     read_cells,
+    read_labels,
     write_cells,
+    write_labels,
 )
 from cellvit_service.region import RegionImage
 
@@ -58,7 +62,7 @@ def _app_with_fakes(per_tile=None):
         # Two nuclei near the middle of the window, in region-local coordinates.
         h, w = pixels.shape[:2]
         pts = [[w / 2, h / 2], [w / 2 + 20, h / 2 + 20]]
-        return pts, [1, 3], [_nucleus(*p) for p in pts]
+        return segmented(pts, [1, 3], [_nucleus(*p) for p in pts])
 
     app.config["SLIDE_INFO"] = slide_info
     app.config["READ_REGION"] = read_region
@@ -89,18 +93,30 @@ def test_rings_survive_storage(tmp_path):
     rings = [_nucleus(100.5, 200.25), _nucleus(1000.0, 1500.0, r=7.0)]
     write_cells(
         tmp_path / "cells" / "0_0.npz",
-        xy=xy, cls=np.array([1, 5], dtype=np.uint8), rings=rings,
-        inst=np.array([1, 2], dtype=np.uint32), origin=(0, 0),
+        xy=xy, rings=rings, inst=np.array([1, 2], dtype=np.uint32), origin=(0, 0),
     )
     back = read_cells(tmp_path / "cells" / "0_0.npz")
 
     assert len(back["rings"]) == 2
-    assert back["cls"].tolist() == [1, 5]
     assert back["inst"].tolist() == [1, 2]
     # Rings are stored relative to the tile origin as int16, so they come back rounded to the
     # pixel — which is the resolution a polygon on a slide is meaningful at.
     for got, want in zip(back["rings"], rings, strict=True):
         assert np.allclose(np.array(got), np.rint(np.array(want)), atol=0.5)
+
+
+def test_a_naming_round_trips_beside_the_outlines_it_names(tmp_path):
+    """Since Inc 7 the class is not in the cells file: it is a sidecar, row-aligned with it."""
+    write_labels(
+        labels_path(tmp_path, "nucls_super", 0, 0),
+        cls=np.array([1, 3], dtype=np.uint8), prob=np.array([0.91, 0.42], dtype=np.float16),
+    )
+    back = read_labels(labels_path(tmp_path, "nucls_super", 0, 0))
+    assert back["cls"].tolist() == [1, 3]
+    assert back["prob"].tolist() == pytest.approx([0.91, 0.42], abs=1e-3)
+    # A taxonomy that has not run leaves nothing behind rather than a file of zeros, which would
+    # be a naming that calls every nucleus background.
+    assert read_labels(labels_path(tmp_path, "midog", 0, 0)) is None
 
 
 def test_ring_coordinates_are_relative_to_the_tile_origin(tmp_path):
@@ -109,7 +125,6 @@ def test_ring_coordinates_are_relative_to_the_tile_origin(tmp_path):
     write_cells(
         path,
         xy=np.array([[9 * CORE + 10.0, 9 * CORE + 10.0]], dtype=np.float32),
-        cls=np.array([1], dtype=np.uint8),
         rings=[_nucleus(9 * CORE + 10.0, 9 * CORE + 10.0)],
         inst=np.array([1], dtype=np.uint32),
         origin=(9 * CORE, 9 * CORE),
@@ -156,7 +171,7 @@ def test_a_nucleus_belongs_to_the_core_its_centroid_falls_in(cache_root):
         # One nucleus just left of the x=CORE seam, one just right of it — both visible from the
         # left tile's haloed window, only one of them owned by it.
         pts = [[CORE - 5 - win["x"], 50 - win["y"]], [CORE + 5 - win["x"], 50 - win["y"]]]
-        return pts, [1, 1], [_nucleus(*p) for p in pts]
+        return segmented(pts, [1, 1], [_nucleus(*p) for p in pts])
 
     app = _app_with_fakes(per_tile=straddling)
     client = app.test_client()

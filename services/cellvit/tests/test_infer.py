@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
+from support import segmented
 
 from cellvit_service import infer
+from cellvit_service.artifacts import TOKEN_DIM
 from cellvit_service.config import get_settings
 from cellvit_service.infer import (
     _clip_to_region,
@@ -23,7 +25,8 @@ def _isolate_settings_cache():
 
 def test_stub_segment_array_returns_aligned_points_classes_and_contours():
     # 128x128 at stride 32 → 4x4 = 16 grid points, each with a deterministic PanNuke class.
-    points, classes, contours = segment_array(np.zeros((128, 128, 3), dtype=np.uint8), mpp=None)
+    seg = segment_array(np.zeros((128, 128, 3), dtype=np.uint8), mpp=None)
+    points, classes, contours = seg.points, seg.classes, seg.contours
     assert len(points) == 16
     assert points[0] == [0.0, 0.0]
     assert len(classes) == len(points)     # three parallel, index-aligned arrays
@@ -36,17 +39,28 @@ def test_stub_segment_array_returns_aligned_points_classes_and_contours():
     ring = contours[5]
     assert min(v[0] for v in ring) < cx < max(v[0] for v in ring)
     assert min(v[1] for v in ring) < cy < max(v[1] for v in ring)
+    # Inc 7: the stub has no encoder, so its tokens are zeros — the right shape and not a claim.
+    assert seg.tokens.shape == (16, TOKEN_DIM)
+    assert seg.tokens.dtype == np.float16
+    assert not seg.tokens.any()
+    assert len(seg.probs) == 16
 
 
-def test_clip_to_region_drops_point_class_and_contour_together():
+def test_clip_to_region_drops_point_class_contour_and_token_together():
     pts = [[1.0, 1.0], [50.0, 1.0], [2.0, 2.0]]
-    cls = [1, 2, 3]
     cnt = [[[0.0, 0.0]], [[49.0, 0.0]], [[1.0, 1.0]]]
-    kp, kc, kn = _clip_to_region(pts, cls, cnt, 10, 10)
-    # the out-of-region point takes its class AND its contour with it — no silent mis-pairing
-    assert kp == [[1.0, 1.0], [2.0, 2.0]]
-    assert kc == [1, 3]
-    assert kn == [[[0.0, 0.0]], [[1.0, 1.0]]]
+    tokens = np.zeros((3, TOKEN_DIM), dtype=np.float16)
+    tokens[:, 0] = [10.0, 20.0, 30.0]          # a marker per nucleus, to catch a shifted filter
+    kept = _clip_to_region(
+        segmented(pts, [1, 2, 3], cnt, tokens=tokens, probs=[0.1, 0.2, 0.3]), 10, 10,
+    )
+    # the out-of-region point takes its class, its contour AND its embedding with it. A partial
+    # filter here would label every survivor from its neighbour's token.
+    assert kept.points == [[1.0, 1.0], [2.0, 2.0]]
+    assert kept.classes == [1, 3]
+    assert kept.contours == [[[0.0, 0.0]], [[1.0, 1.0]]]
+    assert kept.tokens[:, 0].tolist() == [10.0, 30.0]
+    assert kept.probs == [0.1, 0.3]
 
 
 def test_warm_up_is_noop_for_stub(monkeypatch):
@@ -108,6 +122,6 @@ def test_clip_to_region_drops_pad_hits_in_lockstep():
     pts = [[5.0, 5.0], [246.9, 191.9], [300.0, 10.0], [10.0, 500.0], [-1.0, 5.0]]
     classes = [1, 2, 3, 4, 5]
     rings = [[list(p)] for p in pts]
-    kept_pts, kept_cls, _ = _clip_to_region(pts, classes, rings, 247, 192)
-    assert kept_pts == [[5.0, 5.0], [246.9, 191.9]]  # only the two inside [0,247) x [0,192)
-    assert kept_cls == [1, 2]  # their classes rode along
+    kept = _clip_to_region(segmented(pts, classes, rings), 247, 192)
+    assert kept.points == [[5.0, 5.0], [246.9, 191.9]]  # only the two inside [0,247) x [0,192)
+    assert kept.classes == [1, 2]  # their classes rode along

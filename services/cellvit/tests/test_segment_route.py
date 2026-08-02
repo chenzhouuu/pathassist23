@@ -3,6 +3,7 @@ import time
 
 import httpx
 import numpy as np
+from support import segmented
 
 import cellvit_service.app as app_module
 from cellvit_service.app import create_app
@@ -26,8 +27,8 @@ def _client_with_fakes():
         return RegionImage(pixels=np.zeros((48, 64, 3), dtype=np.uint8), mpp=0.5, scale=1.0)
 
     def fake_segment(pixels, mpp):
-        # (region-local centroids, PanNuke class ids, region-local contour rings)
-        return (
+        # region-local centroids, PanNuke class ids, region-local contour rings
+        return segmented(
             [[0.0, 0.0], [10.0, 20.0]],
             [1, 2],
             [[[-1.0, 0.0], [1.0, 0.0], [0.0, 1.0]], [[9.0, 20.0], [11.0, 20.0], [10.0, 21.0]]],
@@ -61,7 +62,7 @@ def test_segment_returns_typed_counts_and_class_names():
 
     def fake_segment(pixels, mpp):
         # two Neoplastic, one Inflammatory, each with a one-vertex placeholder ring
-        return (
+        return segmented(
             [[0.0, 0.0], [10.0, 20.0], [5.0, 5.0]], [1, 2, 1],
             [[[0.0, 0.0]], [[10.0, 20.0]], [[5.0, 5.0]]],
         )

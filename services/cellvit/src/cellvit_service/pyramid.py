@@ -1,12 +1,13 @@
-"""Tile pyramid I/O for the nuclei raster (Inc 5, ticket 06).
+"""Tile pyramid I/O for the nuclei raster (Inc 5 ticket 06, split by taxonomy in Inc 7).
 
-Two planes per tile, and the pair is the whole design:
+Three planes, and which of them belongs to whom is the whole of Inc 7's storage change:
 
-- **classes** — a paletted nominal raster (0 = no nucleus, i = the PanNuke class id).
-- **cover**   — how much of each pixel is nucleus, 0..255. At level 0 it is binary; it stops being
-  binary the moment you zoom out.
+- **instances** — one nucleus, one id. Shared: an outline is an outline whatever it is called.
+- **cover**     — how much of each pixel is nucleus, 0..255. Shared, for the same reason.
+- **classes**   — a paletted nominal raster (0 = no nucleus, i = a *stored* class id). One per
+  taxonomy, under `labels/{taxonomy}/classes/`, because this is the only plane a naming changes.
 
-Why a second plane at all. A nucleus is ~40 px across at 0.25 µm/px and the pyramid runs to a
+Why a coverage plane at all. A nucleus is ~40 px across at 0.25 µm/px and the pyramid runs to a
 single tile, so by level 5 one stored pixel spans several whole nuclei. Neither of the obvious
 downsampling rules survives that:
 
@@ -23,13 +24,21 @@ out turns a field of discrete nuclei into a continuous density of the right colo
 either a slab or a blank.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from .artifacts import TILE, class_tile_path, cover_tile_path, instance_tile_path
-from .pannuke import BACKGROUND_INDEX, class_ids, palette_bytes
+from .artifacts import (
+    TILE,
+    class_tile_path,
+    cover_tile_path,
+    instance_tile_path,
+    label_dir,
+)
+from .taxonomy import BACKGROUND_INDEX
+from .taxonomy import get as get_taxonomy
 
 
 def levels_for(width: int, height: int, tile: int = TILE) -> int:
@@ -43,29 +52,33 @@ def levels_for(width: int, height: int, tile: int = TILE) -> int:
     return n
 
 
-# ── classes ────────────────────────────────────────────────────────────────────────
+# ── classes (one plane per taxonomy) ────────────────────────────────────────────────
 
-def write_class_tile(root: Path, z: int, x: int, y: int, idx: np.ndarray) -> None:
-    """Write a paletted PNG whose index 0 (no nucleus) is transparent."""
-    path = class_tile_path(root, z, x, y)
+def write_class_tile(root: Path, taxonomy: str, z: int, x: int, y: int, idx: np.ndarray) -> None:
+    """Write a paletted PNG whose index 0 (no nucleus) is transparent.
+
+    The palette is the taxonomy's own, so the bytes on disk already carry the colour language and
+    a recolour cannot drift from the map it describes.
+    """
+    path = class_tile_path(root, taxonomy, z, x, y)
     path.parent.mkdir(parents=True, exist_ok=True)
     im = Image.fromarray(np.ascontiguousarray(idx, dtype=np.uint8), mode="P")
-    im.putpalette(palette_bytes())
+    im.putpalette(get_taxonomy(taxonomy).palette_bytes())
     tmp = path.with_suffix(".png.tmp")
     im.save(tmp, format="PNG", transparency=BACKGROUND_INDEX, optimize=True)
     tmp.replace(path)
 
 
-def read_class_tile(root: Path, z: int, x: int, y: int) -> np.ndarray | None:
+def read_class_tile(root: Path, taxonomy: str, z: int, x: int, y: int) -> np.ndarray | None:
     """The raw palette-index array for a tile, or None when it was never written."""
-    path = class_tile_path(root, z, x, y)
+    path = class_tile_path(root, taxonomy, z, x, y)
     if not path.is_file():
         return None
     with Image.open(path) as im:
         return np.array(im.convert("P"), dtype=np.uint8)
 
 
-def downsample_class(idx: np.ndarray) -> np.ndarray:
+def downsample_class(idx: np.ndarray, ids: list[int]) -> np.ndarray:
     """2x2 mode over the *non-background* children (ties → lowest class id); 0 if all background.
 
     Deliberately not weighted by area: at a level where two classes share a pixel, the question
@@ -75,7 +88,6 @@ def downsample_class(idx: np.ndarray) -> np.ndarray:
     h, w = a.shape
     quads = a.reshape(h // 2, 2, w // 2, 2).transpose(0, 2, 1, 3).reshape(h // 2, w // 2, 4)
 
-    ids = class_ids()
     counts = np.zeros(quads.shape[:2] + (len(ids),), dtype=np.uint8)
     for k, cid in enumerate(ids):
         counts[..., k] = (quads == cid).sum(axis=2)
@@ -85,7 +97,7 @@ def downsample_class(idx: np.ndarray) -> np.ndarray:
     return np.where(any_fg, best, BACKGROUND_INDEX).astype(np.uint8)
 
 
-# ── instances ──────────────────────────────────────────────────────────────────────
+# ── instances (shared) ─────────────────────────────────────────────────────────────
 #
 # One nucleus, one id, packed little-endian into RGB with alpha as the mask — the OME-NGFF
 # `labels` convention carried in the format a tile server can actually send. 24 bits is ~16.7 M
@@ -159,7 +171,7 @@ def downsample_instance(ids: np.ndarray) -> np.ndarray:
     return best
 
 
-# ── coverage ───────────────────────────────────────────────────────────────────────
+# ── coverage (shared) ───────────────────────────────────────────────────────────────
 
 def write_cover_tile(root: Path, z: int, x: int, y: int, cover: np.ndarray) -> None:
     """Write the coverage plane as a plain 8-bit greyscale PNG."""
@@ -187,69 +199,103 @@ def downsample_cover(cover: np.ndarray) -> np.ndarray:
 
 
 # ── the pyramid ────────────────────────────────────────────────────────────────────
+#
+# Four entry points from two shapes. *Full* rebuilds run once at the end of a job, for the reason
+# the tissue map's copy of this gives: a coarse tile can have children from more than one job, and
+# the arithmetic that works out which parents a new core touched is exactly the kind of thing that
+# is wrong once and then wrong forever in the picture. *Above* rebuilds run per core during a job,
+# because the whole pyramid every core would be quadratic and a whole-slide run would then show
+# nothing until it finished. Both build a parent by reading all four children off disk, so neither
+# can miss a sibling another core wrote.
 
-def build_levels(root: Path, n_levels: int) -> None:
-    """Rebuild every coarse level from the level below, for whatever tiles exist.
+_Build = Callable[[int, int, int], None]
 
-    A full rebuild rather than an incremental patch, for the reason the tissue map's copy of this
-    gives: a coarse tile can have children from more than one job, and the arithmetic that works
-    out which parents a new core touched is exactly the kind of thing that is wrong once and then
-    wrong forever in the picture. Each level is a quarter of the one below, so it is cheap.
-    """
+
+def _rebuild_all(child_dir: Callable[[int], Path], build: _Build, n_levels: int) -> None:
     for z in range(1, n_levels):
-        child_dir = root / "classes" / str(z - 1)
-        if not child_dir.is_dir():
+        d = child_dir(z - 1)
+        if not d.is_dir():
             break
         parents: set[tuple[int, int]] = set()
-        for p in child_dir.glob("*.png"):
+        for p in d.glob("*.png"):
             cx, _, cy = p.stem.partition("_")
             parents.add((int(cx) // 2, int(cy) // 2))
         for px, py in sorted(parents):
-            _build_parent(root, z, px, py)
+            build(z, px, py)
 
 
-def build_levels_above(root: Path, n_levels: int, tiles: list[tuple[int, int]]) -> None:
-    """Rebuild only the ancestors of `tiles` (level-0 coordinates), all the way to the top.
-
-    Exact, not an approximation: a parent is always built by reading all four of its children off
-    disk, so refreshing one chain cannot miss a sibling that another core wrote. It exists beside
-    the full rebuild because it is what a *running* job can afford — the whole pyramid every core
-    would be quadratic, and then a whole-slide run would show nothing until it finished.
-    """
+def _rebuild_above(build: _Build, n_levels: int, tiles: list[tuple[int, int]]) -> None:
     live = {(int(x), int(y)) for x, y in tiles}
     for z in range(1, n_levels):
         parents = {(x // 2, y // 2) for x, y in live}
         for px, py in sorted(parents):
-            _build_parent(root, z, px, py)
+            build(z, px, py)
         live = parents
 
 
-def _build_parent(root: Path, z: int, px: int, py: int) -> None:
-    cls = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
+def build_levels(root: Path, n_levels: int) -> None:
+    """Rebuild every coarse level of the **shared** planes — instances and cover."""
+    _rebuild_all(lambda z: root / "cover" / str(z),
+                 lambda z, px, py: _build_shared_parent(root, z, px, py), n_levels)
+
+
+def build_levels_above(root: Path, n_levels: int, tiles: list[tuple[int, int]]) -> None:
+    """Rebuild the shared planes' ancestors of `tiles` (level-0 coordinates), to the top."""
+    _rebuild_above(lambda z, px, py: _build_shared_parent(root, z, px, py), n_levels, tiles)
+
+
+def build_class_levels(root: Path, taxonomy: str, n_levels: int) -> None:
+    """Rebuild every coarse level of one taxonomy's class plane."""
+    base = label_dir(root, taxonomy) / "classes"
+    _rebuild_all(lambda z: base / str(z),
+                 lambda z, px, py: _build_class_parent(root, taxonomy, z, px, py), n_levels)
+
+
+def build_class_levels_above(
+    root: Path, taxonomy: str, n_levels: int, tiles: list[tuple[int, int]],
+) -> None:
+    """Rebuild one taxonomy's class-plane ancestors of `tiles`, to the top."""
+    _rebuild_above(lambda z, px, py: _build_class_parent(root, taxonomy, z, px, py),
+                   n_levels, tiles)
+
+
+def _build_shared_parent(root: Path, z: int, px: int, py: int) -> None:
     cov = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
     ids = np.zeros((TILE * 2, TILE * 2), dtype=np.uint32)
     found = False
     for dy in (0, 1):
         for dx in (0, 1):
-            child = read_class_tile(root, z - 1, px * 2 + dx, py * 2 + dy)
-            if child is None:
+            child_cov = read_cover_tile(root, z - 1, px * 2 + dx, py * 2 + dy)
+            if child_cov is None:
                 continue
             found = True
             sl = (slice(dy * TILE, (dy + 1) * TILE), slice(dx * TILE, (dx + 1) * TILE))
-            cls[sl] = pad_tile(child)
-            child_cov = read_cover_tile(root, z - 1, px * 2 + dx, py * 2 + dy)
-            # A class tile with no cover tile beside it can only be a half-written pair; treat the
-            # nucleus pixels as fully covered rather than dropping the tile from the picture.
-            cov[sl] = pad_tile(child_cov) if child_cov is not None else (cls[sl] != 0) * 255
+            cov[sl] = pad_tile(child_cov)
             child_ids = read_instance_tile(root, z - 1, px * 2 + dx, py * 2 + dy)
             if child_ids is not None:
                 ids[sl] = pad_tile(child_ids)
     if not found:
         return
-    write_class_tile(root, z, px, py, downsample_class(cls))
     write_cover_tile(root, z, px, py, downsample_cover(cov))
     if ids.any():
         write_instance_tile(root, z, px, py, downsample_instance(ids))
+
+
+def _build_class_parent(root: Path, taxonomy: str, z: int, px: int, py: int) -> None:
+    cls = np.zeros((TILE * 2, TILE * 2), dtype=np.uint8)
+    found = False
+    for dy in (0, 1):
+        for dx in (0, 1):
+            child = read_class_tile(root, taxonomy, z - 1, px * 2 + dx, py * 2 + dy)
+            if child is None:
+                continue
+            found = True
+            sl = (slice(dy * TILE, (dy + 1) * TILE), slice(dx * TILE, (dx + 1) * TILE))
+            cls[sl] = pad_tile(child)
+    if not found:
+        return
+    write_class_tile(root, taxonomy, z, px, py,
+                     downsample_class(cls, get_taxonomy(taxonomy).class_ids))
 
 
 # ── shared ─────────────────────────────────────────────────────────────────────────
@@ -273,8 +319,8 @@ def _pad_to_even(a: np.ndarray) -> np.ndarray:
 
 
 __all__ = [
-    "build_levels", "build_levels_above", "downsample_class", "downsample_cover",
-    "downsample_instance", "levels_for", "pack_instances", "pad_tile", "read_class_tile",
-    "read_cover_tile", "read_instance_tile", "unpack_instances", "write_class_tile",
-    "write_cover_tile", "write_instance_tile",
+    "build_class_levels", "build_class_levels_above", "build_levels", "build_levels_above",
+    "downsample_class", "downsample_cover", "downsample_instance", "levels_for", "pack_instances",
+    "pad_tile", "read_class_tile", "read_cover_tile", "read_instance_tile", "unpack_instances",
+    "write_class_tile", "write_cover_tile", "write_instance_tile",
 ]

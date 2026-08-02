@@ -10,12 +10,14 @@ import time
 
 import numpy as np
 import pytest
+from support import segmented
 
 from cellvit_service import routes as routes_mod
 from cellvit_service.app import create_app
 from cellvit_service.artifacts import CORE, Coverage, artifact_dir, cells_path, read_cells
 from cellvit_service.region import RegionImage
 from cellvit_service.slides import tissue_core_tiles
+from cellvit_service.taxonomy import DEFAULT
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +46,7 @@ def _app(tiles=((0, 0), (1, 0), (2, 0)), on_core=None):
         # Two nuclei near the middle of the window, so both belong to the core it is centred on.
         h, w = pixels.shape[:2]
         pts = [[w / 2, h / 2], [w / 2 + 30, h / 2]]
-        return pts, [1, 3], [_diamond(*p) for p in pts]
+        return segmented(pts, [1, 3], [_diamond(*p) for p in pts])
 
     app.config["READ_REGION"] = read_region
     app.config["SEGMENT"] = segment
@@ -246,7 +248,7 @@ def test_a_stopped_run_still_leaves_a_picture(cache_root):
     _await(client, run["job_id"])
 
     root = artifact_dir(cache_root, "item1", run["art_hash"])
-    assert read_class_tile(root, 0, 4, 4) is not None       # inside core (0, 0)
+    assert read_class_tile(root, DEFAULT, 0, 4, 4) is not None       # inside core (0, 0)
 
 
 def test_cancelling_an_unknown_job_is_a_404():
@@ -298,7 +300,7 @@ def test_meta_reports_the_live_count_not_the_one_the_last_job_wrote(cache_root):
     _await(client, run["job_id"])
 
     root = artifact_dir(cache_root, "item1", run["art_hash"])
-    with open(summary_path(root), "w") as fh:
+    with open(summary_path(root, DEFAULT), "w") as fh:
         json.dump({"n_nuclei": 999999, "n_tiles": 99}, fh)   # a file that has fallen behind
 
     meta = client.get(f"/nuclei/item1/{run['art_hash']}/meta").get_json()
@@ -318,10 +320,10 @@ def test_a_core_is_drawn_as_it_lands_not_only_when_the_job_ends(cache_root):
         state["calls"] += 1
         if state["calls"] == 2:                      # core (0,0) is stored and drawn by now
             root = artifact_dir(cache_root, "item1", ART)
-            seen.append(read_class_tile(root, 0, 4, 4) is not None)     # inside core (0,0)
+            seen.append(read_class_tile(root, DEFAULT, 0, 4, 4) is not None)     # inside core (0,0)
             # …and all the way up: the top level of an 8192x4096 slide is one tile at z=5, which
             # is the level you are actually looking at while watching a slide fill in.
-            seen.append(read_class_tile(root, 5, 0, 0) is not None)
+            seen.append(read_class_tile(root, DEFAULT, 5, 0, 0) is not None)
 
     app = _app(tiles=[(0, 0), (1, 0)], on_core=on_core)
     client = app.test_client()

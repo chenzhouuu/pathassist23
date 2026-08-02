@@ -15,14 +15,44 @@ import shutil
 import tempfile
 import threading
 import uuid
+from dataclasses import dataclass
 from math import ceil
 from pathlib import Path
 
 import numpy as np
 
+from .artifacts import TOKEN_DIM
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Segmented:
+    """One region's nuclei: five arrays that are index-aligned and must stay that way.
+
+    A tuple would do and did until Inc 7, when the fourth and fifth arrived. Five parallel lists
+    positional-unpacked at six call sites is the shape that gets mis-indexed once and then pairs
+    every nucleus with its neighbour's outline forever, so they travel named.
+
+    ``classes`` and ``probs`` are **PanNuke**: the class the decoder's type head gave this nucleus,
+    and the fraction of the instance's pixels that voted for it (upstream's ``type_prob``, which
+    is a genuine per-nucleus agreement measure rather than a posterior — a different quantity from
+    the softmax a classifier head produces, and stored under the same name for the same purpose).
+
+    ``tokens`` is ``[N, 1280]``: the encoder's per-nucleus embedding, which is what every
+    classifier head reads and what Inc 7 exists to keep.
+    """
+
+    points: list[list[float]]
+    classes: list[int]
+    contours: list[list[list[float]]]
+    tokens: np.ndarray
+    probs: list[float]
+
+    @staticmethod
+    def empty() -> "Segmented":
+        return Segmented([], [], [], np.zeros((0, TOKEN_DIM), dtype=np.float16), [])
 
 _STUB_STRIDE = 32
 
@@ -68,25 +98,26 @@ def _pad_to_min(pixels: np.ndarray, min_side: int) -> np.ndarray:
     return canvas
 
 
-def _clip_to_region(
-    points: list[list[float]], classes: list[int], contours: list[list[list[float]]],
-    w: int, h: int,
-) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
+def _clip_to_region(seg: Segmented, w: int, h: int) -> Segmented:
     """Keep only centroids inside ``[0, w) x [0, h)`` — drop pad-area hits.
 
-    Class ids and contour rings are filtered in lockstep with the centroids: the three arrays are
-    index-aligned everywhere downstream (the phenotype rasteriser draws ``contours[i]`` for the
-    cell whose centroid is ``points[i]``), so a partial filter would silently mis-pair nuclei.
+    Every array is filtered in lockstep with the centroids: they are index-aligned everywhere
+    downstream (the rasteriser draws ``contours[i]`` for the cell whose centroid is ``points[i]``,
+    and a classifier head reads ``tokens[i]`` for the same one), so a partial filter would silently
+    mis-pair nuclei — or, worse than mis-pair, label them from a neighbour's embedding.
     """
-    kept_pts: list[list[float]] = []
-    kept_cls: list[int] = []
-    kept_cnt: list[list[list[float]]] = []
-    for p, c, ring in zip(points, classes, contours, strict=True):
-        if 0.0 <= p[0] < w and 0.0 <= p[1] < h:
-            kept_pts.append(p)
-            kept_cls.append(c)
-            kept_cnt.append(ring)
-    return kept_pts, kept_cls, kept_cnt
+    keep = [i for i, p in enumerate(seg.points) if 0.0 <= p[0] < w and 0.0 <= p[1] < h]
+    if len(keep) == len(seg.points):
+        return seg
+    tokens = (seg.tokens[keep] if len(seg.tokens)
+              else np.zeros((0, TOKEN_DIM), dtype=np.float16))
+    return Segmented(
+        points=[seg.points[i] for i in keep],
+        classes=[seg.classes[i] for i in keep],
+        contours=[seg.contours[i] for i in keep],
+        tokens=tokens,
+        probs=[seg.probs[i] for i in keep],
+    )
 
 # CellViT-SAM-H loads a ~2.7 GB checkpoint, so build it once and reuse it across requests.
 # The lock makes the lazy build safe if warm-up and the first request race.
@@ -99,10 +130,14 @@ _MODEL_LOCK = threading.Lock()
 _STUB_RADIUS = 9.0
 
 
-def _stub_segment_array(
-    pixels: np.ndarray, mpp: float | None
-) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
-    """A deterministic 32-px grid over the region: centroid, PanNuke class and contour per point."""
+def _stub_segment_array(pixels: np.ndarray, mpp: float | None) -> Segmented:
+    """A deterministic 32-px grid over the region: centroid, PanNuke class and contour per point.
+
+    Its tokens are zeros, and deliberately so. The stub has no encoder, and a plausible-looking
+    embedding is the one thing worse than an obvious one: classification of a stub artifact then
+    puts every nucleus in whichever class the head's bias favours, which reads as a stub rather
+    than as a result. The path is exercised end to end; the labelling is not a claim.
+    """
     h, w = pixels.shape[:2]
     points: list[list[float]] = []
     classes: list[int] = []
@@ -118,7 +153,11 @@ def _stub_segment_array(
                 [fx, fy + _STUB_RADIUS], [fx - _STUB_RADIUS, fy],
             ])
             idx += 1
-    return points, classes, contours
+    return Segmented(
+        points=points, classes=classes, contours=contours,
+        tokens=np.zeros((len(points), TOKEN_DIM), dtype=np.float16),
+        probs=[1.0] * len(points),
+    )
 
 
 def reset_cellvit_model() -> None:
@@ -170,7 +209,11 @@ def _get_cellvit_model():
                     nuclei_taxonomy="pannuke",
                     batch_size=settings.batch_size,
                     geojson=False,   # we read centroids straight from cells.json
-                    graph=False,
+                    # The one flag Inc 7 turns on. `graph` is upstream's name for "also write the
+                    # per-nucleus tokens", as `cells.pt`, row-aligned with `cells.json`. They are
+                    # computed either way — `retrieve_tokens=True` is how the postprocessor gets
+                    # the array it classifies from — and until now we let them be discarded.
+                    graph=True,
                     compression=False,
                     enforce_amp=False,
                     debug=False,
@@ -205,10 +248,38 @@ def _load_cells(cells_json: Path) -> list:
         return json.load(fh)["cells"]
 
 
-def _cellvit_segment_array(
-    pixels: np.ndarray, mpp: float | None
-) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
-    """Real CellViT-SAM-H inference → region-local ``[x, y]`` centroids + PanNuke class ids.
+def _load_tokens(cells_pt: Path, n: int) -> np.ndarray:
+    """CellViT's per-nucleus embeddings, written beside ``cells.json`` when ``graph=True``.
+
+    Row ``i`` is cell ``i`` of ``cells.json``: upstream filters ``cell_tokens`` through the same
+    ``keep_idx``, the same ``_reallign_grid`` and the same ``_remove_padding`` as the cell list, and
+    returns before writing either when there are no cells at all. So the two files exist together
+    or not at all, and are the same length.
+
+    That length is checked rather than trusted. A mismatch would not fail — it would label every
+    nucleus from its neighbour's embedding, which is the kind of wrong that looks like a result.
+    """
+    if n == 0:
+        return np.zeros((0, TOKEN_DIM), dtype=np.float16)
+    if not cells_pt.exists():
+        raise RuntimeError(
+            f"cellvit wrote {n} nuclei but no {cells_pt.name} — the inference session was built "
+            f"without graph=True, so these nuclei could never be classified"
+        )
+    import torch
+
+    graph = torch.load(cells_pt, map_location="cpu", weights_only=False)
+    tokens = np.asarray(graph.x.detach().cpu().numpy(), dtype=np.float16)
+    if tokens.shape != (n, TOKEN_DIM):
+        raise RuntimeError(
+            f"cellvit returned {tokens.shape} tokens for {n} nuclei — expected ({n}, {TOKEN_DIM}); "
+            f"the token/cell alignment this artifact depends on does not hold"
+        )
+    return tokens
+
+
+def _cellvit_segment_array(pixels: np.ndarray, mpp: float | None) -> Segmented:
+    """Real CellViT-SAM-H inference → region-local centroids, PanNuke classes and tokens.
 
     CellViT has no region API, so the region is written as an OpenSlide-readable tiled TIFF
     (a mini-WSI) at ``mpp`` and run through ``process_wsi`` (which reuses CellViT's exact
@@ -245,18 +316,23 @@ def _cellvit_segment_array(
             [[float(px), float(py)] for px, py in c.get("contour") or []] or [list(ctr)]
             for c, ctr in zip(cells, local, strict=True)
         ]
-        return _clip_to_region(local, classes, contours, w, h)
+        # The share of the instance's pixels that voted for its winning type. Real here, unlike the
+        # `type_prob` upstream writes when a classifier head is in play, which it truncates to int.
+        probs = [float(c.get("type_prob") or 0.0) for c in cells]
+        tokens = _load_tokens(workdir / stem / "cells.pt", len(cells))
+        return _clip_to_region(
+            Segmented(points=local, classes=classes, contours=contours,
+                      tokens=tokens, probs=probs),
+            w, h,
+        )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def segment_array(
-    pixels: np.ndarray, mpp: float | None
-) -> tuple[list[list[float]], list[int], list[list[list[float]]]]:
-    """Region-local centroids + aligned PanNuke class ids + aligned contour rings.
+def segment_array(pixels: np.ndarray, mpp: float | None) -> Segmented:
+    """One region's nuclei, in region-local pixels.
 
-    All three lists are index-aligned: ``contours[i]`` is the polygon of the nucleus whose
-    centroid is ``points[i]`` and whose class is ``classes[i]``.
+    See :class:`Segmented` for the alignment rule its five arrays are held to.
     """
     if get_settings().model != "cellvit":
         return _stub_segment_array(pixels, mpp)

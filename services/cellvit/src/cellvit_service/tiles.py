@@ -17,8 +17,9 @@ import numpy as np
 from PIL import Image
 
 from .artifacts import TILE
-from .pannuke import TYPE_NAMES, class_ids, color_for
 from .pyramid import pack_instances
+from .taxonomy import DEFAULT
+from .taxonomy import get as get_taxonomy
 
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
 
@@ -27,8 +28,11 @@ class BadClassSpec(ValueError):
     """A malformed or unknown class spec — a 400, never a silently-dropped class."""
 
 
-def parse_show(spec: str | None) -> list[str] | None:
+def parse_show(spec: str | None, taxonomy: str = DEFAULT) -> list[str] | None:
     """``"Neoplastic,Dead"`` → validated class names; ``None`` (or empty) means "all".
+
+    Validated against the taxonomy the tile is being drawn in, so a name that belongs to a
+    different one is rejected rather than quietly hiding nothing.
 
     A typo raises rather than being skipped: a class silently dropped from the picture would read
     as "there are none of these here", which is a wrong finding rather than a cosmetic bug.
@@ -36,19 +40,20 @@ def parse_show(spec: str | None) -> list[str] | None:
     if not spec:
         return None
     names = [s.strip() for s in spec.split(",") if s.strip()]
-    known = set(TYPE_NAMES.values())
+    known = set(get_taxonomy(taxonomy).names.values())
     unknown = [n for n in names if n not in known]
     if unknown:
         raise BadClassSpec(f"unknown class(es) {unknown}; known: {sorted(known)}")
     return names
 
 
-def parse_colors(spec: str | None) -> dict[int, str]:
-    """``"Neoplastic:d55e00"`` → {class id: 'RRGGBB'}, defaulting to the PanNuke palette."""
-    out = {cid: color_for(cid) for cid in class_ids()}
+def parse_colors(spec: str | None, taxonomy: str = DEFAULT) -> dict[int, str]:
+    """``"Neoplastic:d55e00"`` → {class id: 'RRGGBB'}, defaulting to the taxonomy's palette."""
+    tax = get_taxonomy(taxonomy)
+    out = {cid: tax.color(cid) for cid in tax.class_ids}
     if not spec:
         return out
-    by_name = {name: cid for cid, name in TYPE_NAMES.items()}
+    by_name = {name: cid for cid, name in tax.names.items()}
     for part in spec.split(","):
         part = part.strip()
         if not part:
@@ -72,22 +77,23 @@ def _rgb(hexed: str) -> tuple[int, int, int]:
 def colourise(
     idx: np.ndarray, cover: np.ndarray | None, *,
     show: list[str] | None = None, alpha: float = 1.0,
-    colors: dict[int, str] | None = None,
+    colors: dict[int, str] | None = None, taxonomy: str = DEFAULT,
 ) -> np.ndarray:
     """Class-index raster → uint8 RGBA, filtered to ``show`` and faded by coverage.
 
     Filtering is a palette operation rather than a re-render: a hidden class's entry is simply made
     transparent, so its pixels stop being drawn without anything being recomputed.
     """
-    colors = colors or {cid: color_for(cid) for cid in class_ids()}
+    tax = get_taxonomy(taxonomy)
+    colors = colors or {cid: tax.color(cid) for cid in tax.class_ids}
     keep = set(show) if show else None
     a = int(np.clip(alpha, 0.0, 1.0) * 255)
 
     lut = np.zeros((256, 4), dtype=np.uint8)
-    for cid in class_ids():
-        if keep is not None and TYPE_NAMES[cid] not in keep:
+    for cid in tax.class_ids:
+        if keep is not None and tax.names[cid] not in keep:
             continue
-        r, g, b = _rgb(colors.get(cid, color_for(cid)))
+        r, g, b = _rgb(colors.get(cid, tax.color(cid)))
         lut[cid] = (r, g, b, a)
 
     rgba = lut[idx]

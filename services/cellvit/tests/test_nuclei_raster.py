@@ -9,9 +9,19 @@ import time
 
 import numpy as np
 import pytest
+from support import segmented
 
 from cellvit_service.app import create_app
-from cellvit_service.artifacts import CORE, TILE, artifact_dir, cells_path, read_cells
+from cellvit_service.artifacts import (
+    CORE,
+    TILE,
+    artifact_dir,
+    cells_path,
+    label_dir,
+    labels_path,
+    read_cells,
+    read_labels,
+)
 from cellvit_service.pyramid import (
     downsample_class,
     downsample_cover,
@@ -19,6 +29,8 @@ from cellvit_service.pyramid import (
     read_cover_tile,
 )
 from cellvit_service.region import RegionImage
+from cellvit_service.taxonomy import DEFAULT
+from cellvit_service.taxonomy import get as get_taxonomy
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +70,7 @@ def _app(per_tile):
 def _at(win, *nuclei):
     """Place `(x, y, class)` triples given in *slide* pixels into the window's local frame."""
     pts = [[x - win["x"], y - win["y"]] for x, y, _ in nuclei]
-    return pts, [c for _, _, c in nuclei], [_blob(*p) for p in pts]
+    return segmented(pts, [c for _, _, c in nuclei], [_blob(*p) for p in pts])
 
 
 def _run(client, bbox):
@@ -76,7 +88,7 @@ def _run(client, bbox):
 
 def _pixel(root, x, y):
     """The class index the level-0 raster carries at a slide pixel (mpp 0.25 ⇒ offset 0)."""
-    tile = read_class_tile(root, 0, x // TILE, y // TILE)
+    tile = read_class_tile(root, DEFAULT, 0, x // TILE, y // TILE)
     return None if tile is None else int(tile[y % TILE, x % TILE])
 
 
@@ -95,7 +107,8 @@ def test_every_stored_nucleus_is_painted_in_its_own_class(cache_root):
     # Read the picture at each *stored* centroid rather than at the coordinates the fake model was
     # given: this asserts the raster agrees with what is on disk, which is the thing that could
     # drift.
-    for (cx, cy), cls in zip(stored["xy"], stored["cls"].tolist(), strict=True):
+    named = read_labels(labels_path(root, DEFAULT, 0, 0))
+    for (cx, cy), cls in zip(stored["xy"], named["cls"].tolist(), strict=True):
         assert _pixel(root, int(cx), int(cy)) == cls
 
 
@@ -106,7 +119,7 @@ def test_nothing_is_painted_where_there_is_no_nucleus(cache_root):
     root = artifact_dir(cache_root, "item1", ah)
     assert _pixel(root, 300, 400) == 1
     assert _pixel(root, 900, 900) == 0                 # far from the one nucleus
-    idx = read_class_tile(root, 0, 0, 0)
+    idx = read_class_tile(root, DEFAULT, 0, 0, 0)
     assert set(np.unique(idx).tolist()) <= {0, 1}      # no class nobody predicted
 
 
@@ -139,7 +152,7 @@ def test_the_raster_is_rebuilt_when_it_is_missing(cache_root):
     ah, _ = _run(client, bbox)
 
     root = artifact_dir(cache_root, "item1", ah)
-    shutil.rmtree(root / "classes")
+    shutil.rmtree(label_dir(root, DEFAULT) / "classes")
     assert _pixel(root, 300, 400) is None
 
     # Every tile is already covered, so nothing is inferred — only the picture comes back.
@@ -161,7 +174,7 @@ def test_a_pyramid_is_built_up_to_a_single_tile(cache_root):
     # 4096 px at 0.25 µm/px stored 1:1 ⇒ 16 tiles across ⇒ 5 levels.
     assert meta["layers"]["classes"] == {"level_offset": 0, "levels": 5}
     assert meta["tile"] == TILE
-    assert (root / "classes" / "4").is_dir()
+    assert (label_dir(root, DEFAULT) / "classes" / "4").is_dir()
 
 
 def test_coarse_levels_keep_the_class_and_lose_only_the_resolution(cache_root):
@@ -170,7 +183,7 @@ def test_coarse_levels_keep_the_class_and_lose_only_the_resolution(cache_root):
 
     root = artifact_dir(cache_root, "item1", ah)
     for z, (x, y) in [(1, (150, 200)), (2, (75, 100))]:
-        tile = read_class_tile(root, z, x // TILE, y // TILE)
+        tile = read_class_tile(root, DEFAULT, z, x // TILE, y // TILE)
         assert tile is not None
         assert int(tile[y % TILE, x % TILE]) == 2
 
@@ -185,7 +198,7 @@ def test_downsampling_neither_inflates_nor_erases_the_nuclei():
     idx[0, 0] = idx[2, 2] = 1                          # one nucleus pixel in each 2x2 quad-corner
     cover = ((idx != 0) * 255).astype(np.uint8)
 
-    small_idx = downsample_class(idx)
+    small_idx = downsample_class(idx, get_taxonomy(DEFAULT).class_ids)
     small_cov = downsample_cover(cover)
 
     assert small_idx[0, 0] == 1 and small_idx[1, 1] == 1     # the class survived
@@ -196,7 +209,7 @@ def test_downsampling_neither_inflates_nor_erases_the_nuclei():
 
 def test_a_tie_between_two_classes_resolves_to_the_lower_id():
     idx = np.array([[3, 3], [1, 1]], dtype=np.uint8)
-    assert int(downsample_class(idx)[0, 0]) == 1
+    assert int(downsample_class(idx, get_taxonomy(DEFAULT).class_ids)[0, 0]) == 1
 
 
 # ── the tile route ─────────────────────────────────────────────────────────────────

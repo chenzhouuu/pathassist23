@@ -12,11 +12,13 @@ from pathassist_jobs import JobQueue
 
 from .config import get_settings
 from .geometry import offset_points, offset_rings
+from .heads import warm_heads
 from .infer import segment_array, warm_up
-from .pannuke import TYPE_NAMES, name_for
 from .region import fetch_region, fetch_slide_info
 from .routes import register as register_nuclei
 from .slides import read_contours, tissue_core_tiles
+from .taxonomy import DEFAULT
+from .taxonomy import get as get_taxonomy
 
 
 def _tissue_tiles(*, item: str, seg_hash: str, width: int, height: int, core: int):
@@ -43,6 +45,13 @@ def create_app() -> Flask:
     if get_settings().model == "cellvit":
         warm_up()
 
+    # The classifier bundle is ~13 MB and lands in the same volume as the SAM-H checkpoint. Fetched
+    # here so the first classify run does not pay for it, and so a box that cannot reach Zenodo
+    # says so at boot rather than twenty minutes into a job. Never raises. A no-op where the
+    # cellvit package is absent (the GPU-free image), which then classifies from whatever is
+    # already in the cache volume.
+    warm_heads()
+
     @app.get("/health")
     def health():
         settings = get_settings()
@@ -67,28 +76,32 @@ def create_app() -> Flask:
                 {"detail": f"could not read the slide region from Girder: {exc}"}
             ), 502
 
-        local_points, classes, local_contours = app.config["SEGMENT"](region.pixels, region.mpp)
-        centroids = offset_points(local_points, bbox["x"], bbox["y"], region.scale)
-        contours = offset_rings(local_contours, bbox["x"], bbox["y"], region.scale)
+        # PanNuke, and only PanNuke. This route is the agent's stateless "what is in this box", and
+        # it re-runs the encoder every call — the five classifier heads are reached through the
+        # artifact, where the tokens are already stored and a naming costs a lookup (Inc 7 D10).
+        seg = app.config["SEGMENT"](region.pixels, region.mpp)
+        centroids = offset_points(seg.points, bbox["x"], bbox["y"], region.scale)
+        contours = offset_rings(seg.contours, bbox["x"], bbox["y"], region.scale)
+        pannuke = get_taxonomy(DEFAULT)
 
         counts_by_type: dict[str, int] = {}
-        for c in classes:
-            n = name_for(c)
+        for c in seg.classes:
+            n = pannuke.name(c)
             counts_by_type[n] = counts_by_type.get(n, 0) + 1
 
         # Alignment invariant (F2): a mismatch is an internal error, not a miscoloured overlay.
-        if not (len(centroids) == len(classes) == sum(counts_by_type.values())):
+        if not (len(centroids) == len(seg.classes) == sum(counts_by_type.values())):
             return jsonify({"detail": "internal: class/centroid misalignment"}), 500
 
         return jsonify({
             "count": len(centroids),
             "centroids": centroids,
-            "classes": classes,
+            "classes": seg.classes,
             # Per-nucleus polygon in level-0 px, index-aligned with `centroids` (Inc 3b). Older
             # consumers ignore it; the biomarker rasteriser draws these to paint nucleus shape.
             "contours": contours,
             "counts_by_type": counts_by_type,
-            "class_names": {str(k): v for k, v in TYPE_NAMES.items()},
+            "class_names": {str(k): v for k, v in pannuke.names.items()},
             "bbox": bbox,
             "mpp": region.mpp,
         })
