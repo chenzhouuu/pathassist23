@@ -106,21 +106,19 @@ describe('formatAge', () => {
 });
 
 describe('describeState', () => {
-  it('shows progress while building, not an age', () => {
-    const r = row({ status: 'running', stage: 'features', progress: 0.42 });
-    expect(describeState(r, NOW)).toMatch(/42%$/);
-  });
-
-  it('names a stopped build as stopped, not as failed', () => {
+  it('names a stopped build as stopped — the numbers beside it cover less of the slide', () => {
     expect(describeState(row({ status: 'cancelled' }), NOW)).toBe('Stopped · 1m ago');
   });
 
-  it('names a failure', () => {
-    expect(describeState(row({ status: 'failed' }), NOW)).toBe('Failed · 1m ago');
+  it('is just the age for a build that finished', () => {
+    expect(describeState(row({ status: 'ready' }), NOW)).toBe('1m ago');
   });
 
-  it('is just the age once a build is done', () => {
-    expect(describeState(row({ status: 'ready' }), NOW)).toBe('1m ago');
+  it("says nothing about progress, because a row is never mid-build", () => {
+    // Inc 6 · 07: a row exists only where bytes do. A run that is 40 % through is in the Runs
+    // feed, and reading a stale `stage` off a row would be a second opinion about it.
+    const r = row({ status: 'running', stage: 'features', progress: 0.42 });
+    expect(describeState(r, NOW)).toBe('1m ago');
   });
 });
 
@@ -131,18 +129,13 @@ describe('describeArtifact', () => {
     expect(view.secondary).toHaveLength(1);
   });
 
-  it('puts a failure reason on the row', () => {
+  it('never carries an error, because a failed run leaves no row to carry one', () => {
+    // The reason a run failed is on its Girder job, which is where the Runs list reads it from.
     const view = describeArtifact(
       row({ status: 'failed', error: 'CUDA out of memory', params: { backend: 'hover-next' } }),
       NOW,
     );
-    expect(view.primary).toContain('CUDA out of memory');
-    expect(view.failed).toBe(true);
-  });
-
-  it('carries the error only when the build actually failed', () => {
-    const view = describeArtifact(row({ status: 'ready', error: 'a stale message' }), NOW);
-    expect(view.primary).not.toContain('a stale message');
+    expect(view.primary).not.toContain('CUDA out of memory');
   });
 
   it('marks which kinds have something to draw', () => {

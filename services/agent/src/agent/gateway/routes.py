@@ -12,14 +12,13 @@ from ..loop.artifacts import ArtifactStore, InMemoryArtifactStore
 from ..loop.biomarker_map_client import get_map_json, get_tile
 from ..loop.events import RunFinished
 from ..loop.nuclei_client import get_nuclei_meta, get_nuclei_tile
-from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_run
+from ..loop.pathassist_dispatch import DispatchUnavailable, dispatch_chain, dispatch_run
 from ..loop.preprocess_client import (
     get_contours,
     get_job_status,
     get_prediction,
     list_tasks,
     trigger_preprocess,
-    trigger_stage,
 )
 from ..loop.tissue_map_client import get_tissue_json, get_tissue_tile
 from ..loop.tools import ToolContext
@@ -30,6 +29,7 @@ from ..store import (
     SlideIndexStore,
 )
 from .auth import require_user
+from .plan import address_chain, match_feature_spec, missing_suffix
 from .sse import sse_json
 
 logger = logging.getLogger(__name__)
@@ -447,119 +447,39 @@ class ArtifactResultRequest(BaseModel):
     girder_job_id: str | None = None
 
 
-class PatchRequest(BaseModel):
-    """Tiling params; runs on a ready segmentation (``seg_hash``)."""
+class BuildRequest(BaseModel):
+    """One feature-index build: the encoder, and the two upstream stages it implies (Inc 6 · 07).
 
-    seg_hash: str
+    `patching` and `features` have no request model of their own any more, because they have no
+    route of their own. They are interior stages of this build, and their params are here — the
+    tiling geometry beside the encoder that binds it, which is the whole point of Fork B.
+    """
+
+    encoder: str | None = None
+    # stage 1 — segmentation
+    segmenter: str | None = None
+    seg_conf_thresh: float | None = None
+    remove_artifacts: bool = False
+    remove_holes: bool = False
+    remove_penmarks: bool = False
+    # stage 2 — tiling
     mag: int | None = None
     patch_size: int | None = None
     overlap: int | None = None
 
 
-class FeaturesRequest(BaseModel):
-    """Feature-extraction params; runs on a ready patch grid (``patch_hash``)."""
-
-    patch_hash: str
-    encoder: str | None = None
-
-
 class PredictRequest(BaseModel):
-    """Downstream-task inference; runs on a ready feature index (``feat_hash``)."""
+    """Downstream-task inference.
 
-    feat_hash: str
-    task_id: str
-
-
-# The prediction summary the panel reads straight off the artifact row. Per-patch arrays stay on
-# disk and are fetched separately by the heatmap route.
-_RESULT_KEYS = (
-    "task_id", "model_ver", "classes", "probs", "pred_index", "pred_label", "n_patches",
-    "elapsed_ms",
-)
-
-async def _reconcile_artifact(
-    store: PreprocessArtifactStore, item: str, art_hash: str, js: dict, kind: str | None = None,
-) -> None:
-    """Fold a worker /status reply into the durable artifact row (only the gateway writes).
-
-    Reached only by `_RECONCILED_KINDS` — the preprocess DAG. The three JobQueue kinds had their
-    own branches here until 05 and 06 moved them onto the driver's report, which is where a
-    JobQueue result is unpacked now (`report_artifact_result`); the branches went with them rather
-    than sitting unreachable. There is no `cancelled` case for the same reason: none of the four
-    kinds left has a cooperative stop.
+    `feat_hash` is optional, and that is what makes "run this task on this slide" a single
+    submission (Inc 6 · 07). Given one, the task runs on that index. Given none, the gateway looks
+    for an index matching what the task's weights were trained on, and plans the build when there
+    is none — so a slide with nothing on it reaches a call in one click, and one that already has
+    the right index spends one queue slot instead of four.
     """
-    st = js.get("status")
-    if st == "ready":
-        n_patches = js.get("n_patches")
-        n_items = n_patches if n_patches is not None else js.get("n_contours")
-        result = {k: js[k] for k in _RESULT_KEYS if k in js} if kind == "prediction" else None
-        await store.set_status(
-            item=item, art_hash=art_hash, status="ready", stage="done", progress=1.0,
-            n_items=n_items, dim=js.get("dim"),
-            artifact_ref=(
-                js.get("features_ref") or js.get("coords_ref") or js.get("contours_ref")
-                or js.get("prediction_ref")
-            ),
-            result=result or None,
-        )
-    elif st == "failed":
-        await store.set_status(
-            item=item, art_hash=art_hash, status="failed",
-            error=js.get("error") or "preprocess failed",
-        )
-    elif st in ("queued", "running"):
-        await store.set_status(
-            item=item, art_hash=art_hash, status=st,
-            stage=js.get("stage"), progress=js.get("progress"),
-        )
 
-
-_WORKER_REFUSALS = {
-    status.HTTP_404_NOT_FOUND: "the preprocess service does not know that task",
-    status.HTTP_409_CONFLICT: "upstream stage not built yet",
-    status.HTTP_503_SERVICE_UNAVAILABLE: "the preprocess worker cannot run downstream tasks",
-}
-
-
-async def _trigger_dag_stage(
-    *, preprocess_url: str | None, stage: str, item: str, params: dict, token: str | None,
-) -> dict:
-    """Proxy a non-blocking POST /{stage} to the worker, mapping HTTP failures to gateway errors."""
-    if not preprocess_url:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
-        )
-    try:
-        return await trigger_stage(
-            base_url=preprocess_url, stage=stage, item=item, params=params, token=token
-        )
-    except httpx.HTTPStatusError as exc:
-        # The worker's own refusals are meaningful to the panel and are forwarded verbatim:
-        # 409 upstream stage not built · 404 unknown task · 503 this image ships without torch.
-        # Anything else is a genuine gateway-side failure.
-        code = exc.response.status_code
-        if code in _WORKER_REFUSALS:
-            try:
-                detail = exc.response.json().get("detail", _WORKER_REFUSALS[code])
-            except ValueError:
-                detail = _WORKER_REFUSALS[code]
-            raise HTTPException(code, detail) from exc
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"the preprocess service rejected the request: {exc}"
-        ) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
-        ) from exc
-
-
-# `impl` among them: the preprocess service runs either the real Trident pipeline or a GPU-free
-# stub, the two produce different bytes for the same request, and since that fact is in the content
-# address it has to be on the row as well. Two segmentations of one slide otherwise sit in the
-# Workspace with the same title and the same "hest · conf 0.5" and nothing to tell them apart.
-_SEG_PARAM_KEYS = (
-    "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks", "impl",
-)
+    task_id: str
+    feat_hash: str | None = None
 
 
 async def _content_address(preprocess_url: str | None, kind: str, item: str, params: dict) -> dict:
@@ -585,6 +505,72 @@ async def _content_address(preprocess_url: str | None, kind: str, item: str, par
         ) from exc
 
 
+#: Which params of a segmentation the gateway carries forward when it seeds a build from one this
+#: slide already has. `impl` is not among them: it is a property of the image that will run the
+#: *new* work, and the service fills it in.
+_SEG_SEED_KEYS = (
+    "segmenter", "seg_conf_thresh", "remove_artifacts", "remove_holes", "remove_penmarks",
+)
+
+
+def _need_preprocess_stack(preprocess_url: str | None, plugin_url: str | None) -> None:
+    """Both halves have to be there before a DAG run can be planned, and they fail differently."""
+    if not preprocess_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The preprocess service is not configured"
+        )
+    if not plugin_url:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The analysis job queue is not configured, so this run cannot be scheduled",
+        )
+
+
+async def _plan_and_dispatch(
+    *, preprocess_url: str, plugin_url: str, item: str, token: str | None,
+    artifacts: PreprocessArtifactStore, target: str, params_by_kind: dict, label: str,
+    known_parent: tuple[str, str] | None = None,
+) -> dict:
+    """Address the chain, drop what this slide already has, and queue the rest.
+
+    **No row is written here.** A dispatched run writes its row when it reports its bytes
+    (`report_artifact_result`), which is the shape nuclei took in 05 and the last four kinds take
+    here: a row is a claim that bytes exist, and until they do the run lives entirely on its Girder
+    job. That is also why nothing needs cleaning up when a chain stops halfway — the steps that did
+    not run left nothing behind.
+
+    A submission with nothing left to run is answered, not queued. Under content addressing the
+    second identical build is a no-op, and saying so beats spending a queue slot to rediscover it.
+    """
+    rows = await artifacts.list_artifacts(item=item)
+    have = {r["art_hash"] for r in rows}
+
+    async def address(kind: str, params: dict) -> dict:
+        return await _content_address(preprocess_url, kind, item, params)
+
+    steps = await address_chain(address, target, params_by_kind, known_parent=known_parent)
+    todo = missing_suffix(steps, have)
+    final = steps[-1]
+
+    if not todo:
+        return {"kind": target, "art_hash": final.art_hash, "status": "ready", "steps": [],
+                "reused": True}
+
+    try:
+        ack = await dispatch_chain(
+            plugin_url=plugin_url, item=item, token=token, label=label,
+            steps=[s.as_json() for s in todo],
+        )
+    except DispatchUnavailable as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return {
+        "kind": target, "art_hash": final.art_hash, "status": "queued",
+        "steps": [{"kind": s.kind, "art_hash": s.art_hash} for s in todo],
+        "chain_id": ack.get("chainId"), "girder_job_id": ack.get("jobId"),
+    }
+
+
 @router.post("/slides/{item}/segment")
 async def start_segment(
     item: str,
@@ -595,46 +581,57 @@ async def start_segment(
     preprocess_url: str | None = Depends(get_preprocess_url),
     plugin_url: str | None = Depends(get_plugin_url),
 ) -> dict:
-    """Enqueue a tissue segmentation and record its durable artifact row.
+    """Queue a tissue segmentation.
 
-    Two paths, and which one runs is a deployment fact rather than a request one. With the Girder
-    plugin configured the run becomes a Girder job on this box's Celery queue (Inc 6 · D4/D5) and
-    the row's `job_id` is that job's; without it, the pre-Inc-6 path calls the service directly.
-    Either way the gateway owns the same three things — the content address, the reuse check and
-    the row.
+    A one-step chain, so it goes through exactly the same planning as the three-step build below —
+    including the reuse check, which is why asking twice for the same contours costs nothing.
+
+    The pre-Inc-6 path that called the service directly is gone (07). It existed so segmentation
+    could keep working while the queue was being built; keeping it now would mean two ways for a
+    run to exist, only one of which appears in the Runs list.
     """
-    params = {k: v for k, v in body.model_dump().items() if v is not None}
+    _need_preprocess_stack(preprocess_url, plugin_url)
+    return await _plan_and_dispatch(
+        preprocess_url=preprocess_url, plugin_url=plugin_url, item=item, token=token,
+        artifacts=artifacts, target="segmentation", label="Tissue segmentation",
+        params_by_kind={
+            "segmentation": {k: v for k, v in body.model_dump().items() if v is not None},
+        },
+    )
 
-    if not plugin_url:
-        run = await _trigger_dag_stage(
-            preprocess_url=preprocess_url, stage="segment", item=item, params=params, token=token
-        )
-        return await artifacts.upsert_artifact(
-            item=item, kind="segmentation", art_hash=run["seg_hash"], parent_hash=None,
-            params={k: run[k] for k in _SEG_PARAM_KEYS if k in run},
-            status="queued", job_id=run.get("job_id"),
-        )
 
-    addressed = await _content_address(preprocess_url, "segmentation", item, params)
-    art_hash = addressed["art_hash"]
-    resolved = addressed.get("params") or params
+@router.post("/slides/{item}/build")
+async def start_build(
+    item: str,
+    body: BuildRequest,
+    user: dict = Depends(require_user),
+    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
+    token: str | None = Depends(get_girder_token),
+    preprocess_url: str | None = Depends(get_preprocess_url),
+    plugin_url: str | None = Depends(get_plugin_url),
+) -> dict:
+    """Queue a feature index: segment, then tile, then encode (Inc 6 · 07).
 
-    # Dispatch, then write — one write, and no row without a job behind it. Creating the Girder
-    # job is a single fast call that enqueues rather than runs, so the row still appears before
-    # anyone could look for it; ordering it this way is what makes "a queued row that nothing will
-    # ever pick up" unrepresentable instead of something to clean up afterwards.
-    try:
-        ack = await dispatch_run(
-            plugin_url=plugin_url, kind="segmentation", item=item, art_hash=art_hash,
-            params=params, token=token,
-        )
-    except DispatchUnavailable as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    One submission rather than three, because the three are one decision. The encoder is the build
+    target and it binds the tiling geometry (Fork B, Inc 2b-3) — tiles cut at a size no encoder
+    wants are minutes of GPU nobody can use, which is why `patching` and `features` are not offered
+    as catalog entries of their own.
 
-    return await artifacts.upsert_artifact(
-        item=item, kind="segmentation", art_hash=art_hash, parent_hash=None,
-        params={k: resolved[k] for k in _SEG_PARAM_KEYS if k in resolved},
-        status="queued", job_id=ack["jobId"],
+    Whatever this slide already has is skipped, so a second encoder over the same tiles queues one
+    step, not three.
+    """
+    _need_preprocess_stack(preprocess_url, plugin_url)
+    form = body.model_dump()
+    return await _plan_and_dispatch(
+        preprocess_url=preprocess_url, plugin_url=plugin_url, item=item, token=token,
+        artifacts=artifacts, target="features", label="Feature index",
+        params_by_kind={
+            "segmentation": {k: v for k, v in form.items()
+                             if k in _SEG_SEED_KEYS and v is not None},
+            "patching": {k: form[k] for k in ("mag", "patch_size", "overlap")
+                         if form.get(k) is not None},
+            "features": {"encoder": form["encoder"]} if form.get("encoder") else {},
+        },
     )
 
 
@@ -711,7 +708,17 @@ async def report_artifact_result(
 #: GPU, which is coverage, not dependence — deleting the segmentation invalidates no nucleus.
 #: `biomarker` points at the nuclei rather than the segmentation for the mirror-image reason: a
 #: phenotype is an attribute of a cell, so different cells mean different numbers (Inc 5 · D9).
-_PARENT_PARAM_BY_KIND = {"tissue": "seg_hash", "biomarker": "nuclei_hash"}
+#:
+#: The preprocess DAG's three edges joined in 07 and are the literal case: a patch grid is cut from
+#: contours, a feature index encodes a patch grid, a prediction reads a feature index — each one's
+#: hash contains its parent's, so deleting a parent would leave a child nothing could reproduce.
+_PARENT_PARAM_BY_KIND = {
+    "tissue": "seg_hash",
+    "biomarker": "nuclei_hash",
+    "patching": "seg_hash",
+    "features": "patch_hash",
+    "prediction": "feat_hash",
+}
 
 
 def _parent_of(kind: str | None, params: dict | None) -> str | None:
@@ -720,46 +727,11 @@ def _parent_of(kind: str | None, params: dict | None) -> str | None:
     return (params or {}).get(key) if key else None
 
 
-@router.post("/slides/{item}/patch")
-async def start_patch(
-    item: str,
-    body: PatchRequest,
-    user: dict = Depends(require_user),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
-    token: str | None = Depends(get_girder_token),
-    preprocess_url: str | None = Depends(get_preprocess_url),
-) -> dict:
-    """Enqueue a patch grid on a ready segmentation (409 if that segmentation isn't built)."""
-    params = {k: v for k, v in body.model_dump().items() if v is not None}
-    run = await _trigger_dag_stage(
-        preprocess_url=preprocess_url, stage="patch", item=item, params=params, token=token
-    )
-    return await artifacts.upsert_artifact(
-        item=item, kind="patching", art_hash=run["patch_hash"], parent_hash=run["seg_hash"],
-        params={k: run[k] for k in ("mag", "patch_size", "overlap", "impl") if k in run},
-        status="queued", job_id=run.get("job_id"),
-    )
-
-
-@router.post("/slides/{item}/features")
-async def start_features(
-    item: str,
-    body: FeaturesRequest,
-    user: dict = Depends(require_user),
-    artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
-    token: str | None = Depends(get_girder_token),
-    preprocess_url: str | None = Depends(get_preprocess_url),
-) -> dict:
-    """Enqueue feature extraction on a ready patch grid (409 if that patch grid isn't built)."""
-    params = {k: v for k, v in body.model_dump().items() if v is not None}
-    run = await _trigger_dag_stage(
-        preprocess_url=preprocess_url, stage="features", item=item, params=params, token=token
-    )
-    return await artifacts.upsert_artifact(
-        item=item, kind="features", art_hash=run["feat_hash"], parent_hash=run["patch_hash"],
-        params={"encoder": run.get("encoder"), "impl": run.get("impl")},
-        status="queued", job_id=run.get("job_id"),
-    )
+# `POST /slides/{item}/patch` and `/features` are gone (07). They were the two interior stages of a
+# build, dispatched one at a time by a panel that watched for the previous one to finish — the
+# auto-advance loop `preprocessUtils.nextChainStep` drove. Both are now steps of `POST .../build`,
+# sequenced by Celery instead of by whoever had the tab open, which is also what makes a build
+# survive a closed browser.
 
 
 @router.get("/slides/{item}/artifacts")
@@ -767,55 +739,26 @@ async def list_slide_artifacts(
     item: str,
     user: dict = Depends(require_user),
     artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
-    preprocess_url: str | None = Depends(get_preprocess_url),
-    biomarker_url: str | None = Depends(get_biomarker_url),
-    tissue_url: str | None = Depends(get_tissue_url),
-    cellvit_url: str | None = Depends(get_cellvit_url),
 ) -> dict:
-    """List a slide's DAG artifacts, reconciling the kinds still on the pre-Inc-6 path.
+    """List a slide's DAG artifacts. Reads, and nothing else.
 
-    **Nuclei left this loop in 05; tissue and biomarker leave it in 06.** A kind that has moved has
-    no in-flight row to reconcile: its row is written once, by the run that produced the bytes.
-    What is left is the preprocess DAG — the four kinds that still write a row at dispatch — and
-    this loop, with its "nothing advances unless somebody has the list open" defect, goes with the
-    last of them (07).
+    **The reconcile loop is gone (07).** Every kind now writes its row once, from the run that
+    produced the bytes, so there is no in-flight row for a reader to advance. What that removes is
+    the defect the plan measured: rows only moved while somebody had this list open, and a worker
+    restart left them `running` for ever. Run state was never this table's to hold — it is on the
+    Girder job, which is durable and answers whether or not anyone is looking.
     """
-    rows = await artifacts.list_artifacts(item=item)
-    dirty = False
-    for row in rows:
-        if row["status"] not in ("queued", "running") or not row.get("job_id"):
-            continue
-        base = _service_for(
-            row["kind"], preprocess_url=preprocess_url, biomarker_url=biomarker_url,
-            tissue_url=tissue_url,
-        )
-        # A kind that has moved is not polled even if some old row of it is still marked running:
-        # its worker no longer owns that job id, and asking would settle the row on the wrong
-        # answer. Those rows are the migration's business, not this loop's.
-        if not base or row["kind"] not in _RECONCILED_KINDS:
-            continue
-        try:
-            js = await get_job_status(base_url=base, job_id=row["job_id"])
-        except httpx.HTTPError:
-            continue  # worker unreachable — keep the last known state
-        await _reconcile_artifact(artifacts, item, row["art_hash"], js, row["kind"])
-        dirty = True
-    if dirty:
-        rows = await artifacts.list_artifacts(item=item)
-    return {"artifacts": rows}
-
-
-#: The kinds whose row is still written at dispatch and advanced by polling their worker. Shrinks
-#: by one ticket at a time; when it empties, `_reconcile_artifact` and this whole loop go (07).
-_RECONCILED_KINDS = frozenset({"segmentation", "patching", "features", "prediction"})
+    return {"artifacts": await artifacts.list_artifacts(item=item)}
 
 
 def _service_for(
     kind: str, *, preprocess_url, biomarker_url, tissue_url, cellvit_url=None,
 ) -> str | None:
-    """Which worker owns this kind's bytes — for the delete that removes them, and for the status
-    poll of the kinds that still have one. `cellvit_url` stays because nuclei bytes still have to
-    be deleted somewhere; only the polling half of this went in 05."""
+    """Which worker owns this kind's bytes, for the delete that removes them.
+
+    Only deletion asks now: the status half of this went kind by kind through 05–07, and with it
+    the only reason the gateway ever dialled a worker to find out how a run was going.
+    """
     return {
         "biomarker": biomarker_url, "tissue": tissue_url, "nuclei": cellvit_url,
     }.get(kind, preprocess_url)
@@ -924,6 +867,39 @@ async def list_downstream_tasks(
         ) from exc
 
 
+async def _task_spec(preprocess_url: str, task_id: str) -> dict:
+    """The build a task's weights were fitted on, off the registry. 404 for a task nobody has."""
+    try:
+        registry = await list_tasks(base_url=preprocess_url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"could not reach the preprocess service: {exc}"
+        ) from exc
+    task = next((t for t in registry.get("tasks") or [] if t.get("id") == task_id), None)
+    if task is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"this deployment has no task called {task_id!r}"
+        )
+    return task
+
+
+def _seed_seg_params(rows: list[dict]) -> dict:
+    """Segmentation params for a build nobody typed them for.
+
+    A task states the encoder and the tiling its weights want, and says nothing about segmentation
+    — correctly, because it does not care (`satisfies_spec` explains why the segmenter is not part
+    of the match). But a build has to segment *something*, and cutting a second set of contours
+    over a slide that already has one is minutes of GPU spent to arrive back where it started. So
+    the slide's own segmentation is reused when it has one, and the service's defaults are used
+    when it does not.
+    """
+    # The most recently touched one — `list_artifacts` orders newest first, and the newest is the
+    # one whose contours the user has most recently had a reason to want.
+    seg = next((r for r in rows if r.get("kind") == "segmentation"), None)
+    params = (seg or {}).get("params") or {}
+    return {k: params[k] for k in _SEG_SEED_KEYS if k in params}
+
+
 @router.post("/slides/{item}/predict")
 async def start_predict(
     item: str,
@@ -932,20 +908,48 @@ async def start_predict(
     artifacts: PreprocessArtifactStore = Depends(get_preprocess_artifact_store),
     token: str | None = Depends(get_girder_token),
     preprocess_url: str | None = Depends(get_preprocess_url),
+    plugin_url: str | None = Depends(get_plugin_url),
 ) -> dict:
-    """Enqueue a task prediction on a ready feature index.
+    """Queue a downstream task, building the feature index it needs if the slide has none.
 
-    409 if that feature index isn't built; 503 if the worker ships without torch — both are the
-    worker's own refusals, forwarded so the panel can say which it is.
+    Which of the two happens is not the caller's decision to make, because it is not a preference —
+    it is a fact about the slide. Given a `feat_hash`, that index is used. Otherwise the slide's
+    artifacts are searched for one matching the task's declared `feature_spec`, and when there is
+    none the whole chain is planned: segment, tile, encode, predict, in one submission.
+
+    What is deliberately *not* done is running on whatever feature index happens to be there. An
+    ABMIL head fitted on CONCH v1 at 512 px will happily consume UNI vectors of the same width and
+    return a confident number, and nothing downstream would say it was nonsense (Inc 2c).
     """
-    params = body.model_dump()
-    run = await _trigger_dag_stage(
-        preprocess_url=preprocess_url, stage="predict", item=item, params=params, token=token
+    _need_preprocess_stack(preprocess_url, plugin_url)
+    task = await _task_spec(preprocess_url, body.task_id)
+    spec = task.get("feature_spec") or {}
+
+    rows = await artifacts.list_artifacts(item=item)
+    match = match_feature_spec(rows, spec) if not body.feat_hash else None
+    feat_hash = body.feat_hash or (match["art_hash"] if match else None)
+
+    common = dict(
+        preprocess_url=preprocess_url, plugin_url=plugin_url, item=item, token=token,
+        artifacts=artifacts, target="prediction", label=task.get("label") or body.task_id,
     )
-    return await artifacts.upsert_artifact(
-        item=item, kind="prediction", art_hash=run["pred_hash"], parent_hash=run["feat_hash"],
-        params={"task_id": run.get("task_id"), "model_ver": run.get("model_ver")},
-        status="queued", job_id=run.get("job_id"),
+    if feat_hash:
+        # Naming the index is an assertion that it exists, so the three steps above it are neither
+        # addressed nor planned. Reconstructing the segmentation params it happened to be built
+        # with would be work in service of a question nobody asked.
+        return await _plan_and_dispatch(
+            **common, known_parent=("features", feat_hash),
+            params_by_kind={"prediction": {"task_id": body.task_id}},
+        )
+
+    return await _plan_and_dispatch(
+        **common,
+        params_by_kind={
+            "segmentation": _seed_seg_params(rows),
+            "patching": {k: spec[k] for k in ("mag", "patch_size", "overlap") if k in spec},
+            "features": {"encoder": spec.get("encoder")} if spec.get("encoder") else {},
+            "prediction": {"task_id": body.task_id},
+        },
     )
 
 

@@ -85,7 +85,10 @@ export default function ArtifactConfig({ config, onChange }) {
     <div className="bg-muted mb-0.5 space-y-2 rounded-b px-1.5 pt-0.5 pb-3" data-cy="artifact-config">
       {modes.length > 0 && (
         <div className="my-1 flex items-center justify-between">
-          <span className="text-aqua-pale text-xs">Colour by</span>
+          {/* "Colour by" for the three kinds whose modes are palettes; a kind whose modes are
+              something else says so (`modeLabel`) rather than being described wrongly — the
+              evidence map's two modes are where it is drawn, not what colour it is. */}
+          <span className="text-aqua-pale text-xs">{config.modeLabel || 'Colour by'}</span>
           <Tabs value={config.mode} onValueChange={(v) => onChange('mode', v)}>
             <TabsList>
               {modes.map(m => (

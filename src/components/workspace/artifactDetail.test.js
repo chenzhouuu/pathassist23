@@ -3,7 +3,7 @@
 // The meta below is the shape the cellvit service really stores — read back off disk, which is the
 // point of the module: reload the page and the same counts come back.
 import { describe, expect, it } from 'vitest';
-import { detailFor, hasDetail, layerBinding } from './artifactDetail.js';
+import { detailFor, hasDetail, layerBinding, metaIsRow } from './artifactDetail.js';
 
 const META = {
   summary: {
@@ -380,4 +380,75 @@ describe('a marker map, opened', () => {
       .toHaveLength(2);
     expect(detailFor('biomarker', BIO_META, { channels: null }, null).segments).toEqual([]);
   });
+});
+
+// ── prediction (Inc 6 · 07) ──────────────────────────────────────────────────
+
+describe('a prediction row, opened', () => {
+  const PRED = {
+    kind: 'prediction', art_hash: 'pr1', parent_hash: 'f1', status: 'ready',
+    params: { task_id: 'brca_idc_ilc' },
+    result: {
+      classes: ['IDC', 'ILC'], probs: [0.93, 0.07], pred_index: 0, pred_label: 'IDC',
+      n_patches: 2731, elapsed_ms: 118, model_ver: 'abmil-conch-brca-fold0-v1',
+    },
+  };
+  const detail = (layer = {}) => detailFor('prediction', PRED, layer);
+
+  it('leads with the call and its confidence', () => {
+    expect(detail().stats).toEqual([
+      { key: 'call', label: 'Call', value: 'IDC' },
+      { key: 'confidence', label: 'Confidence', value: '0.93' },
+    ]);
+  });
+
+  it('keeps the classes in the model order and colours the winner as the ramp does', () => {
+    const segs = detail().segments;
+    expect(segs.map((s) => s.label)).toEqual(['IDC', 'ILC']);
+    expect(segs[0].colorHex).toBe('#b4282f');   // the red pole
+    expect(segs[1].colorHex).toBe('#3a4ca0');   // the blue one
+  });
+
+  it('locks the class rows, because they are two poles of one quantity', () => {
+    // Hiding one would leave a map of half a comparison; the eye has nothing to mean here.
+    expect(detail().segments.every((s) => s.locked)).toBe(true);
+  });
+
+  it('offers an opacity only in overlay, where there is something to blend into', () => {
+    expect(detail({ view: 'overlay' }).config.opacity).toBe(0.55);
+    expect(detail({ view: 'split' }).config.opacity).toBeNull();
+  });
+
+  it('states the provenance and what the two poles mean, next to the picture', () => {
+    const note = detail().config.note;
+    expect(note).toContain('2,731 patches');
+    expect(note).toContain('Blue supports ILC, red supports IDC');
+  });
+
+  it('turns the mode buttons into the layer field the viewer reads', () => {
+    expect(layerBinding('prediction').patch({}, 'mode', 'split')).toEqual({ view: 'split' });
+  });
+
+  it('withholds the eye handler entirely', () => {
+    expect(layerBinding('prediction').toggleSegment).toBeNull();
+  });
+
+  it('has nothing to say for a row whose run left no result', () => {
+    const empty = detailFor('prediction', { ...PRED, result: null }, {});
+    expect(empty.stats).toEqual([]);
+    expect(empty.config.drawn).toBe(false);
+  });
+
+  it('reads the row itself rather than a meta document', () => {
+    expect(metaIsRow('prediction')).toBe(true);
+    expect(metaIsRow('tissue')).toBe(false);
+  });
+});
+
+it('names its mode row for what the modes are, not for a palette it does not have', () => {
+  // "Colour by" is right for a class map and wrong here: overlay vs side-by-side is *where* the
+  // evidence is drawn.
+  const pred = { kind: 'prediction', result: { classes: ['IDC'], probs: [1], pred_label: 'IDC' } };
+  expect(detailFor('prediction', pred, {}).config.modeLabel).toBe('Show as');
+  expect(detailFor('nuclei', null, {}).config.modeLabel).toBeUndefined();
 });

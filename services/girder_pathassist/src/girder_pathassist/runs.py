@@ -76,6 +76,41 @@ def has_started(job: dict) -> bool:
     return any(t.get("status") == RUNNING for t in (job.get("timestamps") or []))
 
 
+def chain_of(job: dict) -> dict | None:
+    """Which multi-step submission this run belongs to, and where in it (Inc 6 · 07).
+
+    A chain has **no job of its own**. Every step carries the same `id` and its own position, and
+    the Runs list assembles the group from that — so this field is the only thing that makes three
+    separate jobs one submission.
+
+    That is a choice, and the alternative failed on its own terms. A parent job would have to be
+    created before the steps, which means creating rows for steps that may never be published: a
+    Celery chain stops when a link fails, so the two jobs behind it would sit INACTIVE for ever in
+    a list whose whole job is saying what is actually running. Here a job exists exactly when a
+    message was published, and `total` still says how many steps were asked for.
+
+    `total < 2` is not a chain. `runAnalysis` dispatches one step and writes no chain field at all;
+    this refuses one anyway, so a caller cannot make a single run look like a sequence.
+    """
+    pa = job.get("pathassist")
+    c = pa.get("chain") if isinstance(pa, dict) else None
+    if not isinstance(c, dict) or not c.get("id"):
+        return None
+    step, total = c.get("step"), c.get("total")
+    if not isinstance(step, int) or not isinstance(total, int) or total < 2:
+        return None
+    return {
+        "id": str(c["id"]),
+        "step": step,
+        "total": total,
+        # What the whole submission was for, said once. Without it a group of three would have to
+        # be named after its first step, which is the one that finishes first and stops being
+        # what the user is waiting for.
+        "label": str(c.get("label") or "") or None,
+        "kinds": [str(k) for k in (c.get("kinds") or [])],
+    }
+
+
 def lane_of(job: dict) -> str:
     """Which queue this run competes for.
 
@@ -217,6 +252,9 @@ def row(job: dict, *, readable: bool, mine: bool, item_id: str | None,
             "message": progress.get("message"),
         } if progress else None,
     })
+    chain = chain_of(job)
+    if chain:
+        out["chain"] = chain
     if status == ERROR:
         out["reason"] = failure_reason(job.get("log"))
     return out

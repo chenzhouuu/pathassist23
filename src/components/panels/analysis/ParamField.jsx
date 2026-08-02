@@ -190,20 +190,36 @@ export default function ParamField({
     </div>
   );
 
-  if (tag === 'string-enumeration') return (
-    <div>
-      <Label label={label} desc={desc} />
-      <select value={value} onChange={e => onChange(e.target.value)}
-        style={{ ...inputStyle, cursor: 'pointer' }}>
-        {/* `options` carries a label distinct from the value; Slicer's <enumeration> has no label
-            and so keeps the plain list. */}
-        {options
-          ? [<option key="" value="">Select…</option>,
-             ...options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)]
-          : enums.map(e => <option key={e} value={e}>{e}</option>)}
-      </select>
-    </div>
-  );
+  if (tag === 'string-enumeration') {
+    // An option may carry a `note` — what is true about *that* choice specifically. The task
+    // picker is what it exists for (Inc 6 · 07): a model's cohort, its metrics and its caveat are
+    // facts about the selected head, not about the field, and the Task panel that used to state
+    // them in a card is gone. Options without one render exactly as before.
+    const chosen = options?.find(o => String(o.value) === String(value));
+    return (
+      <div>
+        <Label label={label} desc={desc} />
+        <select value={value} onChange={e => onChange(e.target.value)}
+          style={{ ...inputStyle, cursor: 'pointer' }}>
+          {/* `options` carries a label distinct from the value; Slicer's <enumeration> has no
+              label and so keeps the plain list. */}
+          {options
+            ? [<option key="" value="">Select…</option>,
+               ...options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)]
+            : enums.map(e => <option key={e} value={e}>{e}</option>)}
+        </select>
+        {chosen?.note && (
+          <div className="mt-1.5 px-2 py-1.5 rounded leading-relaxed" data-cy="option-note"
+            style={{
+              background: 'var(--highlight-hex)', border: '1px solid var(--border-hex)',
+              color: 'var(--muted-hex)', fontSize: 9, whiteSpace: 'pre-line',
+            }}>
+            {chosen.note}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ROI inputs: both <region> and <float-vector> are used by HistomicsTK for analysis_roi
   if (tag === 'region' || tag === 'float-vector') return (

@@ -85,7 +85,7 @@ describe('one list, two sources', () => {
   it('counts both sources together', async () => {
     render();
     await screen.findByText('Nuclei Detection');
-    expect(screen.getByText('6 / 6 algorithms')).toBeTruthy();
+    expect(screen.getByText('7 / 7 algorithms')).toBeTruthy();
   });
 
   it('searches across both sources with the one box', async () => {
@@ -211,5 +211,29 @@ describe('the CLI path is what it was', () => {
 
     // And it too lands back on the list rather than a running view.
     expect(await screen.findByPlaceholderText('Filter algorithms...')).toBeTruthy();
+  });
+});
+
+describe('a submission with nothing left to run', () => {
+  it('says it was already built rather than claiming it queued something', async () => {
+    // Content addressing makes the second identical build a no-op, and the server answers
+    // `status: 'ready', steps: []`. "Submitted" would send someone to an empty Runs list.
+    startSegment.mockResolvedValue({ kind: 'segmentation', art_hash: 's1',
+      status: 'ready', steps: [], reused: true });
+    render();
+    await userEvent.click(await screen.findByText('Tissue segmentation'));
+    await screen.findByText('Segmenter');
+    await userEvent.click(screen.getByRole('button', { name: /run job/i }));
+    expect(await screen.findByText(/already built, nothing to run/)).toBeTruthy();
+  });
+
+  it('says submitted when steps were actually queued', async () => {
+    startSegment.mockResolvedValue({ kind: 'segmentation', art_hash: 's1', status: 'queued',
+      steps: [{ kind: 'segmentation', art_hash: 's1' }] });
+    render();
+    await userEvent.click(await screen.findByText('Tissue segmentation'));
+    await screen.findByText('Segmenter');
+    await userEvent.click(screen.getByRole('button', { name: /run job/i }));
+    expect(await screen.findByText(/Tissue segmentation submitted/)).toBeTruthy();
   });
 });

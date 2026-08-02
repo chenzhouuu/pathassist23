@@ -171,3 +171,67 @@ export function groupRuns(runs, activeItem) {
 
 /** How many runs the workers are still going to spend time on — the header's count. */
 export const activeCount = (runs) => (runs || []).filter(holdsTheQueue).length;
+
+// ── Chains ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `[{chain, runs}, …]` and loose runs, in the order they were given.
+ *
+ * A multi-step submission arrives as several rows sharing `chain.id` (Inc 6 · 07). They are drawn
+ * together because they are one thing the user asked for: nobody submits a patch grid, they submit
+ * a feature index and a patch grid is step 2 of it.
+ *
+ * **Steps that have not been published yet have no row**, and that is deliberate on the server
+ * side — a job exists when a message does. So a group is usually shorter than `total`, and the
+ * heading has to be built from `total` rather than from what is present. That is also what makes a
+ * chain that stopped at step 1 legible: one row, and a heading that still says it was three.
+ */
+export function chainGroups(runs) {
+  const out = [];
+  const byId = new Map();
+  (runs || []).forEach((run) => {
+    const id = run.chain?.id;
+    if (!id) { out.push({ run }); return; }
+    const found = byId.get(id);
+    if (found) { found.runs.push(run); return; }
+    const group = { chain: run.chain, runs: [run] };
+    byId.set(id, group);
+    out.push(group);
+  });
+  // Steps arrive newest-first from the feed; inside a chain the order that means anything is the
+  // order they run in.
+  out.forEach((g) => g.runs?.sort((a, b) => (a.chain?.step || 0) - (b.chain?.step || 0)));
+  return out;
+}
+
+/**
+ * What a chain's heading says: what it is for, and where it has got to.
+ *
+ * "Step 2 of 3" is read off the furthest step that has a row, because a step with no row is a step
+ * whose message has not been published — the chain has not reached it. Once every step has
+ * settled, the position stops being the interesting part and the outcome takes over.
+ */
+export function chainStatus(group) {
+  const { chain, runs } = group;
+  const total = chain?.total || runs.length;
+  const live = runs.find(isUnfinished);
+  if (live) {
+    const at = live.chain?.step || runs.length;
+    return { label: `Step ${at} of ${total}`, color: statusColor(live), busy: true };
+  }
+  const failed = runs.find((r) => r.status === STATUS.ERROR);
+  if (failed) {
+    return {
+      label: `Failed at step ${failed.chain?.step || runs.length} of ${total}`,
+      color: statusColor(failed), busy: false,
+    };
+  }
+  const stopped = runs.find((r) => r.status === STATUS.CANCELED);
+  if (stopped) {
+    return {
+      label: `Stopped at step ${stopped.chain?.step || runs.length} of ${total}`,
+      color: statusColor(stopped), busy: false,
+    };
+  }
+  return { label: `${total} steps · done`, color: statusColor(runs[runs.length - 1]), busy: false };
+}

@@ -1,8 +1,10 @@
-"""Gateway control plane for the downstream-task stage (Inc 2c).
+"""Gateway control plane for the downstream-task stage (Inc 2c, moved onto the queue in Inc 6 · 07).
 
-The prediction is a fourth DAG node: one job → one ``preprocess_artifact`` row of
-``kind='prediction'`` parented on its feature index, whose summary lands in the new ``result``
-column. Per-patch arrays never touch the row — they come from the heatmap proxy.
+The prediction is the fourth DAG node, parented on its feature index. What changed in 07 is where
+the run lives: it is a Girder job, its row is written by the driver's report, and "run this task on
+this slide" is one submission whether the index exists or has to be built first.
+
+Per-patch arrays never touch the row — they come from the heatmap proxy.
 """
 
 import httpx
@@ -12,7 +14,11 @@ from starlette.testclient import TestClient
 from agent.gateway import routes as routes_mod
 from agent.gateway.app import create_app
 from agent.gateway.auth import require_user
-from agent.gateway.routes import get_preprocess_artifact_store, get_preprocess_url
+from agent.gateway.routes import (
+    get_plugin_url,
+    get_preprocess_artifact_store,
+    get_preprocess_url,
+)
 from agent.store import MemoryPreprocessArtifactStore
 
 _USER = {"_id": "u1", "login": "tester"}
@@ -51,23 +57,51 @@ def client(art_store):
     app.dependency_overrides[require_user] = lambda: _USER
     app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
     app.dependency_overrides[get_preprocess_url] = lambda: "http://preprocess:8030"
+    app.dependency_overrides[get_plugin_url] = lambda: "http://girder:8080/api/v1"
     return TestClient(app)
 
 
-def _ok_predict(ack=None):
-    async def trigger(*, base_url, stage, item, params, token):
-        assert stage == "predict"
-        return ack or _ACK
-    return trigger
+#: The registry as `GET /tasks` serves it. `feature_spec` is the whole reason this route can plan:
+#: it is the build the weights were fitted on, declared by the task rather than guessed at.
+_SPEC = {"encoder": "conch_v1", "mag": 20, "patch_size": 512, "overlap": 0}
+_TASK = {"id": "brca_idc_ilc", "label": "BRCA IDC vs ILC", "classes": ["IDC", "ILC"],
+         "model_ver": "abmil-conch-brca-fold0-v1", "feature_spec": _SPEC}
 
 
-def _refuse(code, detail):
-    req = httpx.Request("POST", "http://preprocess:8030/predict")
-    resp = httpx.Response(code, json={"detail": detail}, request=req)
+@pytest.fixture(autouse=True)
+def registry(monkeypatch):
+    async def fake(*, base_url, **kw):
+        return {"tasks": [_TASK], "available": True}
+    monkeypatch.setattr(routes_mod, "list_tasks", fake)
+    return fake
 
-    async def trigger(*, base_url, stage, item, params, token):
-        raise httpx.HTTPStatusError("refused", request=req, response=resp)
-    return trigger
+
+def _address(names=None, seen=None):
+    hashes = names or {"segmentation": "s1", "patching": "p1", "features": _FEAT,
+                       "prediction": _PRED}
+
+    async def addressed(preprocess_url, kind, item, params):
+        if seen is not None:
+            seen.append((kind, dict(params)))
+        return {"kind": kind, "art_hash": hashes[kind], "params": {**params, "impl": "trident"}}
+    return addressed
+
+
+def _chain(seen=None):
+    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
+        if seen is not None:
+            seen.append({"item": item, "label": label, "steps": steps})
+        return {"chainId": "c1", "jobId": "girder-job-1", "queue": "pathassist",
+                "steps": [{"kind": x["kind"], "artHash": x["artHash"]} for x in steps]}
+    return dispatch
+
+
+def _built(client, art_hash, kind, params=None, item=_ITEM):
+    """Give the slide an artifact the way one really appears: a run reporting its bytes."""
+    r = client.post(f"{_BASE}/slides/{item}/artifacts/{art_hash}/result",
+                    json={"status": "ready", "kind": kind, "params": params or {}, "result": {}})
+    assert r.status_code == 200
+    return r.json()
 
 
 # ── GET /tasks ──────────────────────────────────────────────────────────────────────
@@ -112,154 +146,142 @@ def test_tasks_503s_when_preprocess_is_not_configured(art_store, monkeypatch):
 # ── POST /slides/{item}/predict ─────────────────────────────────────────────────────
 
 
-def test_predict_records_a_prediction_row_parented_on_the_features(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _ok_predict())
+def test_a_named_feature_index_is_a_one_step_submission(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
 
-    r = client.post(
-        f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"}
-    )
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict",
+                    json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
     assert r.status_code == 200
     body = r.json()
-    assert body["kind"] == "prediction"
-    assert body["art_hash"] == _PRED and body["parent_hash"] == _FEAT
-    assert body["status"] == "queued" and body["job_id"] == "j4"
-    assert body["params"] == {
-        "task_id": "brca_idc_ilc", "model_ver": "abmil-conch-brca-fold0-v1",
-    }
-    assert body["result"] is None
-    assert (_ITEM, _PRED) in art_store._rows
+    assert body["kind"] == "prediction" and body["art_hash"] == _PRED
+    assert [x["kind"] for x in body["steps"]] == ["prediction"]
+    assert seen[0]["steps"][0]["params"]["feat_hash"] == _FEAT
+    assert seen[0]["label"] == "BRCA IDC vs ILC"
 
 
-def test_predict_requires_both_fields(client):
-    for payload in ({}, {"feat_hash": _FEAT}, {"task_id": "brca_idc_ilc"}):
-        r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json=payload)
-        assert r.status_code == 422
+def test_the_steps_above_a_named_index_are_never_even_addressed(client, monkeypatch):
+    """Naming an index asserts it exists. Reconstructing the segmentation params it happened to be
+    built with would be work in service of a question nobody asked."""
+    addressed = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address(seen=addressed))
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+
+    client.post(f"{_BASE}/slides/{_ITEM}/predict",
+                json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
+    assert [kind for kind, _ in addressed] == ["prediction"]
 
 
-def test_predict_forwards_the_workers_409_for_missing_features(client, monkeypatch):
-    monkeypatch.setattr(
-        routes_mod, "trigger_stage", _refuse(409, "extract features for this slide first")
-    )
-    r = client.post(
-        f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"}
-    )
-    assert r.status_code == 409
-    assert "extract features" in r.json()["detail"]
+def test_an_index_matching_the_task_spec_is_found_without_being_named(client, monkeypatch):
+    """What Inc 2c earned: the task declares the build its weights want, and the slide is searched
+    for it. Nobody has to know which of four hashes on this slide is the right one."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    _built(client, "p1", "patching", {"mag": 20, "patch_size": 512, "overlap": 0})
+    _built(client, _FEAT, "features", {"encoder": "conch_v1", "patch_hash": "p1"})
+
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
+    assert [x["kind"] for x in r.json()["steps"]] == ["prediction"]
 
 
-def test_predict_forwards_the_workers_503_for_a_cpu_image(client, monkeypatch):
-    monkeypatch.setattr(
-        routes_mod, "trigger_stage", _refuse(503, "this preprocess image ships without torch")
-    )
-    r = client.post(
-        f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"}
-    )
-    # Not a 502: the panel must be able to tell "no GPU worker" from "gateway broke".
-    assert r.status_code == 503
-    assert "torch" in r.json()["detail"]
+def test_a_slide_with_nothing_built_reaches_a_call_in_one_submission(client, monkeypatch):
+    """The whole point of 07: four steps, one click, in order."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
+    assert [x["kind"] for x in r.json()["steps"]] == [
+        "segmentation", "patching", "features", "prediction"]
+    # The tiling geometry comes off the task's declared spec, not off a default.
+    tiling = next(x for x in seen[0]["steps"] if x["kind"] == "patching")
+    assert tiling["params"]["patch_size"] == 512 and tiling["params"]["mag"] == 20
 
 
-def test_predict_forwards_the_workers_404_for_an_unknown_task(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _refuse(404, "unknown task 'nope'"))
-    r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "nope"})
-    assert r.status_code == 404
+def test_an_index_the_task_was_not_fitted_on_is_not_used(client, monkeypatch):
+    """An ABMIL head fitted on CONCH will consume UNI vectors of the same width and return a
+    confident number, and nothing downstream would say it was nonsense.
+
+    The tiles underneath it *are* reused — they are the same 512 px at 20× either encoder reads,
+    which is why encoding a second index over one patch grid is two steps and not four.
+    """
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+    _built(client, "p1", "patching", {"mag": 20, "patch_size": 512, "overlap": 0})
+    _built(client, "other", "features", {"encoder": "uni_v2", "patch_hash": "p1"})
+
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
+    assert [x["kind"] for x in r.json()["steps"]] == ["features", "prediction"]
 
 
-def test_predict_502s_on_an_unexpected_worker_error(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _refuse(500, "boom"))
-    r = client.post(
-        f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"}
-    )
+def test_a_build_planned_for_a_task_reuses_the_slides_own_segmentation(client, monkeypatch):
+    """A task says nothing about segmentation, correctly. But cutting a second set of contours over
+    a slide that already has one is minutes of GPU spent arriving back where it started."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address(seen=seen))
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+    _built(client, "s1", "segmentation", {"segmenter": "grandqc", "seg_conf_thresh": 0.7})
+
+    client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "brca_idc_ilc"})
+    assert seen[0] == ("segmentation", {"segmenter": "grandqc", "seg_conf_thresh": 0.7})
+
+
+def test_predict_requires_a_task(client):
+    assert client.post(f"{_BASE}/slides/{_ITEM}/predict", json={}).status_code == 422
+
+
+def test_a_task_this_deployment_does_not_have_is_a_404(client, monkeypatch):
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict", json={"task_id": "nope"})
+    assert r.status_code == 404 and "nope" in r.json()["detail"]
+
+
+def test_a_prediction_that_already_exists_is_not_queued_again(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    _built(client, _PRED, "prediction", {"task_id": "brca_idc_ilc"})
+
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict",
+                    json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
+    assert r.json()["status"] == "ready" and r.json()["steps"] == []
+    assert seen == []
+
+
+def test_a_refused_dispatch_writes_no_row(client, art_store, monkeypatch):
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+
+    async def refuse(**kw):
+        raise routes_mod.DispatchUnavailable("no worker")
+
+    monkeypatch.setattr(routes_mod, "dispatch_chain", refuse)
+    r = client.post(f"{_BASE}/slides/{_ITEM}/predict",
+                    json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
     assert r.status_code == 502
-
-
-def test_a_refusal_writes_no_artifact_row(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _refuse(503, "no torch"))
-    client.post(
-        f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"}
-    )
     assert art_store._rows == {}
 
 
-# ── reconciliation into `result` ────────────────────────────────────────────────────
+def test_the_result_the_driver_reports_lands_in_the_result_column(client, monkeypatch):
+    """The summary the Workspace row reads. It arrives on the report now, not on a status poll."""
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+    client.post(f"{_BASE}/slides/{_ITEM}/predict",
+                json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"})
 
-
-def _queue_prediction(client, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _ok_predict())
-    client.post(
-        f"{_BASE}/slides/{_ITEM}/predict", json={"feat_hash": _FEAT, "task_id": "brca_idc_ilc"}
-    )
-
-
-def test_a_ready_prediction_lands_its_summary_in_the_result_column(client, monkeypatch):
-    _queue_prediction(client, monkeypatch)
-
-    async def status(*, base_url, job_id, **kw):
-        return _READY
-    monkeypatch.setattr(routes_mod, "get_job_status", status)
+    client.post(f"{_BASE}/slides/{_ITEM}/artifacts/{_PRED}/result", json={
+        "status": "ready", "kind": "prediction",
+        "params": {"task_id": "brca_idc_ilc", "feat_hash": _FEAT},
+        "result": {"pred_label": "IDC", "probs": [0.93, 0.07], "n_patches": 2731,
+                   "elapsed_ms": 118, "prediction_ref": "/cache/item9/pred/pr1/prediction.json"},
+    })
 
     (row,) = client.get(f"{_BASE}/slides/{_ITEM}/artifacts").json()["artifacts"]
-    assert row["status"] == "ready" and row["n_items"] == 2731
+    assert row["kind"] == "prediction" and row["parent_hash"] == _FEAT
+    assert row["n_items"] == 2731
     assert row["artifact_ref"].endswith("prediction.json")
     assert row["result"]["pred_label"] == "IDC"
-    assert row["result"]["probs"] == [0.93, 0.07]
-    assert row["result"]["elapsed_ms"] == 118
-
-
-def test_the_result_column_never_carries_per_patch_arrays(client, monkeypatch):
-    _queue_prediction(client, monkeypatch)
-
-    async def status(*, base_url, job_id, **kw):
-        return {**_READY, "coords": [0, 0], "attention": [1.0], "evidence": [0.5]}
-    monkeypatch.setattr(routes_mod, "get_job_status", status)
-
-    (row,) = client.get(f"{_BASE}/slides/{_ITEM}/artifacts").json()["artifacts"]
-    for key in ("coords", "attention", "evidence"):
-        assert key not in row["result"]
-
-
-def test_a_failed_prediction_records_the_error_and_no_result(client, monkeypatch):
-    _queue_prediction(client, monkeypatch)
-
-    async def status(*, base_url, job_id, **kw):
-        return {"status": "failed", "error": "weights for 'brca_idc_ilc' not found"}
-    monkeypatch.setattr(routes_mod, "get_job_status", status)
-
-    (row,) = client.get(f"{_BASE}/slides/{_ITEM}/artifacts").json()["artifacts"]
-    assert row["status"] == "failed" and "weights" in row["error"]
-    assert row["result"] is None
-
-
-def test_a_features_row_is_not_given_a_result(client, art_store, monkeypatch):
-    # Only kind='prediction' has an outcome; a features build stays a pointer.
-    async def fake_features(*, base_url, stage, item, params, token):
-        return {
-            "job_id": "j5", "feat_hash": _FEAT, "patch_hash": "p1", "encoder": "conch_v1",
-            "kind": "features", "status": "queued",
-        }
-    monkeypatch.setattr(routes_mod, "trigger_stage", fake_features)
-    client.post(f"{_BASE}/slides/{_ITEM}/features", json={"patch_hash": "p1"})
-
-    async def status(*, base_url, job_id, **kw):
-        return {**_READY, "features_ref": "/cache/features.h5"}
-    monkeypatch.setattr(routes_mod, "get_job_status", status)
-
-    (row,) = client.get(f"{_BASE}/slides/{_ITEM}/artifacts").json()["artifacts"]
-    assert row["kind"] == "features" and row["result"] is None
-
-
-def test_rerunning_a_prediction_clears_the_previous_result(client, art_store, monkeypatch):
-    _queue_prediction(client, monkeypatch)
-
-    async def status(*, base_url, job_id, **kw):
-        return _READY
-    monkeypatch.setattr(routes_mod, "get_job_status", status)
-    client.get(f"{_BASE}/slides/{_ITEM}/artifacts")
-    assert art_store._rows[(_ITEM, _PRED)]["result"]["pred_label"] == "IDC"
-
-    _queue_prediction(client, monkeypatch)      # upsert resets the row to a fresh build
-    row = art_store._rows[(_ITEM, _PRED)]
-    assert row["status"] == "queued" and row["result"] is None
 
 
 # ── GET heatmap ─────────────────────────────────────────────────────────────────────

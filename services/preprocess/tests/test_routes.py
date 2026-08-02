@@ -196,6 +196,28 @@ def test_child_kinds_hash_against_their_parent(client):
     assert feat.status_code == 200 and feat.get_json()["parent_hash"] == "abc"
 
 
+def test_the_address_a_child_kind_gives_is_the_one_its_run_writes_to(client, wait):
+    """The equality the whole endpoint exists for, asserted per kind rather than for segmentation
+    only (Inc 6 · 07). The features branch was computing its hash from `index_version` while
+    `/features` used `feat_version`, so a build finished under a name the gateway had never heard
+    of — and the prediction behind it was refused for a feature index that was on disk."""
+    seg = client.post("/segment", json={"item": "item1"}).get_json()
+    wait(client, seg["job_id"], "ready")
+    pat = client.post("/patch", json={"item": "item1", "seg_hash": seg["seg_hash"]}).get_json()
+    wait(client, pat["job_id"], "ready")
+    run = client.post("/features", json={"item": "item1",
+                                         "patch_hash": pat["patch_hash"]}).get_json()
+    wait(client, run["job_id"], "ready")
+
+    for kind, key, body in (
+        ("patching", "patch_hash", {"seg_hash": seg["seg_hash"]}),
+        ("features", "feat_hash", {"patch_hash": pat["patch_hash"]}),
+    ):
+        addressed = client.post("/hash", json={"kind": kind, **body}).get_json()
+        made = {"patching": pat, "features": run}[kind]
+        assert addressed["art_hash"] == made[key], kind
+
+
 def test_a_child_kind_without_its_parent_is_refused(client):
     assert client.post("/hash", json={"kind": "patching"}).status_code == 400
     assert client.post("/hash", json={"kind": "features"}).status_code == 400
@@ -205,3 +227,31 @@ def test_an_unknown_kind_is_refused_rather_than_guessed(client):
     r = client.post("/hash", json={"kind": "nuclei"})
     assert r.status_code == 400
     assert "nuclei" in r.get_json()["detail"]
+
+
+def test_prediction_hashes_against_its_feature_index_and_task(client):
+    """A prediction's address is computable before it runs, like every other kind (Inc 6 · 07).
+
+    `model_ver` is not a request parameter — it comes off the task registry — so the caller can ask
+    for the address with only the two things it actually chose.
+    """
+    body = {"kind": "prediction", "feat_hash": "abc", "task_id": "brca_idc_ilc"}
+    first = client.post("/hash", json=body)
+    assert first.status_code == 200
+    js = first.get_json()
+    assert js["parent_hash"] == "abc"
+    assert js["params"]["task_id"] == "brca_idc_ilc"
+    assert js["params"]["model_ver"]
+
+    other = client.post("/hash", json={**body, "feat_hash": "def"}).get_json()
+    assert other["art_hash"] != js["art_hash"], (
+        "a prediction's address must depend on the feature index it read"
+    )
+
+
+def test_a_prediction_hash_needs_a_task_this_deployment_has(client):
+    assert client.post("/hash", json={"kind": "prediction", "feat_hash": "abc"}).status_code == 400
+    unknown = client.post(
+        "/hash", json={"kind": "prediction", "feat_hash": "abc", "task_id": "no_such_task"})
+    assert unknown.status_code == 400
+    assert "no_such_task" in unknown.get_json()["detail"]

@@ -6,8 +6,9 @@
 // CLI resolves back through the shared image file to the original.
 import { describe, expect, it } from 'vitest';
 import {
-  STATUS, activeCount, aheadOf, groupRuns, isCancelable, isDropped, isStopping, progressFraction,
-  progressText, queueNote, slideKeyOf, statusLabel, THIS_SLIDE, OTHER_SLIDES,
+  STATUS, activeCount, aheadOf, chainGroups, chainStatus, groupRuns, isCancelable, isDropped,
+  isStopping, progressFraction, progressText, queueNote, slideKeyOf, statusLabel,
+  THIS_SLIDE, OTHER_SLIDES,
 } from './runsUtils.js';
 
 const FILE = '6a3d59c8d59c30f37fd99be0';       // the DEMO slide's largeImage.fileId
@@ -207,5 +208,70 @@ describe('the header count', () => {
       run({ id: '4', status: STATUS.SUCCESS }),
       run({ id: '5', status: STATUS.ERROR }),
     ])).toBe(3);
+  });
+});
+
+// ── Chains (Inc 6 · 07) ───────────────────────────────────────────────────────
+
+describe('chainGroups', () => {
+  const step = (n, over = {}) => ({
+    id: `j${n}`, status: STATUS.SUCCESS, created: `2026-08-02T0${n}:00:00Z`, lane: 'pathassist',
+    chain: { id: 'c1', step: n, total: 3, label: 'Feature index', kinds: [] }, ...over,
+  });
+
+  it('draws a run with no chain on its own', () => {
+    const loose = { id: 'x', status: STATUS.RUNNING };
+    expect(chainGroups([loose])).toEqual([{ run: loose }]);
+  });
+
+  it('gathers the steps of one submission and orders them by step, not by age', () => {
+    // The feed is newest-first; inside a chain the only order that means anything is the run order.
+    const groups = chainGroups([step(3), step(1), step(2)]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].runs.map(r => r.chain.step)).toEqual([1, 2, 3]);
+  });
+
+  it('keeps two submissions apart even when they run the same kinds', () => {
+    const other = { ...step(1), id: 'k1', chain: { ...step(1).chain, id: 'c2' } };
+    expect(chainGroups([step(1), other]).map(g => g.chain.id)).toEqual(['c1', 'c2']);
+  });
+
+  it('holds the group where its first step appeared, so the list stays newest-first', () => {
+    const loose = { id: 'x', status: STATUS.RUNNING };
+    expect(chainGroups([loose, step(1)]).map(g => g.chain?.id || 'loose'))
+      .toEqual(['loose', 'c1']);
+  });
+});
+
+describe('chainStatus', () => {
+  const at = (n, status, total = 3) => ({
+    id: `j${n}`, status, chain: { id: 'c1', step: n, total, label: 'Feature index' },
+  });
+  const group = (runs, total = 3) => ({ chain: { id: 'c1', total, label: 'Feature index' }, runs });
+
+  it('says where a running chain has got to', () => {
+    expect(chainStatus(group([at(1, STATUS.SUCCESS), at(2, STATUS.RUNNING)])).label)
+      .toBe('Step 2 of 3');
+  });
+
+  it('counts the steps that were asked for, not the rows that exist', () => {
+    // A step that has not been published has no job at all — the server only mints one when the
+    // message goes out. So a chain on step 1 has one row and still says "of 3".
+    expect(chainStatus(group([at(1, STATUS.RUNNING)])).label).toBe('Step 1 of 3');
+  });
+
+  it('names the step a chain failed at', () => {
+    const s = chainStatus(group([at(1, STATUS.SUCCESS), at(2, STATUS.ERROR)]));
+    expect(s.label).toBe('Failed at step 2 of 3');
+    expect(s.busy).toBe(false);
+  });
+
+  it('names the step a chain was stopped at', () => {
+    expect(chainStatus(group([at(1, STATUS.CANCELED)])).label).toBe('Stopped at step 1 of 3');
+  });
+
+  it('stops counting once every step is done', () => {
+    const done = [at(1, STATUS.SUCCESS), at(2, STATUS.SUCCESS), at(3, STATUS.SUCCESS)];
+    expect(chainStatus(group(done)).label).toBe('3 steps · done');
   });
 });

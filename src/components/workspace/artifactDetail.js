@@ -33,6 +33,9 @@ import {
   hasInstances, layerLevels, totalNuclei, withNucleiDefaults,
 } from './nuclei.js';
 import {
+  describePrediction, otherClass, withPredictionDefaults,
+} from './prediction.js';
+import {
   RENDERS as TISSUE_RENDERS, RENDER_LABEL as TISSUE_RENDER_LABEL,
   colorsOf as tissueColorsOf, compositionCsv, compositionRows,
   coverageSummary as tissueCoverage, tsrOf, withTissueDefaults,
@@ -346,7 +349,82 @@ const DETAILS = Object.freeze({
       return { [key]: value };
     },
   },
+
+  // ── prediction (Inc 6 · 07) ────────────────────────────────────────────────────────
+  //
+  // The one kind whose `meta` is the artifact **row** rather than a separate meta document. A
+  // prediction is two numbers and a class name; the gateway already stores that summary in the
+  // row's `result` because the panel read it off there, and asking a second endpoint for what is
+  // already in hand would be a call made to preserve a symmetry nobody can see.
+  //
+  // The per-patch arrays are a different matter and stay off the row — thousands of floats, fetched
+  // by `ArtifactLayers` only when the evidence map is actually drawn.
+  prediction: {
+    layerKey: 'taskLayerParams',
+    setterKey: 'setTaskLayerParams',
+    withDefaults: withPredictionDefaults,
+
+    detail(row, layer) {
+      const view = describePrediction(row);
+      if (!view) return { stats: [], segments: [], config: { drawn: false } };
+
+      const stats = [
+        { key: 'call', label: 'Call', value: view.label || '—' },
+        ...(view.confidence != null
+          ? [{ key: 'confidence', label: 'Confidence', value: view.confidence.toFixed(2) }]
+          : []),
+      ];
+
+      return {
+        stats,
+        // One row per class, in the model's own order, with the winner's bar full. Not toggleable:
+        // a class is not something the picture can be asked to leave out — the map is one signed
+        // quantity, and its two poles are these two classes.
+        segments: view.probs.map((p) => ({
+          key: p.name,
+          label: p.name,
+          colorHex: p.win ? '#b4282f' : '#3a4ca0',
+          fraction: p.p,
+          visible: true,
+          locked: true,
+        })),
+        config: {
+          // The evidence map is drawn from a document this row does not carry, so the controls
+          // appear once there is a call to have evidence *for*.
+          drawn: true,
+          modes: [{ value: 'overlay', label: 'Overlay' }, { value: 'split', label: 'Side by side' }],
+          modeLabel: 'Show as',
+          mode: layer.view,
+          // Only in Overlay: in Side-by-side the map has its own pane and there is nothing to
+          // blend it into, so an opacity slider there would move a number nothing reads.
+          opacity: layer.view === 'overlay' ? layer.opacity : null,
+          note: [
+            view.provenance,
+            `Blue supports ${otherClass(view)}, red supports ${view.label}. Per-patch evidence `
+            + 'from the attention head — where the model looked, not a diagnosis of that tile.',
+          ].filter(Boolean).join(' · '),
+        },
+      };
+    },
+
+    patch(layer, key, value) {
+      return { [key === 'mode' ? 'view' : key]: value };
+    },
+  },
 });
+
+/**
+ * Kinds whose detail reads the artifact **row** rather than a separate meta document.
+ *
+ * Only the prediction: its whole result is two numbers and a class name, already stored on the row
+ * because the panel that used to draw them read it from there. Fetching a meta document to
+ * rediscover what is in hand would be a call made to preserve a symmetry nobody can see.
+ */
+const ROW_IS_META = new Set(['prediction']);
+
+export function metaIsRow(kind) {
+  return ROW_IS_META.has(kind);
+}
 
 /** Whether this kind has moved its controls into the Workspace yet. */
 export function hasDetail(kind) {
@@ -361,7 +439,9 @@ export function layerBinding(kind) {
     layerKey: entry.layerKey,
     setterKey: entry.setterKey,
     withDefaults: entry.withDefaults,
-    toggleSegment: entry.toggleSegment,
+    // Withheld by a kind whose segments are not a choice — a prediction's two classes are the
+    // two poles of one signed quantity, and hiding one would leave a map of half a comparison.
+    toggleSegment: entry.toggleSegment || null,
     // Only the marker map has editable colours; withholding the function is what leaves the
     // other kinds' rows without the menu entry (the same rule DataRow uses for every callback).
     recolourSegment: entry.recolourSegment || null,

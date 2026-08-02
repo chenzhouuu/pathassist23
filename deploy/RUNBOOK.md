@@ -318,7 +318,16 @@ docker restart agent-celery-1
 curl -s -o /dev/null -w 'run  %{http_code}\n' -X POST -H 'Content-Type: application/json' \
     -d '{}' http://localhost:9080/api/v1/pathassist/run
 curl -s -o /dev/null -w 'runs %{http_code}\n' http://localhost:9080/api/v1/pathassist/runs
+curl -s -o /dev/null -w 'chain %{http_code}\n' -X POST -H 'Content-Type: application/json' \
+    -d '[]' 'http://localhost:9080/api/v1/pathassist/chain?item=x'
 ```
+
+**A chained step's job is created by the driver, not by `girder_worker`.** Worth knowing when
+reading the worker log: a multi-step submission publishes its later links from inside the worker,
+where upstream's `context/nongirder_context.py` posts the Girder job with `kwargs` as a dict and
+gets `400: Parameter "kwargs" must not be specified multiple times`. We disable that path
+(`girder_job_disable`) and mint the job in `driver._job_for_chained_step`, so a step whose job is
+missing means *that* call failed — check the worker can reach `girder_api_url`, not the broker.
 
 The analysis services follow the same pattern, and only the gateway bind-mounts its source:
 

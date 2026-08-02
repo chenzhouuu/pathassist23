@@ -159,20 +159,26 @@ describe('WorkspacePanel', () => {
     expect(within(rowFor('Tissue map')).getByRole('button', { name: 'Show' })).toBeInTheDocument();
   });
 
-  it('carries a running build to ready without a manual refresh', async () => {
+  it('carries a growing build to its finished counts without a manual refresh', async () => {
+    // The row cannot say it is building any more (Inc 6 · 07 — a row exists only where bytes do),
+    // so what keeps this list moving is the *run*: while one is unfinished, its counts are still
+    // being written and the list re-reads them.
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const running = [{
-      kind: 'tissue', art_hash: 'tis1', status: 'running', stage: 'tiles', progress: 0.42,
-      params: { backend: 'hover-next' }, result: {}, created_at: iso(10_000),
+    listRuns.mockResolvedValue([{
+      id: 'j1', status: 2, artHash: 'tis1', slideKey: 'item-1', lane: 'pathassist',
+      created: iso(10_000), progress: { current: 4, total: 43, message: '4 / 43 · tiles' },
+    }]);
+    const partial = [{
+      kind: 'tissue', art_hash: 'tis1', status: 'ready',
+      params: { backend: 'hover-next' }, result: { n_core_tiles: 4 }, created_at: iso(10_000),
     }];
-    listArtifacts.mockResolvedValue(running);
+    listArtifacts.mockResolvedValue(partial);
     render(<WorkspacePanel />);
-    expect(await screen.findByText(/42%/)).toBeInTheDocument();
+    expect(await screen.findByText('4 / 43 · tiles')).toBeInTheDocument();
 
-    listArtifacts.mockResolvedValue([{ ...running[0], status: 'ready', progress: 1, result: { n_core_tiles: 12 } }]);
+    listArtifacts.mockResolvedValue([{ ...partial[0], result: { n_core_tiles: 12 } }]);
     await vi.advanceTimersByTimeAsync(2600);
     await waitFor(() => expect(screen.getByText('12 tiles')).toBeInTheDocument());
-    expect(screen.queryByText(/42%/)).not.toBeInTheDocument();
   });
 
   it('stops polling once nothing is building', async () => {

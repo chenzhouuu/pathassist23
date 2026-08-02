@@ -13,7 +13,9 @@
 import React, { useRef, useEffect, useMemo, useCallback } from 'react';
 import { useStore } from '../../store/index.js';
 import { imgToViewer } from '../annotations/annotationUtils.js';
-import { colormap, normaliseEvidence, gridExtent } from '../panels/taskUtils.js';
+import {
+  colormap, gridExtent, normaliseEvidence, withPredictionDefaults,
+} from '../workspace/prediction.js';
 
 // Bake the per-patch scores into a cols×rows canvas — one pixel per patch, in level-0 order.
 // Cells with no patch stay white rather than transparent: under `multiply` both are no-ops, but
@@ -53,8 +55,8 @@ function bakeGrid(doc) {
 export default function HeatmapOverlay({ viewer, alpha }) {
   const canvasRef = useRef(null);
   const taskHeatmap = useStore((s) => s.taskHeatmap);
-  const taskOpacity = useStore((s) => s.taskOpacity);
-  const opacity = alpha != null ? alpha : taskOpacity;
+  const stored = useStore((s) => s.taskLayerParams);
+  const opacity = alpha != null ? alpha : withPredictionDefaults(stored).opacity;
 
   // Re-bake only when the prediction changes — not on pan, zoom or an opacity drag.
   const baked = useMemo(() => (taskHeatmap ? bakeGrid(taskHeatmap) : null), [taskHeatmap]);

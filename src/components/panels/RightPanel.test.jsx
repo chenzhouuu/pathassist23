@@ -26,8 +26,10 @@ const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [
 // Markers and Tissue left in Inc 6 · 06, the way Nuclei left in 05: submitting a run is the
 // Analysis catalog's, watching it is the Runs list's, and reading the artifact is the Workspace's.
 // Preprocess and Task follow in 07 — 12 tabs down to 9 so far.
+// Nine in 06; seven now. Preprocess and Task went with 07 — every kind is submitted from Analysis
+// and read in the Workspace, so a tab for either would be a second way to start the same run.
 const EXPECTED_TABS = [
-  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Preprocess', 'Task', 'Panels',
+  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot', 'Panels',
 ];
 
 describe('RightPanel tab bar', () => {

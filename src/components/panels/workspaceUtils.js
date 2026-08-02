@@ -7,8 +7,12 @@
 // One rule runs through the whole file: say what the row actually carries, and say nothing when it
 // carries nothing. A missing number renders as an omitted phrase, never as a zero or a guess —
 // "0 patches" and "unknown" both read as facts, and neither would be one.
-import { fmtInt, isInFlight, progressPercent, stageLabel } from './preprocessUtils.js';
 import { SWITCHABLE_KINDS } from '../viewer/ArtifactLayers.jsx';
+
+/** A count, or nothing. Never a zero standing in for a number the row does not have. */
+export function fmtInt(n) {
+  return typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString() : '';
+}
 
 export const KIND_LABEL = Object.freeze({
   segmentation: 'Segmentation',
@@ -166,14 +170,16 @@ export function formatAge(iso, now = Date.now()) {
   return `${Math.round(days / 30)}mo ago`;
 }
 
-/** Segment 4 — where the build got to, and when. A running build shows its progress instead. */
+/**
+ * Segment 4 — when this artifact was made, and whether the run that made it finished.
+ *
+ * No progress, and no failure: from Inc 6 · 07 a row exists only where bytes do, so there is no
+ * such thing as a row that is 40 % built or one that failed. Both of those are runs, and runs are
+ * in the Runs feed. What is left that a row can say about itself is that its run was **stopped**,
+ * which is not a state — it is a fact about how much of the slide the numbers beside it cover.
+ */
 export function describeState(row, now = Date.now()) {
   const age = formatAge(row?.created_at, now);
-  if (isInFlight(row)) {
-    const pct = progressPercent(row);
-    return pct > 0 ? `${stageLabel(row.stage)} ${pct}%` : stageLabel(row.stage);
-  }
-  if (row?.status === 'failed') return age ? `Failed · ${age}` : 'Failed';
   if (row?.status === 'cancelled') return age ? `Stopped · ${age}` : 'Stopped';
   return age;
 }
@@ -181,26 +187,26 @@ export function describeState(row, now = Date.now()) {
 // ── The row ──────────────────────────────────────────────────────────────────────────
 
 /**
- * One artifact as the four things DataRow needs. `primary` is the block under the title;
- * `secondary` is the right-aligned state. Empty segments are dropped rather than rendered blank,
- * so a queued row is one line and a finished tissue map is two.
+ * One artifact as the things DataRow needs. `primary` is the block under the title; `secondary` is
+ * the right-aligned state. Empty segments are dropped rather than rendered blank, so a bare
+ * segmentation is one line and a finished tissue map is two.
  */
 export function describeArtifact(row, now = Date.now()) {
   const params = describeParams(row);
   const scale = describeScale(row);
   const state = describeState(row, now);
-  const failed = row?.status === 'failed';
   return {
     key: row?.art_hash,
     kind: row?.kind,
     title: kindLabel(row?.kind),
     canSwitch: canSwitch(row),
-    // A failed build's reason belongs on the row. It is the only thing that row has to say, and
-    // sending the user to a log for it would be the panel withholding what it already knows.
-    primary: [params, scale, failed ? row?.error : ''].filter(Boolean),
+    primary: [params, scale].filter(Boolean),
     secondary: [state].filter(Boolean),
     canDraw: canDraw(row),
-    failed,
+    // The row itself, for the one kind whose detail *is* the row — a prediction's whole result is
+    // already stored here (`metaIsRow`), so fetching a meta document would be a call to rediscover
+    // what is in hand.
+    row,
   };
 }
 
@@ -230,5 +236,3 @@ export function sortArtifacts(rows) {
     (a, b) => (Date.parse(b?.created_at) || 0) - (Date.parse(a?.created_at) || 0),
   );
 }
-
-export { isInFlight };

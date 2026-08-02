@@ -62,6 +62,52 @@ async def dispatch_run(
         if owns:
             await client.aclose()
 
+    return _ack(resp)
+
+
+async def dispatch_chain(
+    *,
+    plugin_url: str,
+    item: str,
+    steps: list[dict],
+    token: str | None,
+    label: str | None = None,
+    timeout: float = 30.0,
+    client: httpx.AsyncClient | None = None,
+) -> dict:
+    """Put an ordered sequence of runs on the queue as one submission (Inc 6 · 07).
+
+    `steps` is `[{kind, artHash, params, title}]` — already planned, already addressed, already
+    trimmed to what this slide is missing. The plugin sequences them with a Celery chain, so a step
+    that fails or is stopped publishes nothing after it.
+
+    Returns `{chainId, jobId, queue, steps}`. Only the head has a Girder job yet; the rest are
+    minted as they are published, which is what keeps a chain that stopped early from leaving rows
+    for work that never happened.
+
+    Raises:
+        DispatchUnavailable: the plugin is unreachable, unauthenticated, or refused a kind.
+    """
+    owns = client is None
+    client = client or httpx.AsyncClient(timeout=timeout)
+    try:
+        resp = await client.post(
+            f"{plugin_url.rstrip('/')}/pathassist/chain",
+            headers={"Girder-Token": token} if token else {},
+            params={"item": item, **({"label": label} if label else {})},
+            json=steps,
+        )
+    except httpx.HTTPError as exc:
+        raise DispatchUnavailable(f"could not reach the PathAssist Girder plugin: {exc}") from exc
+    finally:
+        if owns:
+            await client.aclose()
+
+    return _ack(resp)
+
+
+def _ack(resp: httpx.Response) -> dict:
+    """The plugin's reply, or its refusal turned into one exception the routes can forward."""
     if resp.status_code >= 400:
         detail = ""
         try:

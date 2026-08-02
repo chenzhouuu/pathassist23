@@ -59,8 +59,8 @@ function postJson(itemId, path, body, what) {
   ).then((r) => asJson(r, what));
 }
 
-// List a slide's DAG artifacts (segmentation / patching / features rows), reconciled server-side
-// against the worker for any in-flight build. [] for a slide that has never been preprocessed.
+// List a slide's DAG artifacts. Every row here is bytes on disk (Inc 6 · D9) — a run still in
+// flight is in the Runs feed, not in this list. [] for a slide nothing has been built on.
 export async function listArtifacts(itemId) {
   const r = await fetch(
     `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/artifacts`,
@@ -81,20 +81,17 @@ export function startSegment(itemId, params = {}) {
   return postJson(itemId, 'segment', body, 'Start segmentation');
 }
 
-// Stage 2 — enqueue a patch grid on a ready segmentation (`seg_hash`). 409 if it isn't built.
-export function startPatch(itemId, { seg_hash, mag, patch_size, overlap } = {}) {
-  const body = { seg_hash };
-  if (mag != null) body.mag = mag;
-  if (patch_size != null) body.patch_size = patch_size;
-  if (overlap != null) body.overlap = overlap;
-  return postJson(itemId, 'patch', body, 'Start tiling');
-}
-
-// Stage 3 — enqueue feature extraction on a ready patch grid (`patch_hash`). 409 if it isn't built.
-export function startFeatures(itemId, { patch_hash, encoder } = {}) {
-  const body = { patch_hash };
-  if (encoder) body.encoder = encoder;
-  return postJson(itemId, 'features', body, 'Start feature extraction');
+// A feature index: segment, tile, encode — one submission (Inc 6 · 07). The three stages had a
+// route each until the panel that advanced them one at a time was deleted; they are steps of a
+// Celery chain now, and the server drops the ones this slide already has. The reply says which
+// steps were actually queued, or `status: 'ready'` when the whole build already existed.
+export function startBuild(itemId, form = {}) {
+  const body = {};
+  for (const k of ['encoder', 'segmenter', 'seg_conf_thresh', 'remove_artifacts', 'remove_holes',
+    'remove_penmarks', 'mag', 'patch_size', 'overlap']) {
+    if (form[k] !== undefined && form[k] !== null && form[k] !== '') body[k] = form[k];
+  }
+  return postJson(itemId, 'build', body, 'Start feature build');
 }
 
 // Fetch a segmentation's tissue contours (level-0 px GeoJSON) for the viewer overlay (Phase 5).

@@ -14,6 +14,7 @@ from girder_pathassist.runs import (
     RUNNING,
     SUCCESS,
     UNFINISHED,
+    chain_of,
     cli_item_id,
     failure_reason,
     has_started,
@@ -255,3 +256,45 @@ class TestWhatLeavesTheServer:
         assert r["kind"] is None
         assert r["progress"] is None
         assert r["type"] == "dsarchive/histomicstk:latest#BackgroundIntensity"
+
+
+class TestChains:
+    """A multi-step submission, held together by a field rather than by a parent job
+    (Inc 6 · 07)."""
+
+    def chained(self, step, total=3, **over):
+        pa = {**NATIVE["pathassist"],
+              "chain": {"id": "c1", "step": step, "total": total,
+                        "label": "Feature index", "kinds": ["segmentation", "patching", "features"],
+                        **over}}
+        return {**NATIVE, "pathassist": pa}
+
+    def test_a_step_says_which_submission_it_is_part_of_and_where(self):
+        assert chain_of(self.chained(2)) == {
+            "id": "c1", "step": 2, "total": 3, "label": "Feature index",
+            "kinds": ["segmentation", "patching", "features"],
+        }
+
+    def test_a_single_run_is_not_a_chain(self):
+        """`runAnalysis` writes no chain field; a caller that writes `total: 1` gets none either."""
+        assert chain_of(NATIVE) is None
+        assert chain_of(self.chained(1, total=1)) is None
+
+    def test_a_chain_without_an_id_cannot_group_anything(self):
+        assert chain_of(self.chained(1, id="")) is None
+
+    def test_a_malformed_position_is_dropped_rather_than_shown(self):
+        """Step and total are counted with, so a string in either is not a chain to render."""
+        assert chain_of(self.chained("2")) is None
+        assert chain_of(self.chained(2, total="3")) is None
+
+    def test_the_row_carries_it_only_when_there_is_one(self):
+        plain = row(NATIVE, readable=True, mine=True, item_id=None, slide_name=None)
+        assert "chain" not in plain
+        grouped = row(self.chained(2), readable=True, mine=True, item_id=None, slide_name=None)
+        assert grouped["chain"]["step"] == 2
+
+    def test_an_unreadable_row_says_nothing_about_the_chain(self):
+        """`readable` gates everything about *what* the work is; a chain label is part of that."""
+        hidden = row(self.chained(2), readable=False, mine=False, item_id=None, slide_name=None)
+        assert "chain" not in hidden

@@ -10,9 +10,10 @@
 // list, and the Runs section beneath the catalog (03) is where every run — this slide's, other
 // slides', other users' — is watched.
 //
-// Native entries submit to their existing gateway endpoints; what is behind one is what moves.
-// **Nuclei moved in 05** — it is a Girder job now, stopped from Runs, and this panel is the only
-// place it can be started. The other four follow in 06–07, and until a kind moves its tab stays.
+// Native entries submit to their existing gateway endpoints, and every one of them is a Girder job
+// on one queue now (05 → 07). All five task panels are gone, so this is the only place any analysis
+// can be started — and a submission can be several runs: a feature index is three steps and a task
+// on a bare slide is four, planned server-side and drawn in Runs as one thing.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
@@ -242,8 +243,9 @@ export default function AnalysisPanel() {
     setSubmitting(true);
     setError('');
     try {
+      let ack = null;
       if (selected.source === 'native') {
-        await selected.tool.submit(activeItem._id, formValues, { roi: region.roi });
+        ack = await selected.tool.submit(activeItem._id, formValues, { roi: region.roi });
         qc.invalidateQueries({ queryKey: ['artifacts', activeItem._id] });
       } else {
         // Slicer CLI Web /run expects raw Girder ObjectId strings — NOT JSON-wrapped objects.
@@ -259,7 +261,13 @@ export default function AnalysisPanel() {
       }
       // Do not wait out the poll interval to see what was just submitted.
       qc.invalidateQueries({ queryKey: ['pathassist-runs'] });
-      setSubmitted({ title: meta.title || selected.title || selected.name });
+      // A content-addressed build whose every step already exists queues nothing, and saying
+      // "submitted" would send someone to a Runs list with nothing new in it. The server answers
+      // `status: 'ready'`; the banner repeats what it said.
+      setSubmitted({
+        title: meta.title || selected.title || selected.name,
+        reused: ack?.status === 'ready' && Array.isArray(ack?.steps) && ack.steps.length === 0,
+      });
       // A submitted job is not a modal state — back to the list, and it is watched in Runs.
       setView('list');
       setMeta(null);
@@ -294,7 +302,9 @@ export default function AnalysisPanel() {
               <polyline points="20 6 9 17 4 12" />
             </svg>
             <span className="text-xs flex-1" style={{ color: '#4caf82' }}>
-              {submitted.title} submitted
+              {submitted.reused
+                ? `${submitted.title} — already built, nothing to run`
+                : `${submitted.title} submitted`}
             </span>
             <button onClick={() => setSubmitted(null)} className="text-xs shrink-0"
               style={{ color: 'var(--muted-hex)' }}>✕</button>
@@ -509,7 +519,14 @@ export default function AnalysisPanel() {
                     {userParams.map(p => (
                       <ParamField key={p.name} param={p}
                         value={formValues[p.name] ?? p.defVal}
-                        onChange={v => setFormValues(prev => ({ ...prev, [p.name]: v }))}
+                        onChange={v => setFormValues(prev => ({
+                          ...prev, [p.name]: v,
+                          // A tool may declare that one field decides others — the encoder binds
+                          // the tiling geometry (Fork B). Declared by the tool rather than
+                          // hard-coded here, because this renderer draws docker CLIs too and has
+                          // no business knowing what an encoder is.
+                          ...(selected?.tool?.onChange?.(p.name, v, prev) || {}),
+                        }))}
                         onDrawRoi={(!isNative && (p.tag === 'float-vector' || p.tag === 'region'))
                           ? () => setDrawingMode('roi-select')
                           : undefined}

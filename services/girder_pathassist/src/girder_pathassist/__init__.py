@@ -20,4 +20,17 @@ the warm weights, the warm-up and the idle GPU release that three increments wen
 #: discovered as a missing env var an hour into a queue.
 KINDS = ("segmentation", "patching", "features", "prediction", "nuclei", "tissue", "biomarker")
 
-__all__ = ["KINDS"]
+#: Human-facing titles. The Runs list shows these, so they name the work rather than the route.
+#: Here rather than in `rest.py` because both halves need them: the REST layer titles the first
+#: link's job, and the driver titles the ones it mints for a chain's later steps (Inc 6 · 07).
+TITLES = {
+    "segmentation": "Tissue segmentation",
+    "patching": "Tiling",
+    "features": "Feature extraction",
+    "prediction": "Downstream task",
+    "nuclei": "Nuclei segmentation",
+    "tissue": "Tissue map",
+    "biomarker": "Marker map",
+}
+
+__all__ = ["KINDS", "TITLES"]

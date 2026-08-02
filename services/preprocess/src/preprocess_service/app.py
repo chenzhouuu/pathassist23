@@ -160,11 +160,37 @@ def create_app() -> Flask:
                 if not parent:
                     return jsonify({"detail": "features needs patch_hash"}), 400
                 encoder = body.get("encoder") or settings.image_encoder
+                # `feat_version`, not `index_version`. The two are separate constants so that new
+                # encoder weights can invalidate feature indexes without re-cutting every patch
+                # grid, and this branch had the wrong one — so the address the gateway handed out
+                # was not the address `/features` wrote to. Found on the DEMO slide (Inc 6 · 07):
+                # the build finished, and the prediction behind it was refused 409 for a feature
+                # index that was sitting on disk under a different name. The exact failure this
+                # endpoint exists to prevent, inside the endpoint.
                 return jsonify({
                     "kind": kind, "params": {"encoder": encoder, "impl": settings.impl},
                     "parent_hash": parent,
-                    "art_hash": feat_hash(parent, encoder, settings.index_version,
+                    "art_hash": feat_hash(parent, encoder, settings.feat_version,
                                           settings.impl),
+                })
+            if kind == "prediction":
+                # No `impl` here, and that is deliberate: a prediction is the MIL head applied to
+                # an already-encoded index, so which pipeline produced the bytes is already carried
+                # by the parent's hash. What it does depend on is `model_ver`, which is not a
+                # request parameter at all — the caller chooses a task, and the registry says which
+                # weights that is (`tasks.py`). Asking the caller for it would let a run be
+                # addressed as weights it did not use.
+                parent = body.get("feat_hash")
+                task = get_task(body.get("task_id") or "")
+                if not parent or task is None:
+                    return jsonify({
+                        "detail": f"prediction needs feat_hash and a known task_id "
+                                  f"(got {body.get('task_id')!r})",
+                    }), 400
+                return jsonify({
+                    "kind": kind, "params": {"task_id": task.id, "model_ver": task.model_ver},
+                    "parent_hash": parent,
+                    "art_hash": pred_hash(parent, task.id, task.model_ver),
                 })
         except (TypeError, ValueError) as exc:
             return jsonify({"detail": f"bad params for {kind}: {exc}"}), 400

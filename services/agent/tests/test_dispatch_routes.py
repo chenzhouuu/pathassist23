@@ -3,8 +3,9 @@
 The two halves of the new path, from the gateway's side: `start_segment` naming the artifact and
 handing it to the Girder plugin, and the driver reporting back how it ended.
 
-The old direct-to-service path is not deleted and is covered in `test_dag_routes.py`; which one
-runs is decided by whether `pathassist_plugin_url` is configured, and both are exercised.
+The direct-to-service path these tests once shared the file with is gone (07): there is one way a
+run exists now, and it is a Girder job. What is left here is the report — the driver writing back
+the only thing that turns a finished run into a row.
 """
 
 import httpx
@@ -54,6 +55,7 @@ def _address(art_hash="seg-abc", **params):
 
 
 def _dispatch(job_id="girder-job-1", seen=None):
+    """A `dispatch_run` double — the single-run route the three JobQueue kinds still use."""
     async def dispatch(*, plugin_url, kind, item, art_hash, params, token, **kw):
         if seen is not None:
             seen.append({"kind": kind, "item": item, "art_hash": art_hash, "params": params})
@@ -62,57 +64,59 @@ def _dispatch(job_id="girder-job-1", seen=None):
     return dispatch
 
 
+def _chain(job_id="girder-job-1", seen=None):
+    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
+        if seen is not None:
+            seen.append({"item": item, "label": label, "steps": steps})
+        return {"chainId": "c1", "jobId": job_id, "queue": "pathassist",
+                "steps": [{"kind": x["kind"], "artHash": x["artHash"]} for x in steps]}
+    return dispatch
+
+
 # ── start_segment, dispatching ────────────────────────────────────────────────────────
 
 
-def test_the_row_carries_the_girder_job_not_the_services_own(client, art_store, monkeypatch):
-    """`job_id` changes meaning under Inc 6: it is the Girder job, which is what Runs reads."""
-    monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch("girder-job-1"))
-
-    r = client.post(f"{_BASE}/{_ITEM}/segment", json={})
-    assert r.status_code == 200
-    assert r.json()["job_id"] == "girder-job-1"
-
-    rows = client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"]
-    assert [(x["kind"], x["art_hash"], x["job_id"]) for x in rows] == [
-        ("segmentation", "seg-abc", "girder-job-1")
-    ]
-
-
-def test_the_artifact_is_named_before_it_is_dispatched(client, monkeypatch):
+def test_the_segmentation_is_named_before_it_is_queued(client, monkeypatch):
     """The address goes to the plugin, so the driver can report against it later."""
     seen = []
     monkeypatch.setattr(routes_mod, "_content_address", _address("seg-xyz"))
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch(seen=seen))
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen=seen))
 
-    client.post(f"{_BASE}/{_ITEM}/segment", json={"segmenter": "grandqc"})
-    assert seen == [{"kind": "segmentation", "item": _ITEM, "art_hash": "seg-xyz",
-                     "params": {"segmenter": "grandqc", "remove_artifacts": False,
-                                "remove_holes": False, "remove_penmarks": False}}]
+    r = client.post(f"{_BASE}/{_ITEM}/segment", json={"segmenter": "grandqc"})
+    assert r.json()["art_hash"] == "seg-xyz"
+    assert seen[0]["item"] == _ITEM
+    assert [x["kind"] for x in seen[0]["steps"]] == ["segmentation"]
+    assert seen[0]["steps"][0]["artHash"] == "seg-xyz"
 
 
-def test_the_row_records_the_params_the_service_resolved(client, art_store, monkeypatch):
-    """Defaults are the service's to fill; the row must show what will actually run, not the
-    empty body that was posted."""
+def test_the_queued_step_carries_the_params_the_service_resolved(client, monkeypatch):
+    """Defaults are the service's to fill. The driver echoes these back on the report that writes
+    the row, so anything the address depends on has to be here or the row cannot explain itself."""
+    seen = []
     monkeypatch.setattr(routes_mod, "_content_address", _address(segmenter="grandqc"))
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen=seen))
 
     client.post(f"{_BASE}/{_ITEM}/segment", json={})
-    row = client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"][0]
-    assert row["params"]["segmenter"] == "grandqc"
-    assert row["params"]["seg_conf_thresh"] == 0.5
+    assert seen[0]["steps"][0]["params"]["segmenter"] == "grandqc"
+    assert seen[0]["steps"][0]["params"]["seg_conf_thresh"] == 0.5
 
 
-def test_a_failed_dispatch_leaves_no_promise_behind(client, monkeypatch):
-    """No row without a job behind it. The write happens after the dispatch precisely so that a
-    queued row nothing will ever pick up cannot be written in the first place."""
+def test_a_dispatched_segmentation_writes_no_row(client, monkeypatch):
+    """D9 for the last four kinds. Between submit and the last byte there is a job and no row."""
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
+
+    client.post(f"{_BASE}/{_ITEM}/segment", json={})
+    assert client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"] == []
+
+
+def test_a_failed_dispatch_says_what_the_plugin_said(client, monkeypatch):
     monkeypatch.setattr(routes_mod, "_content_address", _address())
 
     async def refuse(**kw):
         raise DispatchUnavailable("the PathAssist Girder plugin refused the run (503): no worker")
 
-    monkeypatch.setattr(routes_mod, "dispatch_run", refuse)
+    monkeypatch.setattr(routes_mod, "dispatch_chain", refuse)
 
     r = client.post(f"{_BASE}/{_ITEM}/segment", json={})
     assert r.status_code == 502
@@ -120,25 +124,7 @@ def test_a_failed_dispatch_leaves_no_promise_behind(client, monkeypatch):
     assert client.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"] == []
 
 
-def test_without_the_plugin_the_old_path_still_runs(art_store, monkeypatch):
-    """A deployment whose image has not been rebuilt keeps working."""
-    app = create_app()
-    app.dependency_overrides[require_user] = lambda: _USER
-    app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
-    app.dependency_overrides[get_preprocess_url] = lambda: "http://preprocess:8030"
-    app.dependency_overrides[get_plugin_url] = lambda: None
-
-    async def trigger(*, base_url, stage, item, params, token):
-        return {"job_id": "service-job-1", "seg_hash": "s1", "segmenter": "hest"}
-
-    monkeypatch.setattr(routes_mod, "trigger_stage", trigger)
-
-    r = TestClient(app).post(f"{_BASE}/{_ITEM}/segment", json={})
-    assert r.status_code == 200
-    assert r.json()["job_id"] == "service-job-1"
-
-
-def test_a_preprocess_service_that_is_down_fails_before_anything_is_written(client, monkeypatch):
+def test_a_preprocess_service_that_is_down_fails_before_anything_is_queued(client, monkeypatch):
     async def unreachable(preprocess_url, kind, item, p):
         raise httpx.ConnectError("no route to host")
 
@@ -154,17 +140,20 @@ def test_a_preprocess_service_that_is_down_fails_before_anything_is_written(clie
 @pytest.fixture
 def dispatched(client, monkeypatch):
     monkeypatch.setattr(routes_mod, "_content_address", _address())
-    monkeypatch.setattr(routes_mod, "dispatch_run", _dispatch())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain())
     client.post(f"{_BASE}/{_ITEM}/segment", json={})
     return client
 
 
-def test_a_finished_run_lands_on_the_row(dispatched):
-    r = dispatched.post(
-        f"{_BASE}/{_ITEM}/artifacts/seg-abc/result",
-        json={"status": "ready",
-              "result": {"n_contours": 434, "contours_ref": "seg/abc/contours.geojson"}},
-    )
+def _report(client, **body):
+    """What the driver posts. `kind` is what lets it create the row it is the first write to."""
+    return client.post(f"{_BASE}/{_ITEM}/artifacts/seg-abc/result",
+                       json={"kind": "segmentation", "params": {"segmenter": "hest"}, **body})
+
+
+def test_a_finished_run_creates_the_row(dispatched):
+    r = _report(dispatched, status="ready",
+                result={"n_contours": 434, "contours_ref": "seg/abc/contours.geojson"})
     assert r.status_code == 200
     row = dispatched.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"][0]
     assert row["status"] == "ready"
@@ -175,10 +164,8 @@ def test_a_finished_run_lands_on_the_row(dispatched):
 
 def test_a_stopped_run_lands_too_and_keeps_its_tallies(dispatched):
     """Cooperative stop left bytes on disk, so the row describes the smaller artifact it made."""
-    r = dispatched.post(
-        f"{_BASE}/{_ITEM}/artifacts/seg-abc/result",
-        json={"status": "cancelled", "result": {"n_core_tiles": 8, "covered_mm2": 0.4}},
-    )
+    r = _report(dispatched, status="cancelled",
+                result={"n_core_tiles": 8, "covered_mm2": 0.4})
     assert r.status_code == 200
     row = dispatched.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"][0]
     assert row["status"] == "cancelled"
@@ -188,11 +175,11 @@ def test_a_stopped_run_lands_too_and_keeps_its_tallies(dispatched):
 
 def test_a_failure_is_not_an_outcome_that_leaves_an_artifact(dispatched):
     """A failed run has nothing on disk to describe; its whole story is the Girder job."""
-    r = dispatched.post(f"{_BASE}/{_ITEM}/artifacts/seg-abc/result",
-                        json={"status": "failed", "result": {}})
+    r = _report(dispatched, status="failed", result={})
     assert r.status_code == 400
-    row = dispatched.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"][0]
-    assert row["status"] == "queued", "a refused report must not half-write the row"
+    assert dispatched.get(f"{_BASE}/{_ITEM}/artifacts").json()["artifacts"] == [], (
+        "a refused report must not create the row it was refused for"
+    )
 
 
 def test_reporting_against_an_artifact_this_slide_does_not_have_is_a_404(dispatched):

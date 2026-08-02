@@ -21,6 +21,8 @@
 //   biomarker     the marker composite or the phenotype map — one or the other, never both (D8)
 //   segmentation  the tissue outline, a canvas rather than a pyramid. TissueOverlay paints it;
 //                 what this owns is fetching the contours once and caching them by hash.
+//   prediction    the MIL evidence map. Also not a pyramid — HeatmapOverlay bakes one canvas from
+//                 the prediction document, and what this owns is fetching that document.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../../store/index.js';
 import { useRunsStore } from '../../store/runs.js';
@@ -29,6 +31,7 @@ import { getTissueMeta, tileAjaxHeaders, tileUrl } from '../../api/tissueApi.js'
 import { getBiomarkerMeta, getCatalog } from '../../api/biomarkerApi.js';
 import { getNucleiMeta, tileUrl as nucleiTileUrl } from '../../api/nucleiApi.js';
 import { getSegmentationContours } from '../../api/preprocessApi.js';
+import { getPredictionHeatmap } from '../../api/taskApi.js';
 import {
   LAYER_FOR_RENDER, classesOf, layerLevels, layerSignature, levelOffsetFor, tileParams,
   withTissueDefaults,
@@ -46,7 +49,7 @@ import { clearMarkerLayers, setMarkersBase, syncMarkerLayer } from './markerLaye
 import { buildTileSource, removeLayer, setBasePreference, syncLayer } from './overlayLayers.js';
 
 /** The artifact kinds this component can put on the viewer. The Workspace offers an eye for these. */
-export const SWITCHABLE_KINDS = ['tissue', 'nuclei', 'biomarker', 'segmentation'];
+export const SWITCHABLE_KINDS = ['tissue', 'nuclei', 'biomarker', 'segmentation', 'prediction'];
 
 const LAYER_FOR_MODE = { markers: 'markers', pheno: 'pheno' };
 
@@ -290,6 +293,37 @@ function SegmentationContours({ itemId, hash }) {
   return null;
 }
 
+// ── prediction ───────────────────────────────────────────────────────────────────────
+
+/**
+ * The evidence map's document, fetched while its row's eye is on (Inc 6 · 07).
+ *
+ * Shaped like `SegmentationContours` above rather than like the tile layers: there is no pyramid,
+ * `HeatmapOverlay` bakes a single canvas from the per-patch arrays, and what has to happen here is
+ * getting those arrays into the store and taking them out again when the eye goes off. Which is
+ * the whole reason this moved out of the Task panel — the panel unmounted on every tab switch, so
+ * an evidence map could not survive going to look at anything else.
+ *
+ * Thousands of floats, so it is fetched only when something is actually going to draw them.
+ */
+function PredictionEvidence({ itemId, hash }) {
+  const setTaskHeatmap = useStore((s) => s.setTaskHeatmap);
+  const clearTaskHeatmap = useStore((s) => s.clearTaskHeatmap);
+
+  useEffect(() => {
+    if (!itemId || !hash) { clearTaskHeatmap(); return undefined; }
+    let live = true;
+    getPredictionHeatmap(itemId, hash)
+      .then((doc) => { if (live) setTaskHeatmap({ ...doc, _hash: hash }); })
+      .catch(() => { if (live) clearTaskHeatmap(); });
+    return () => { live = false; };
+  }, [itemId, hash, setTaskHeatmap, clearTaskHeatmap]);
+
+  useEffect(() => () => clearTaskHeatmap(), [clearTaskHeatmap]);
+
+  return null;
+}
+
 // ── the owner ────────────────────────────────────────────────────────────────────────
 
 export default function ArtifactLayers() {
@@ -308,6 +342,8 @@ export default function ArtifactLayers() {
                        hash={visibleHashOf(visibleArtifacts, 'biomarker')} />
       <SegmentationContours itemId={itemId}
                             hash={visibleHashOf(visibleArtifacts, 'segmentation')} />
+      <PredictionEvidence itemId={itemId}
+                          hash={visibleHashOf(visibleArtifacts, 'prediction')} />
     </>
   );
 }

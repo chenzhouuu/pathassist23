@@ -13,8 +13,8 @@ import { cancelJob } from '../../../api/index.js';
 import { useRunsStore } from '../../../store/runs.js';
 import { RUNS_QUERY_KEY, useRunsFeed } from './useRunsFeed.js';
 import {
-  STATUS, activeCount, groupRuns, isCancelable, isDropped, isStopping, progressFraction,
-  progressText, queueNote, statusColor, statusLabel,
+  STATUS, activeCount, chainGroups, chainStatus, groupRuns, isCancelable, isDropped, isStopping,
+  progressFraction, progressText, queueNote, statusColor, statusLabel,
 } from './runsUtils.js';
 
 const Dot = ({ color, spin }) => (
@@ -95,6 +95,35 @@ function RunRow({ run, runs, showSlide, onStop, stopping }) {
   );
 }
 
+/**
+ * A multi-step submission, drawn as one thing with its steps under it (Inc 6 · 07).
+ *
+ * The heading is what the user asked for — "Feature index", "BRCA IDC vs ILC" — because that is
+ * what they are waiting on; the steps below it are how it is being done. A step that has not been
+ * published yet has no row at all, so the group is often shorter than the count in its heading,
+ * which is why the heading carries the count rather than deriving it from what is present.
+ */
+function ChainGroup({ group, runs, showSlide, onStop, stopping }) {
+  const { label, color, busy } = chainStatus(group);
+  return (
+    <div className="rounded" data-cy="run-chain"
+      style={{ border: `1px solid ${busy ? 'rgba(77,166,255,0.35)' : 'var(--border-hex)'}` }}>
+      <div className="flex items-baseline gap-2 px-2 py-1">
+        <span className="text-xs truncate flex-1" style={{ color: 'var(--text)' }}>
+          {group.chain?.label || 'Multi-step run'}
+        </span>
+        <span className="shrink-0" style={{ color, fontSize: 9 }} data-cy="chain-status">{label}</span>
+      </div>
+      <div className="flex flex-col gap-1 px-1 pb-1">
+        {group.runs.map(run => (
+          <RunRow key={run.id} run={run} runs={runs} showSlide={showSlide}
+            stopping={!!stopping[run.id]} onStop={onStop} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function RunsSection({ activeItem }) {
   const qc = useQueryClient();
   const [error, setError] = useState('');
@@ -159,12 +188,16 @@ export default function RunsSection({ activeItem }) {
             {heading}
           </div>
           <div className="flex flex-col gap-1">
-            {groupRows.map(run => (
-              <RunRow key={run.id} run={run} runs={runs}
+            {chainGroups(groupRows).map(entry => (entry.chain ? (
+              <ChainGroup key={entry.chain.id} group={entry} runs={runs}
                 showSlide={heading !== 'THIS SLIDE'}
-                stopping={!!stopping[run.id]}
+                stopping={stopping} onStop={onStop} />
+            ) : (
+              <RunRow key={entry.run.id} run={entry.run} runs={runs}
+                showSlide={heading !== 'THIS SLIDE'}
+                stopping={!!stopping[entry.run.id]}
                 onStop={onStop} />
-            ))}
+            )))}
           </div>
         </div>
       ))}

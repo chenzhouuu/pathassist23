@@ -342,18 +342,21 @@ export const useStore = create((set, get) => ({
   setNucleiLayerParams: (patch) =>
     set((s) => ({ nucleiLayerParams: { ...s.nucleiLayerParams, ...patch } })),
 
-  // ── Task evidence map (Inc 2c) ────────────────────────────────────────────
+  // ── Task evidence map (Inc 2c; the controls moved to the Workspace in Inc 6 · 07) ─────────
   // The per-patch signed class evidence a downstream task produced, plus how the viewer shows it.
   // `taskHeatmap` holds the prediction document ({coords, evidence, attention, patch_px, ...});
   // the overlay bakes it into a grid canvas. 'split' renders a second synced pane (CLAM's
   // "Side By Side"); 'overlay' blends it into the single pane.
+  //
+  // `taskLayerParams` is the fourth of these slices, and it is here for the same reason as the
+  // other three: the layer outlives the row that edits it, because the right panel unmounts a
+  // panel on every tab switch. Patches `workspace/prediction.js`' PREDICTION_LAYER_DEFAULTS.
   taskHeatmap: null,
-  taskViewMode: 'overlay',
-  taskOpacity: 0.55,
+  taskLayerParams: {},
   setTaskHeatmap: (doc) => set({ taskHeatmap: doc }),
-  clearTaskHeatmap: () => set({ taskHeatmap: null, taskViewMode: 'overlay' }),
-  setTaskViewMode: (mode) => set({ taskViewMode: mode === 'split' ? 'split' : 'overlay' }),
-  setTaskOpacity: (v) => set({ taskOpacity: Math.max(0, Math.min(1, Number(v) || 0)) }),
+  clearTaskHeatmap: () => set({ taskHeatmap: null }),
+  setTaskLayerParams: (patch) =>
+    set((s) => ({ taskLayerParams: { ...s.taskLayerParams, ...patch } })),
 
   // ── Projects ──────────────────────────────────────────────────────────────
   activeProject: null,

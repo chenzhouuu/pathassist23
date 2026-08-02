@@ -56,15 +56,17 @@ export async function listTasks() {
   return { tasks: data.tasks || [], available: data.available !== false };
 }
 
-// Enqueue a prediction on a ready feature index. 409 if that index isn't built; 503 if the
-// worker ships without torch. Returns the durable prediction artifact row.
+// Run a task on this slide. `feat_hash` is optional (Inc 6 · 07): without one the server looks for
+// an index matching what the task's weights were trained on, and plans the build when the slide has
+// none — so a slide with nothing on it reaches a call in one submission. The reply says how many
+// steps were queued.
 export async function startPredict(itemId, { feat_hash, task_id } = {}) {
   const r = await fetch(
     `${COPILOT_BASE}/slides/${encodeURIComponent(itemId)}/predict`,
     {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ feat_hash, task_id }),
+      body: JSON.stringify(feat_hash ? { feat_hash, task_id } : { task_id }),
     },
   );
   return asJson(r, 'Run task');

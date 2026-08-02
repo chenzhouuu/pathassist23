@@ -28,13 +28,13 @@ import { PanelSection } from '../workspace/vendor/ohif/PanelSection.tsx';
 import { DataRow } from '../workspace/vendor/ohif/DataRow.tsx';
 import ArtifactConfig, { ACTION } from '../workspace/ArtifactConfig.jsx';
 import ArtifactSegments from '../workspace/ArtifactSegments.jsx';
-import { detailFor, hasDetail, layerBinding } from '../workspace/artifactDetail.js';
+import { detailFor, hasDetail, layerBinding, metaIsRow } from '../workspace/artifactDetail.js';
 import { joinRuns } from '../workspace/runJoin.js';
 import { useRunsFeed } from './analysis/useRunsFeed.js';
 import { useRunsStore } from '../../store/runs.js';
 import { slideKeyOf } from './analysis/runsUtils.js';
 import {
-  describeArtifact, describeDependant, formatBytes, isInFlight, sortArtifacts,
+  describeArtifact, describeDependant, formatBytes, sortArtifacts,
 } from './workspaceUtils.js';
 
 const POLL_MS = 2500;
@@ -129,10 +129,11 @@ export default function WorkspacePanel() {
   const liveRuns = described.filter((v) => v.run).length;
   useEffect(() => { refresh(); }, [liveRuns]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll only while something is actually building — a slide whose artifacts are all finished is
-  // a static list, and the endpoint reconciles against the workers on every call. The runs feed
-  // has its own poller, so this one covers the kinds whose progress still lives on the row.
-  const building = rows.some(isInFlight);
+  // Poll only while a run on this slide is still going. Its *rows* cannot say so any more (Inc 6 ·
+  // 07: a row exists only where bytes do), so the question is asked of the runs feed — and asked
+  // for a different reason than `liveRuns` above: that one reacts to a run finishing, this one
+  // keeps a growing artifact's own counts moving while it is still being written.
+  const building = described.some((v) => v.run);
   useEffect(() => {
     if (!building) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -261,7 +262,6 @@ export default function WorkspacePanel() {
                     disableEditing={!!view.ghost}
                     onDelete={view.ghost ? undefined : () => onDelete(view)}
                     className={[
-                      view.failed ? 'opacity-70' : '',
                       view.ghost ? 'opacity-80' : '',
                       deleting === view.key ? 'opacity-40 pointer-events-none' : '',
                     ].filter(Boolean).join(' ') || undefined}
@@ -269,9 +269,9 @@ export default function WorkspacePanel() {
                   {openKey === view.key && (
                     <ArtifactDetail
                       view={view}
-                      meta={meta[view.key]}
+                      meta={metaIsRow(view.kind) ? view.row : meta[view.key]}
                       catalog={catalogs[view.kind] ?? null}
-                      loaded={meta[view.key] !== undefined}
+                      loaded={metaIsRow(view.kind) || meta[view.key] !== undefined}
                     />
                   )}
                 </React.Fragment>
@@ -344,7 +344,7 @@ function ArtifactDetail({ view, meta, catalog, loaded }) {
       <ArtifactSegments
         segments={detail.segments}
         // The eye is only meaningful once there is a picture to remove a class from.
-        onToggle={detail.config.drawn
+        onToggle={detail.config.drawn && binding.toggleSegment
           ? (key) => setLayer(binding.toggleSegment(resolved, key))
           : undefined}
         onColor={binding.recolourSegment

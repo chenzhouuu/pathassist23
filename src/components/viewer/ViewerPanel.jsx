@@ -16,6 +16,7 @@ import ArtifactLayers from './ArtifactLayers.jsx';
 import HeatmapOverlay from './HeatmapOverlay.jsx';
 import EvidencePane from './EvidencePane.jsx';
 import useViewportSync from './useViewportSync.js';
+import { withPredictionDefaults } from '../workspace/prediction.js';
 import { GIRDER_BASE } from '../../config/girder.js';
 import { hexToRgba } from '../annotations/annotationUtils.js';
 
@@ -69,8 +70,9 @@ export default function ViewerPanel() {
   const {
     activeItem, setViewer, setTilesInfo, tilesInfo,
     drawingMode, setDrawingMode, drawColor,
-    taskHeatmap, taskViewMode,
+    taskHeatmap, taskLayerParams,
   } = useStore();
+  const evidenceView = withPredictionDefaults(taskLayerParams).view;
   // Shared viewport lock for Side-By-Side (Inc 2c); the main viewer registers itself in initOSD.
   const sync = useViewportSync();
   useEffect(() => { tilesInfoRef.current = tilesInfo; }, [tilesInfo]);
@@ -79,7 +81,7 @@ export default function ViewerPanel() {
   const [status, setStatus] = useState({ state:'idle', msg:'', type:null, files:null });
   const [zoom, setZoom] = useState('—');
   const [showZoomOverlay, setShowZoomOverlay] = useState(false);
-  const splitEvidence = !!taskHeatmap && taskViewMode === 'split' && status.state === 'ok';
+  const splitEvidence = !!taskHeatmap && evidenceView === 'split' && status.state === 'ok';
 
   // ── Init OSD ────────────────────────────────────────────────────────────────
   const initOSD = useCallback(() => {
@@ -496,7 +498,7 @@ export default function ViewerPanel() {
             {activeItem && status.state === 'ok' && <ArtifactLayers/>}
 
             {/* Task evidence map, blended into this pane in Overlay mode (Inc 2c) */}
-            {activeItem && status.state === 'ok' && taskHeatmap && taskViewMode === 'overlay'
+            {activeItem && status.state === 'ok' && taskHeatmap && evidenceView === 'overlay'
               && <HeatmapOverlay viewer={osdRef}/>}
 
             {/* Annotation canvas */}

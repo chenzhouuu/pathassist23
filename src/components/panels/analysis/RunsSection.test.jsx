@@ -241,3 +241,52 @@ describe('grouping across the copyOfItem gap', () => {
     expect(container.querySelectorAll('[data-cy="run-row"]')).toHaveLength(2);
   });
 });
+
+describe('a multi-step submission (Inc 6 · 07)', () => {
+  const chained = (step, status, over = {}) => run({
+    id: `j${step}`, status, title: ['Tissue segmentation', 'Tiling', 'Feature extraction'][step - 1],
+    created: `2026-08-01T19:4${step}:00Z`,
+    chain: { id: 'c1', step, total: 3, label: 'Feature index', kinds: [] },
+    ...over,
+  });
+
+  it('draws one thing with its steps under it, named for what was asked for', async () => {
+    listRuns.mockResolvedValue([chained(2, STATUS.RUNNING), chained(1, STATUS.SUCCESS)]);
+    render();
+    const group = await screen.findByTestId('run-chain');
+    expect(within(group).getByText('Feature index')).toBeTruthy();
+    expect(within(group).getAllByTestId('run-row')).toHaveLength(2);
+    expect(within(group).getByTestId('chain-status').textContent).toBe('Step 2 of 3');
+  });
+
+  it('still says three steps when only one has a row', async () => {
+    // A step that has not been published has no job. Deriving the count from what is present would
+    // make a chain on step 1 read as a one-step run.
+    listRuns.mockResolvedValue([chained(1, STATUS.RUNNING)]);
+    render();
+    expect((await screen.findByTestId('chain-status')).textContent).toBe('Step 1 of 3');
+  });
+
+  it('says where a chain stopped, and leaves no row for the steps that never ran', async () => {
+    listRuns.mockResolvedValue([chained(1, STATUS.CANCELED, { started: true })]);
+    render();
+    expect((await screen.findByTestId('chain-status')).textContent)
+      .toBe('Stopped at step 1 of 3');
+    expect(screen.getAllByTestId('run-row')).toHaveLength(1);
+  });
+
+  it('leaves a single run ungrouped', async () => {
+    listRuns.mockResolvedValue([run()]);
+    render();
+    await screen.findByTestId('run-row');
+    expect(screen.queryByTestId('run-chain')).toBeNull();
+  });
+
+  it('stops one step of a chain without touching the others', async () => {
+    listRuns.mockResolvedValue([chained(2, STATUS.RUNNING), chained(1, STATUS.SUCCESS)]);
+    render();
+    const group = await screen.findByTestId('run-chain');
+    await userEvent.click(within(group).getByTestId('run-stop'));
+    expect(cancelJob).toHaveBeenCalledWith('j2');
+  });
+});

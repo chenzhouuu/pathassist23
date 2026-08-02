@@ -1,7 +1,7 @@
 // src/components/panels/analysis/nativeCatalog.js — the native tools, declared as data.
 //
 // A HistomicsTK CLI describes its form in Slicer XML and `parseXml.js` turns that into
-// `{ title, description, groups: [{ label, params }] }`. The five native tools have no XML, so they
+// `{ title, description, groups: [{ label, params }] }`. The native tools have no XML, so they
 // declare **the same shape** here. That is the whole trick of Inc 6 · 02: one catalog, one form
 // renderer, two producers. The alternative — a second hand-written form per tool — is what the five
 // panels already are, and is what this replaces.
@@ -14,22 +14,22 @@
 //   pa-region    the rectangle itself, via the shared `useRegionSelect` handle
 //   pa-artifact  an upstream artifact of a given kind, picked from this slide's ready rows
 //
-// `submit` calls each tool's existing gateway endpoint. What is behind that endpoint is what moves:
-// **nuclei is on the Celery path since 05** and its tab is gone, so this is the only place it can be
-// started; the other four still run on their own service queues and keep their tabs until 06–07.
-// Nothing in this file distinguishes them, which is the point — a kind moving is a change to one
-// route, not to the catalog.
+// `submit` calls each tool's existing gateway endpoint. What is behind that endpoint is what moved:
+// every kind is a Girder job on one Celery queue now (05 → 07), and every panel that used to start
+// one is gone, so this is the only place any of them can be started.
 //
-// Not listed: `patching` and `features`. They are interior DAG stages whose patch size is bound to
-// the encoder chosen for the features step, and that binding lives in `PreprocessPanel`'s planner.
-// Listing them as standalone entries would let a user build tiles no encoder wants. They arrive
-// with the planner in 07.
+// **Still not listed: `patching` and `features`.** They are interior stages of a build, and their
+// patch size is bound to the encoder chosen for the features step (Fork B) — listing them
+// separately would let a user cut tiles no encoder wants. They are steps of the `preprocess` entry
+// below, planned and sequenced server-side (`agent/gateway/plan.py`), which is what 07 replaced the
+// panel's auto-advance loop with.
 import { startBiomarker } from '../../../api/biomarkerApi.js';
 import { startNuclei } from '../../../api/nucleiApi.js';
-import { startSegment } from '../../../api/preprocessApi.js';
+import { startBuild, startSegment } from '../../../api/preprocessApi.js';
 import { listTasks, startPredict } from '../../../api/taskApi.js';
 import { getTissueCatalog, startTissue } from '../../../api/tissueApi.js';
-import { SEGMENTERS } from '../preprocessUtils.js';
+import { describeSpec } from '../../workspace/prediction.js';
+import { ENCODERS, MAGS, OVERLAPS, SEGMENTERS, recommendedMag, recommendedPatchSize } from './encoders.js';
 
 /** The group name every native entry is listed under, alongside one group per docker image. */
 export const NATIVE_GROUP = 'PathAssist';
@@ -56,7 +56,7 @@ const artifactParam = (name, kind, label, desc, opts = {}) => ({
   tag: 'pa-artifact', name, label, desc, artifactKind: kind, ...opts,
 });
 
-/** The five tools, in the order a slide is usually worked through. */
+/** Every native tool, in the order a slide is usually worked through. */
 export const NATIVE_TOOLS = [
   {
     id: 'segmentation',
@@ -87,6 +87,87 @@ export const NATIVE_TOOLS = [
       remove_holes: v.remove_holes === 'true',
       remove_artifacts: v.remove_artifacts === 'true',
       remove_penmarks: v.remove_penmarks === 'true',
+    }),
+  },
+
+  {
+    id: 'preprocess',
+    title: 'Feature index',
+    description:
+      'Encode the slide into per-tile feature vectors — segment the tissue, cut it into tiles at '
+      + 'the encoder\'s trained resolution, then encode them. One submission; whatever this slide '
+      + 'already has is skipped, so a second encoder over the same tiles costs one step, not three.',
+    groups: [
+      {
+        label: 'Build target',
+        params: [
+          {
+            tag: 'string-enumeration', name: 'encoder', label: 'Encoder',
+            desc: 'The vectors everything downstream reads. Its trained resolution decides how '
+              + 'the slide is tiled, which is why the tiling stage is not a tool of its own.',
+            defVal: 'conch_v1_text',
+            options: ENCODERS.map(e => ({
+              value: e.id, label: e.label,
+              note: `${e.patch_size} px at ${e.mag}× · ${e.dim}-d`
+                + (e.text ? ' · text-aligned, so Copilot can search this index in words'
+                          : ' · vision tower, what the MIL tasks are trained on'),
+            })),
+          },
+        ],
+      },
+      {
+        label: 'Segmentation',
+        params: [
+          {
+            tag: 'string-enumeration', name: 'segmenter', label: 'Segmenter',
+            desc: 'Reused if this slide already has one with these settings.',
+            defVal: 'hest', options: asOptions(SEGMENTERS),
+          },
+          {
+            tag: 'float', name: 'seg_conf_thresh', label: 'Confidence threshold',
+            desc: 'Lower keeps more tissue.', defVal: '0.5', min: '0.1', max: '0.9', step: '0.05',
+          },
+        ],
+      },
+      {
+        label: 'Tiling',
+        params: [
+          // Shown, not hidden, and pre-set from the encoder — the geometry is what a feature index
+          // means, and a build whose tiling nobody can see is one nobody can compare against a
+          // task's declared spec.
+          {
+            tag: 'string-enumeration', name: 'mag', label: 'Magnification',
+            desc: 'Follows the encoder unless you change it.', defVal: '20',
+            options: MAGS.map(m => ({ value: String(m), label: `${m}×` })),
+          },
+          {
+            tag: 'string-enumeration', name: 'patch_size', label: 'Tile size',
+            desc: 'Pixels, at the magnification above.', defVal: '512',
+            options: [256, 384, 512, 1024].map(v => ({ value: String(v), label: `${v} px` })),
+          },
+          {
+            tag: 'string-enumeration', name: 'overlap', label: 'Overlap',
+            desc: 'Absolute pixels between neighbouring tiles.', defVal: '0',
+            options: OVERLAPS.map(v => ({ value: String(v), label: v ? `${v} px` : 'None' })),
+          },
+        ],
+      },
+    ],
+    // The encoder binds the tiling (Fork B): picking one re-seeds mag and tile size, and anything
+    // typed afterwards stands. Without this the form's two halves can disagree silently, and the
+    // build that comes out is tiles at a resolution the encoder was never trained on.
+    onChange: (name, value) => (name !== 'encoder' ? null : {
+      encoder: value,
+      mag: String(recommendedMag(value)),
+      patch_size: String(recommendedPatchSize(value)),
+    }),
+    submit: (itemId, v) => startBuild(itemId, {
+      encoder: v.encoder,
+      segmenter: v.segmenter,
+      seg_conf_thresh: Number(v.seg_conf_thresh),
+      mag: Number(v.mag),
+      patch_size: Number(v.patch_size),
+      overlap: Number(v.overlap),
     }),
   },
 
@@ -181,27 +262,52 @@ export const NATIVE_TOOLS = [
     id: 'prediction',
     title: 'Downstream task',
     description:
-      'Run a trained slide-level model over an existing feature index — an ABMIL head over the '
-      + 'tiles the preprocess build encoded.',
+      'Run a trained slide-level model over this slide — an ABMIL head over encoded tiles. '
+      + 'The task declares the build its weights were fitted on; if this slide has no matching '
+      + 'feature index, the whole chain is queued in one go and the call comes out at the end.',
     groups: [{
       label: 'Inputs',
       params: [
-        artifactParam('feat_hash', 'features', 'Feature index',
-          'The encoded tiles the model reads. Build one in Preprocess first.', { required: true }),
         {
           tag: 'string-enumeration', name: 'task_id', label: 'Task',
-          desc: 'The trained head to apply. Each declares the encoder it was fitted on.',
+          desc: 'The trained head to apply.',
           defVal: '', required: true,
+          // Each option carries the model card the Task panel used to draw: what it was fitted on,
+          // how it scored, and what it is not for. That is a fact about the selected head rather
+          // than about the field, which is what `note` on an option is (Inc 6 · 07).
           optionsFrom: async () => {
             const { tasks } = await listTasks();
-            return (tasks || []).map(t => ({ value: t.id, label: t.label || t.id }));
+            return (tasks || []).map(t => ({
+              value: t.id, label: t.label || t.id, note: taskNote(t),
+            }));
           },
         },
+        // Optional, and that is the point: leaving it empty is "use whatever matches, and build
+        // one if nothing does". Naming an index is for the case where a slide has several and the
+        // choice is deliberate.
+        artifactParam('feat_hash', 'features', 'Feature index',
+          'Optional. Left empty, the index matching the task is found — or built.'),
       ],
     }],
-    submit: (itemId, v) => startPredict(itemId, { feat_hash: v.feat_hash, task_id: v.task_id }),
+    submit: (itemId, v) => startPredict(itemId, {
+      feat_hash: v.feat_hash || null, task_id: v.task_id,
+    }),
   },
 ];
+
+/** The model card, as one option's note: what it eats, what it was fitted on, what it is not. */
+export function taskNote(task) {
+  const m = task?.metrics || {};
+  const metric = (label, v) => (Number.isFinite(v) ? `${label} ${v.toFixed(3)}` : null);
+  return [
+    task?.feature_spec ? `Needs ${describeSpec(task.feature_spec)}` : null,
+    (task?.classes || []).length ? `Classes ${task.classes.join(' · ')}` : null,
+    task?.cohort ? `Trained on ${task.cohort}` : null,
+    [metric('AUC', m.test_auc), metric('Acc', m.test_acc), metric('F1', m.test_f1)]
+      .filter(Boolean).join(' · ') || null,
+    task?.caveat || null,
+  ].filter(Boolean).join('\n');
+}
 
 /** Every declared param of a tool, flattened — the form seeds and validates over this. */
 export function toolParams(tool) {
@@ -242,9 +348,14 @@ export function firstProblem(tool, values, { roi, artifacts } = {}) {
     }
     const needed = p.required || (p.requiredWhen ? p.requiredWhen(values) : false);
     if (!needed || values[p.name]) continue;
+    // Only an upstream picker has an "this slide has none" case. A required enum that is empty is
+    // simply unanswered, and telling someone their slide has no `undefined` is worse than the
+    // plain sentence — which is what this said until a required non-artifact param existed
+    // (the task picker, Inc 6 · 07).
+    //
     // `artifacts` undefined means the list has not loaded, which is not the same as empty — so
     // the generic sentence stands until we actually know.
-    if (artifacts && !artifacts.some(a => a.kind === p.artifactKind)) {
+    if (p.tag === 'pa-artifact' && artifacts && !artifacts.some(a => a.kind === p.artifactKind)) {
       return `This slide has no ${p.artifactKind} yet — run it first, then come back.`;
     }
     return `${p.label} is required.`;

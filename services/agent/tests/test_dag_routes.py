@@ -29,112 +29,154 @@ def client(art_store):
     app.dependency_overrides[require_user] = lambda: _USER
     app.dependency_overrides[get_preprocess_artifact_store] = lambda: art_store
     app.dependency_overrides[get_preprocess_url] = lambda: "http://preprocess:8030"
-    # These tests are about the pre-Inc-6 direct path, so say so rather than inheriting it from
-    # whatever `AGENT_PATHASSIST_PLUGIN_URL` happens to be in the developer's .env. The dispatch
-    # path has its own file (test_dispatch_routes.py), which pins this the other way.
-    app.dependency_overrides[get_plugin_url] = lambda: None
+    # Pinned rather than inherited from whatever `AGENT_PATHASSIST_PLUGIN_URL` is in the
+    # developer's .env. From 07 there is only this path — the direct-to-service one these tests
+    # used to exercise is gone, and a run that is not a Girder job cannot appear in Runs.
+    app.dependency_overrides[get_plugin_url] = lambda: "http://girder:8080/api/v1"
     return TestClient(app)
 
 
-def _fake_stage(**acks):
-    """A trigger_stage double returning the given per-stage ack dict."""
-    async def trigger(*, base_url, stage, item, params, token):
-        return acks[stage]
-    return trigger
+def _address(hashes=None, seen=None):
+    """A `/hash` double: the service naming what a run with these params would produce."""
+    names = hashes or {"segmentation": "s1", "patching": "p1", "features": "f1",
+                       "prediction": "pr1"}
+
+    async def addressed(preprocess_url, kind, item, params):
+        if seen is not None:
+            seen.append((kind, dict(params)))
+        return {"kind": kind, "art_hash": names[kind], "params": {**params, "impl": "trident"}}
+    return addressed
 
 
-def _raise_409(detail):
-    req = httpx.Request("POST", "http://preprocess:8030/patch")
-    resp = httpx.Response(409, json={"detail": detail}, request=req)
+def _chain(seen=None, chain_id="c1", job_id="girder-job-1"):
+    """A `dispatch_chain` double, recording exactly what was put on the queue."""
+    async def dispatch(*, plugin_url, item, steps, token, label=None, **kw):
+        if seen is not None:
+            seen.append({"item": item, "label": label, "steps": steps})
+        return {"chainId": chain_id, "jobId": job_id, "queue": "pathassist",
+                "steps": [{"kind": s["kind"], "artHash": s["artHash"]} for s in steps]}
+    return dispatch
 
-    async def trigger(*, base_url, stage, item, params, token):
-        raise httpx.HTTPStatusError("conflict", request=req, response=resp)
-    return trigger
 
+def test_a_segmentation_is_a_one_step_chain_and_writes_no_row(client, art_store, monkeypatch):
+    """D9, now for the last four kinds: dispatch names the artifact and queues the work, and the
+    row waits for the bytes. Until then the run exists only as its Girder job."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
 
-def test_segment_records_segmentation_row(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _fake_stage(segment={
-        "job_id": "j1", "seg_hash": "s1", "kind": "segmentation", "status": "queued",
-        "segmenter": "hest", "seg_conf_thresh": 0.5,
-        "remove_artifacts": False, "remove_holes": False, "remove_penmarks": False,
-    }))
     r = client.post(f"{_BASE}/item9/segment", json={"segmenter": "hest"})
     assert r.status_code == 200
     body = r.json()
     assert body["kind"] == "segmentation" and body["art_hash"] == "s1"
-    assert body["parent_hash"] is None and body["status"] == "queued"
-    assert body["params"]["segmenter"] == "hest"
-    assert ("item9", "s1") in art_store._rows
+    assert body["status"] == "queued" and body["girder_job_id"] == "girder-job-1"
+    assert [s["kind"] for s in seen[0]["steps"]] == ["segmentation"]
+    assert art_store._rows == {}
 
 
-def test_patch_records_row_linked_to_segmentation(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _fake_stage(patch={
-        "job_id": "j2", "patch_hash": "p1", "seg_hash": "s1", "kind": "patching",
-        "status": "queued", "mag": 20, "patch_size": 256, "overlap": 0,
-    }))
-    r = client.post(f"{_BASE}/item9/patch", json={"seg_hash": "s1", "mag": 20, "patch_size": 256})
+def test_a_build_queues_segment_then_tile_then_encode(client, monkeypatch):
+    """One submission, three steps, in the order the DAG requires them."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+
+    r = client.post(f"{_BASE}/item9/build",
+                    json={"encoder": "conch_v1", "mag": 20, "patch_size": 512})
     assert r.status_code == 200
     body = r.json()
-    assert body["kind"] == "patching" and body["art_hash"] == "p1"
-    assert body["parent_hash"] == "s1" and body["params"]["mag"] == 20
+    assert body["art_hash"] == "f1", "the submission is named after what it is for"
+    assert [s["kind"] for s in body["steps"]] == ["segmentation", "patching", "features"]
+    assert seen[0]["label"] == "Feature index"
 
 
-def test_features_records_row_linked_to_patch(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _fake_stage(features={
-        "job_id": "j3", "feat_hash": "f1", "patch_hash": "p1", "kind": "features",
-        "status": "queued", "encoder": "conch_v1",
-    }))
-    r = client.post(f"{_BASE}/item9/features", json={"patch_hash": "p1", "encoder": "conch_v1"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["kind"] == "features" and body["art_hash"] == "f1"
-    assert body["parent_hash"] == "p1" and body["params"]["encoder"] == "conch_v1"
+def test_each_step_is_dispatched_with_the_parent_the_step_before_it_produced(client, monkeypatch):
+    addressed = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address(seen=addressed))
+    seen = []
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+
+    client.post(f"{_BASE}/item9/build", json={"encoder": "conch_v1"})
+    steps = seen[0]["steps"]
+    assert steps[1]["params"]["seg_hash"] == "s1"
+    assert steps[2]["params"]["patch_hash"] == "p1"
+    # Nobody supplied those, and nobody could: they are what the steps before them turned out to
+    # be called.
+    assert addressed[1][1]["seg_hash"] == "s1"
 
 
-def test_patch_before_segment_is_409(client, monkeypatch):
-    monkeypatch.setattr(
-        routes_mod, "trigger_stage",
-        _raise_409("segment this slide first (no segmentation for that seg_hash)"),
-    )
-    r = client.post(f"{_BASE}/item9/patch", json={"seg_hash": "notbuilt"})
-    assert r.status_code == 409 and "segment this slide first" in r.json()["detail"]
+def test_a_step_carries_what_the_service_resolved_not_what_was_asked_for(client, monkeypatch):
+    """`impl` is in the address and nobody types it, so it has to reach the row that records it."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
 
-
-def test_patch_requires_seg_hash(client):
-    assert client.post(f"{_BASE}/item9/patch", json={}).status_code == 422  # pydantic
-
-
-def test_segment_requires_configured_service():
-    app = create_app()
-    app.dependency_overrides[require_user] = lambda: _USER
-    app.dependency_overrides[get_preprocess_artifact_store] = (
-        lambda: MemoryPreprocessArtifactStore()
-    )
-    app.dependency_overrides[get_preprocess_url] = lambda: None  # unconfigured
-    r = TestClient(app).post(f"{_BASE}/item9/segment", json={})
-    assert r.status_code == 503
-
-
-def test_artifacts_reconciles_in_flight_to_ready(client, art_store, monkeypatch):
-    monkeypatch.setattr(routes_mod, "trigger_stage", _fake_stage(segment={
-        "job_id": "j1", "seg_hash": "s1", "kind": "segmentation", "status": "queued",
-        "segmenter": "hest", "seg_conf_thresh": 0.5,
-        "remove_artifacts": False, "remove_holes": False, "remove_penmarks": False,
-    }))
     client.post(f"{_BASE}/item9/segment", json={"segmenter": "hest"})
+    assert seen[0]["steps"][0]["params"]["impl"] == "trident"
 
-    async def fake_status(*, base_url, job_id):
-        return {
-            "status": "ready", "n_contours": 12,
-            "contours_ref": "/c/item9/seg/s1/contours.geojson",
-        }
-    monkeypatch.setattr(routes_mod, "get_job_status", fake_status)
 
+def _built(client, art_hash, kind, item="item9", result=None):
+    """Give the slide an artifact the way one really appears: a run reporting its bytes."""
+    r = client.post(f"{_BASE}/{item}/artifacts/{art_hash}/result",
+                    json={"status": "ready", "kind": kind, "params": {},
+                          "result": result or {}})
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_a_build_queues_only_what_the_slide_is_missing(client, monkeypatch):
+    """The second encoder over the same tiles is one step, not three."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    _built(client, "s1", "segmentation")
+
+    client.post(f"{_BASE}/item9/build", json={"encoder": "conch_v1"})
+    assert [s["kind"] for s in seen[0]["steps"]] == ["patching", "features"]
+
+
+def test_a_build_with_nothing_left_to_do_is_answered_rather_than_queued(client, monkeypatch):
+    """Content addressing makes the second identical build a no-op. Spending a queue slot to
+    rediscover that, at `concurrency=1`, is a wait somebody else pays for."""
+    seen = []
+    monkeypatch.setattr(routes_mod, "_content_address", _address())
+    monkeypatch.setattr(routes_mod, "dispatch_chain", _chain(seen))
+    for h, kind in (("s1", "segmentation"), ("p1", "patching"), ("f1", "features")):
+        _built(client, h, kind)
+
+    r = client.post(f"{_BASE}/item9/build", json={"encoder": "conch_v1"})
+    assert r.status_code == 200
+    assert r.json() == {"kind": "features", "art_hash": "f1", "status": "ready", "steps": [],
+                        "reused": True}
+    assert seen == []
+
+
+def test_a_dag_run_needs_both_the_service_and_the_queue():
+    """Two different absences with two different answers — one is "no model", the other is
+    "nowhere to run it"."""
+    for preprocess, plugin in ((None, "http://girder:8080/api/v1"),
+                               ("http://preprocess:8030", None)):
+        app = create_app()
+        app.dependency_overrides[require_user] = lambda: _USER
+        app.dependency_overrides[get_preprocess_artifact_store] = (
+            lambda: MemoryPreprocessArtifactStore()
+        )
+        app.dependency_overrides[get_preprocess_url] = lambda url=preprocess: url
+        app.dependency_overrides[get_plugin_url] = lambda url=plugin: url
+        r = TestClient(app).post(f"{_BASE}/item9/segment", json={})
+        assert r.status_code == 503, (preprocess, plugin)
+
+
+def test_the_artifact_list_only_reads(client, monkeypatch):
+    """The reconcile loop is gone (07). Nothing this route does can change a row — which is what
+    stops a list nobody has open from being the reason a build never finishes."""
+    def explode(*a, **kw):
+        raise AssertionError("listing artifacts must not dial a worker")
+
+    monkeypatch.setattr(routes_mod, "get_job_status", explode)
+    _built(client, "s1", "segmentation", result={"n_contours": 12})
     r = client.get(f"{_BASE}/item9/artifacts")
     assert r.status_code == 200
-    art = r.json()["artifacts"][0]
-    assert art["status"] == "ready" and art["n_items"] == 12
-    assert art["artifact_ref"].endswith("contours.geojson")
+    assert r.json()["artifacts"][0]["n_items"] == 12
 
 
 def test_artifacts_empty_for_unknown_slide(client):

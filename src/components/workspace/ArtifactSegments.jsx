@@ -57,7 +57,7 @@ export default function ArtifactSegments({ segments, onToggle, onColor }) {
           isVisible={s.visible}
           // The eye hides the class from the *picture*. Its count is in `details` either way —
           // hiding a class from the map must not hide it from the arithmetic.
-          onToggleVisibility={onToggle ? () => onToggle(s.key) : undefined}
+          onToggleVisibility={onToggle && !s.locked ? () => onToggle(s.key) : undefined}
           // Upstream's own colour affordance, offered only where a colour is genuinely the user's
           // (a marker channel, whose colours are a choice about legibility). A tissue class's or a
           // phenotype's colour is the artifact's own and is not editable — that is what makes a

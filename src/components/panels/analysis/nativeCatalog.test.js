@@ -4,19 +4,19 @@
 // and finding that out from a 409 after clicking Run is the shape this ticket removes.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../api/preprocessApi.js', () => ({ startSegment: vi.fn() }));
+vi.mock('../../../api/preprocessApi.js', () => ({ startSegment: vi.fn(), startBuild: vi.fn() }));
 vi.mock('../../../api/nucleiApi.js', () => ({ startNuclei: vi.fn() }));
 vi.mock('../../../api/tissueApi.js', () => ({ startTissue: vi.fn(), getTissueCatalog: vi.fn() }));
 vi.mock('../../../api/biomarkerApi.js', () => ({ startBiomarker: vi.fn() }));
 vi.mock('../../../api/taskApi.js', () => ({ startPredict: vi.fn(), listTasks: vi.fn() }));
 
-import { startSegment } from '../../../api/preprocessApi.js';
+import { startBuild, startSegment } from '../../../api/preprocessApi.js';
 import { startNuclei } from '../../../api/nucleiApi.js';
 import { getTissueCatalog, startTissue } from '../../../api/tissueApi.js';
 import { startBiomarker } from '../../../api/biomarkerApi.js';
 import { listTasks, startPredict } from '../../../api/taskApi.js';
 import {
-  NATIVE_TOOLS, firstProblem, isEnabled, seedValues, toolParams,
+  NATIVE_TOOLS, firstProblem, isEnabled, seedValues, taskNote, toolParams,
 } from './nativeCatalog.js';
 
 const ITEM = '6a6e1ca82ae96ce927e33818';   // the DEMO slide
@@ -26,9 +26,11 @@ const tool = (id) => NATIVE_TOOLS.find(t => t.id === id);
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('the catalog itself', () => {
-  it('lists the five tools the five panels cover', () => {
+  it('lists every native tool, in the order a slide is worked through', () => {
+    // Six, not five: the feature-index build joined in 07 as one entry with an encoder target,
+    // rather than as the three DAG stages it runs (`patching` and `features` are still not here).
     expect(NATIVE_TOOLS.map(t => t.id))
-      .toEqual(['segmentation', 'nuclei', 'tissue', 'biomarker', 'prediction']);
+      .toEqual(['segmentation', 'preprocess', 'nuclei', 'tissue', 'biomarker', 'prediction']);
   });
 
   it('gives every param a name, a label and a tag the renderer knows', () => {
@@ -168,6 +170,90 @@ describe('options only the service can answer', () => {
   it('unwraps the task catalog, which is an object and not a list', async () => {
     listTasks.mockResolvedValue({ tasks: [{ id: 'brca', label: 'BRCA IDC/ILC' }], available: true });
     const task = toolParams(tool('prediction')).find(p => p.name === 'task_id');
-    expect(await task.optionsFrom()).toEqual([{ value: 'brca', label: 'BRCA IDC/ILC' }]);
+    expect(await task.optionsFrom()).toEqual([
+      { value: 'brca', label: 'BRCA IDC/ILC', note: '' },
+    ]);
+  });
+});
+
+// ── The feature-index build (Inc 6 · 07) ─────────────────────────────────────
+
+describe('the feature index is one entry with an encoder target', () => {
+  const build = () => tool('preprocess');
+
+  it('does not offer tiling or encoding as tools of their own', () => {
+    // Cutting tiles at a size no encoder was trained on is minutes of GPU nobody can use, which is
+    // why the geometry is bound to the encoder instead of being a fourth entry in this list.
+    expect(NATIVE_TOOLS.map(t => t.id)).not.toContain('patching');
+    expect(NATIVE_TOOLS.map(t => t.id)).not.toContain('features');
+  });
+
+  it('opens on the text-aligned encoder at its trained geometry', () => {
+    const v = seedValues(build());
+    expect(v.encoder).toBe('conch_v1_text');
+    expect(v.patch_size).toBe('512');
+    expect(v.mag).toBe('20');
+  });
+
+  it('re-seeds the tiling when the encoder changes (Fork B)', () => {
+    const next = build().onChange('encoder', 'uni_v2');
+    expect(next).toMatchObject({ encoder: 'uni_v2', patch_size: '256', mag: '20' });
+  });
+
+  it('leaves every other field alone', () => {
+    expect(build().onChange('segmenter', 'otsu')).toBeNull();
+  });
+
+  it('submits one build, with the numbers as numbers', () => {
+    build().submit(ITEM, { ...seedValues(build()), segmenter: 'otsu', seg_conf_thresh: '0.4' });
+    expect(startBuild).toHaveBeenCalledWith(ITEM, {
+      encoder: 'conch_v1_text', segmenter: 'otsu', seg_conf_thresh: 0.4,
+      mag: 20, patch_size: 512, overlap: 0,
+    });
+  });
+
+  it('says what each encoder is for, on the option itself', () => {
+    const enc = toolParams(build()).find(p => p.name === 'encoder');
+    expect(enc.options.find(o => o.value === 'conch_v1_text').note).toContain('text-aligned');
+    expect(enc.options.find(o => o.value === 'uni_v2').note).toContain('256 px at 20×');
+  });
+});
+
+describe('the downstream task', () => {
+  it('needs a task and nothing else', () => {
+    const values = seedValues(tool('prediction'));
+    expect(firstProblem(tool('prediction'), values, { artifacts: [] }))
+      .toBe('Task is required.');
+    expect(firstProblem(tool('prediction'), { ...values, task_id: 'brca' }, { artifacts: [] }))
+      .toBeNull();
+  });
+
+  it('submits without a feature index, which is what makes it one submission', () => {
+    // The server finds the index matching the task's spec, or plans the build. A slide with
+    // nothing on it reaches a call in one click.
+    tool('prediction').submit(ITEM, { task_id: 'brca', feat_hash: '' });
+    expect(startPredict).toHaveBeenCalledWith(ITEM, { task_id: 'brca', feat_hash: null });
+  });
+
+  it('sends a named index when one was chosen deliberately', () => {
+    tool('prediction').submit(ITEM, { task_id: 'brca', feat_hash: 'f1' });
+    expect(startPredict).toHaveBeenCalledWith(ITEM, { task_id: 'brca', feat_hash: 'f1' });
+  });
+
+  it('carries the model card on the option — what it eats, its scores, and its caveat', () => {
+    const note = taskNote({
+      id: 'brca', label: 'BRCA IDC vs ILC', classes: ['IDC', 'ILC'],
+      cohort: 'TCGA-BRCA — 942 cases', caveat: 'Research use only.',
+      feature_spec: { encoder: 'conch_v1', mag: 20, patch_size: 512, overlap: 0 },
+      metrics: { test_auc: 0.9421, test_acc: 0.881 },
+    });
+    expect(note).toContain('Needs CONCH V1 · 512 px · 20×');
+    expect(note).toContain('Trained on TCGA-BRCA — 942 cases');
+    expect(note).toContain('AUC 0.942');
+    expect(note).toContain('Research use only.');
+  });
+
+  it('says nothing it was not told — a task with no card gets no note', () => {
+    expect(taskNote({ id: 'x' })).toBe('');
   });
 });
