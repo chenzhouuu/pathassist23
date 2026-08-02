@@ -22,6 +22,14 @@ from .classes import Backend
 
 _HEX = re.compile(r"^[0-9a-fA-F]{6}$")
 
+# How many levels the confidence fade is allowed to take. The ramp is what makes a shaded tile
+# expensive to encode — a flat class colour has ~6 distinct RGBA values, and a continuous alpha
+# turns that into ~150, which is real entropy for zlib to chew on. Sixteen steps of 0.05 alpha are
+# below what reads as a boundary on tissue, and they cut the encode from 14.3 ms to 8.4 ms and the
+# tile from 57 KB to 28 KB. Alpha 0 stays exactly 0, so a hidden class is still fully transparent.
+CONF_STEPS = 16
+_CONF_STEP = 255.0 / (CONF_STEPS - 1)
+
 
 class BadClassSpec(ValueError):
     """A malformed or unknown class spec — a 400, never a silently-dropped class."""
@@ -100,7 +108,8 @@ def colourise_classes(
     rgba = lut[idx]
     if conf is not None:
         scale = conf_floor + (1.0 - conf_floor) * (conf.astype(np.float32) / 255.0)
-        rgba[..., 3] = (rgba[..., 3].astype(np.float32) * scale).astype(np.uint8)
+        faded = rgba[..., 3].astype(np.float32) * scale
+        rgba[..., 3] = (np.rint(faded / _CONF_STEP) * _CONF_STEP).astype(np.uint8)
     return rgba
 
 
@@ -165,10 +174,16 @@ def max_prob(planes: dict[str, np.ndarray], backend: Backend) -> np.ndarray | No
 
 # zlib effort for a *served* tile. `optimize=True` (max effort plus a palette search) is the wrong
 # trade here and was measured as the dominant cost of mounting the map: on a confidence-shaded tile
-# it took 184 ms against 14 ms at this level, to save 6.7% of the bytes. The alpha ramp is what
-# makes it expensive — it turns ~6 distinct RGBA values into ~640, so there is real entropy to
-# chew on. A tile is generated on demand and cached for a day; it is not an archive.
-PNG_LEVEL = 6                      # Pillow's own default
+# it took 184 ms against 14 ms at Pillow's default level 6, to save 6.7% of the bytes. The alpha
+# ramp is what makes it expensive — it turns ~6 distinct RGBA values into ~150, so there is real
+# entropy to chew on. A tile is generated on demand and cached for a day; it is not an archive.
+#
+# Level 6 was still the dominant cost of a shaded tile — profiled at 14.2 ms of a 17 ms render,
+# against 1.9 ms to read the probabilities and 1.1 ms to colourise. Dropping to 3 makes that
+# 5.6 ms for 9% more bytes, and with `CONF_STEPS` above the two together land at 4.3 ms and 32 KB
+# — better than level 6 was on *both* axes, because quantising removes entropy that no amount of
+# zlib effort was going to compress away.
+PNG_LEVEL = 3
 
 
 def encode_png(rgba: np.ndarray) -> bytes:

@@ -11,6 +11,8 @@ a Flask test client and no GPU, no weights and no slide:
 
 import logging
 import shutil
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -53,6 +55,43 @@ def _png(body: bytes, rev: int = 0) -> Response:
     resp.headers["Cache-Control"] = _TILE_CACHE
     resp.headers["ETag"] = f'W/"{rev}"'
     return resp
+
+
+# ── the confidence plane, memoised ───────────────────────────────────────────────────
+#
+# `conf=1` is the default look (D7), and it is not free: it inflates every class's probability
+# plane for the tile and reduces them, measured at 24 ms per tile against 7 ms for `conf=0`.
+#
+# What makes it worth caching is that the plane depends on **none** of the render query. `show`,
+# `alpha` and `conf_floor` are all applied after it, so hiding a class in the panel refires the
+# whole viewport against a plane that is byte-for-byte the one just computed. Keyed by exactly what
+# makes a tile immutable — artifact, tile, coverage revision — so a growing build still recomputes.
+#
+# 512 tiles of 256×256 uint8 is ~33 MB, sized to hold a viewport across a few class toggles rather
+# than to be a second copy of the pyramid.
+_CONF_CACHE_MAX = 512
+_conf_cache: "OrderedDict[tuple, np.ndarray | None]" = OrderedDict()
+_conf_lock = threading.Lock()
+
+
+def _conf_plane(root: Path, z: int, x: int, y: int, backend, rev: int) -> np.ndarray | None:
+    """Per-pixel max class probability for one tile, read once per (tile, revision)."""
+    key = (str(root), z, x, y, rev)
+    with _conf_lock:
+        if key in _conf_cache:
+            _conf_cache.move_to_end(key)
+            return _conf_cache[key]
+
+    # Computed outside the lock: this is the disk read the cache exists to avoid, and holding the
+    # lock across it would put every thread back in the single-file queue the cache is here to end.
+    plane = max_prob(read_prob_tile(root, z, x, y, list(backend.classes)), backend)
+
+    with _conf_lock:
+        _conf_cache[key] = plane
+        _conf_cache.move_to_end(key)
+        while len(_conf_cache) > _CONF_CACHE_MAX:
+            _conf_cache.popitem(last=False)
+    return plane
 
 
 def register(app) -> None:  # noqa: C901 — a flat route table reads better than split helpers
@@ -218,7 +257,7 @@ def register(app) -> None:  # noqa: C901 — a flat route table reads better tha
             else:
                 conf = None
                 if request.args.get("conf", "1") not in ("0", "false", "no"):
-                    conf = max_prob(read_prob_tile(root, z, x, y, list(backend.classes)), backend)
+                    conf = _conf_plane(root, z, x, y, backend, rev)
                 rgba = colourise_classes(idx, backend, show=show, alpha=alpha, conf=conf,
                                          conf_floor=_f(request.args.get("conf_floor"), 0.2))
             return _png(encode_png(rgba), rev)

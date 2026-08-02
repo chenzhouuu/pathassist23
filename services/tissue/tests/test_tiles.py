@@ -57,6 +57,24 @@ def test_confidence_scales_alpha_between_the_floor_and_full():
     assert 100 < rgba[1, 0][3] < 200
 
 
+def test_the_confidence_fade_is_quantised_so_the_tile_stays_cheap_to_encode():
+    """The ramp's entropy *is* the encode cost — 14.2 ms of a 17 ms tile before this.
+
+    Pinned as a property rather than a byte count: what must hold is that a continuous confidence
+    field produces a small, bounded number of alpha levels, and that "hidden" stays exactly
+    invisible rather than being rounded up to the first step.
+    """
+    from tissue_service.tiles import CONF_STEPS
+
+    idx = np.ones((TILE, TILE), dtype=np.uint8)
+    conf = np.arange(TILE * TILE, dtype=np.uint32).reshape(TILE, TILE) % 256
+    rgba = colourise_classes(idx, BCSS, conf=conf.astype(np.uint8), conf_floor=0.2)
+    assert len(np.unique(rgba[..., 3])) <= CONF_STEPS
+
+    hidden = colourise_classes(idx, BCSS, show=["Stroma"], conf=conf.astype(np.uint8))
+    assert set(np.unique(hidden[..., 3])) == {0}     # a hidden class never rounds up into view
+
+
 def test_alpha_multiplies_on_top_of_confidence():
     idx = np.ones((1, 1), dtype=np.uint8)
     full = colourise_classes(idx, BCSS, alpha=1.0)[0, 0][3]
