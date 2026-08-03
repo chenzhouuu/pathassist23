@@ -1,86 +1,235 @@
-/* Landing page: the item table and its empty state. */
+/* Landing page: the item table and its empty state.
+ *
+ * The row is what a pathologist reads all day, so the density here is the whole design and not a
+ * detail of it. 56px of row around a 40px thumbnail; 48px of header; 14px body on a 20px line.
+ * The previous 44px row around the same 40px thumbnail left two pixels of air, which was the
+ * actual source of the crowding — the thumbnail was never too big, the row was too short.
+ *
+ * WHY THIS FILE STATES COLOUR IN THE GRAPHITE ROLES. The partials around it mostly speak the
+ * shadcn contract (`hsl(var(--border))` and friends), because that is what the vendored
+ * `ui/*.tsx` components read. The pieces below that are *not* vendored — the divider, the status
+ * chip, the thumbnail bed — name the Graphite roles directly (`--line`, `--sunken`, `--sem-*`),
+ * because those roles carry real translucency and a `color-mix` percentage that the alpha-free
+ * shadcn triplets deliberately cannot. Both sets are the same palette; see _tokens.css.
+ *
+ * WHY SEVERAL RULES LOOK OVER-QUALIFIED. `src/components/ui/table.tsx` is vendored from OHIF and
+ * must not be edited, and it puts Tailwind utilities on every `tr`, `th` and `td` — `border-b`,
+ * `p-2`, `h-10`, `text-base`, `hover:bg-muted`, `hover:[&>td]:text-highlight`. browser.css is
+ * imported *before* `@tailwind utilities` in index.css, so on a specificity tie Tailwind wins on
+ * source order. Every rule below that has to beat one of those utilities is written to outrank it
+ * rather than to look tidy, and the utility it is beating is named where it is not obvious.
+ */
 
 /* ── Body: table + preview ─────────────────────────────────────────────────── */
 
 .browser-body { display: flex; flex: 1; min-height: 0; }
 .browser-table-wrap { flex: 1; min-width: 0; overflow: auto; }
 
-.browser-table-wrap table { font-size: 12.5px; }
+/* Beats `text-base` (16px) on the vendored <table>. The negative tracking is what keeps 14px
+ * Inter from feeling loose across a 700px column run; the mono columns switch it back off. */
+.browser-table-wrap table {
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: -0.011em;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+
+/* Sentence case at close to body size, separated from the rows by weight and colour alone. The
+ * 11px uppercase at 0.04em that stood here is the single fastest way to date a table, and it also
+ * costs a header the ability to be read as a word rather than decoded as a label. */
 .browser-table-wrap thead th {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 0 10px;
-  height: 32px;
+  padding: 0 var(--space-3);
+  height: 48px;
   background: hsl(var(--background));
-  border-bottom: 1px solid hsl(var(--border));
-  color: hsl(var(--muted-foreground));
-  font-size: 11px;
-  font-weight: 500;
+  /* Inset rather than a border, for the same reasons as the row divider below, plus one more: a
+   * sticky element's border is drawn at its own edge and an inset shadow is drawn inside the
+   * padding box, so this line stays put when the rows slide under it. --line-2 rather than
+   * --line because this separates two regions, not two rows. */
+  box-shadow: inset 0 -1px var(--line-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
   text-align: left;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
   white-space: nowrap;
 }
-.browser-table-wrap thead th.is-sortable { cursor: pointer; user-select: none; }
-.browser-table-wrap thead th.is-sortable:hover { color: hsl(var(--foreground)); }
+/* `[&_tr]:border-b` on the vendored <thead>. */
+.browser-table-wrap thead tr { border-bottom: 0; }
 
-.browser-table-wrap tbody tr {
-  border-bottom: 1px solid hsl(var(--border) / 0.4);
-  cursor: default;
+.browser-table-wrap thead th.is-sortable { cursor: pointer; user-select: none; }
+.browser-table-wrap thead th.is-sortable:hover,
+.browser-table-wrap thead th[aria-sort] { color: var(--ink); }
+
+/* ── Rows ──────────────────────────────────────────────────────────────────── */
+
+/* The divider is Radix Themes' recipe, adopted verbatim. An inset shadow on the CELL adds no
+ * layout height, does not interact with `border-collapse`, and switches off for the final row by
+ * flipping one inherited variable — none of which a `border-bottom` on the row manages. */
+.browser-table-wrap tbody { --table-row-box-shadow: inset 0 -1px var(--line); }
+.browser-table-wrap tbody tr:last-child { --table-row-box-shadow: none; }
+
+/* `border-b` on the vendored <tr>, which would otherwise draw a second line under the shadow. */
+.browser-table-wrap tbody tr { border-bottom: 0; cursor: default; }
+
+.browser-table-wrap tbody td {
+  padding: 0 var(--space-3);
+  height: 56px;
+  vertical-align: middle;
+  box-shadow: var(--table-row-box-shadow);
+  color: var(--ink);
 }
-.browser-table-wrap tbody tr:hover { background: hsl(var(--accent) / 0.5); }
-.browser-table-wrap tbody tr[data-selected] { background: hsl(var(--accent)); }
-.browser-table-wrap tbody td { padding: 0 10px; height: 44px; vertical-align: middle; }
+
+/* The row is not a click target for opening — it selects on click and opens on double click —
+ * so it carries no hover fill. The affordance lives on the name button, which is the thing that
+ * actually opens. These two rules undo `hover:bg-muted` and `hover:[&>td]:text-highlight` from
+ * the vendored <tr>; the second has to be written with the same `:hover` in it to outrank the
+ * utility, which is why it is not folded into the base `td` rule above. */
+.browser-table-wrap tbody tr:hover { background: transparent; }
+.browser-table-wrap tbody tr:hover > td { color: var(--ink); }
+
+/* Selection is a state the row owns, so it is the one thing that tints the whole row. The wash is
+ * the brand at 9% — enough to find at a glance, transparent enough that the divider still shows
+ * through it, which is why --line is authored as an rgba and not as a flat grey. */
+.browser-table-wrap tbody tr[data-selected],
+.browser-table-wrap tbody tr[data-selected]:hover { background: var(--wash); }
+
+/* ── Name cell ─────────────────────────────────────────────────────────────── */
 
 .browser-name {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   max-width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 .browser-name-text { display: flex; flex-direction: column; min-width: 0; }
-.browser-name-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.browser-name-sub { color: hsl(var(--muted-foreground)); font-size: 11px; }
-.browser-name-chevron { color: hsl(var(--muted-foreground)); flex-shrink: 0; opacity: 0.6; }
-.browser-name:hover .browser-name-label { color: hsl(var(--primary)); }
+.browser-name-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--motion-fast);
+}
+.browser-name-sub { color: var(--ink-2); font-size: 12px; }
+.browser-name-chevron { color: var(--ink-3); flex-shrink: 0; }
 
+/* The whole hover affordance for the row, concentrated on the eleven characters that open it. */
+.browser-name:hover .browser-name-label {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.browser-name:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+  border-radius: var(--radius-1);
+}
+
+/* ── Thumbnail ─────────────────────────────────────────────────────────────── */
+
+/* A uniform 40px frame with the image CONTAINED inside it. Slides in this instance run from
+ * 0.62 : 1 to 4.33 : 1, and `cover` crops a 4.33 : 1 tissue strip down to the square in its
+ * middle — which throws away the macro shape, the first thing anyone reads off a thumbnail. The
+ * sunken bed is what makes the letterboxing read as the slide's proportions rather than as a
+ * failed load, and the ring is inset so the frame is 40px including it. */
 .browser-thumb {
   display: grid;
   place-items: center;
   flex-shrink: 0;
   width: 40px;
   height: 40px;
-  border-radius: 3px;
-  border: 1px solid hsl(var(--border));
-  /* The placeholder is a shade lighter than the row so an un-decoded thumbnail reads as pending
-     rather than as a slide that failed to load. */
-  background: hsl(var(--card));
+  border-radius: var(--radius-1);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--line);
   overflow: hidden;
 }
-.browser-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.browser-thumb-folder { color: hsl(var(--muted-foreground)); border-style: dashed; }
+.browser-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.browser-thumb-folder { color: var(--ink-2); }
 
-.browser-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.browser-status-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
+/* ── Status chip ───────────────────────────────────────────────────────────── */
 
-.browser-num { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A soft tint, never a saturated solid: a filled chip is the loudest thing in the row and it
+ * flattens the hierarchy, so the slide name stops being what the eye lands on first.
+ *
+ * One rule per status and no per-theme pair. The fill is the semantic hue mixed onto whatever
+ * surface is current, and both the mix percentage and the label colour are themselves tokens —
+ * dark needs a heavier mix and a lifted label — so light and dark differ by the values in
+ * _tokens.css and not by a second block of rules here. */
+.browser-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-1);
+  background: var(--sunken);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+/* New is not a semantic hue. Nobody has looked at the slide yet, which is the absence of a
+ * finding rather than a finding, so it stays on the neutral bed set above. */
+.browser-status[data-status='Read'] {
+  background: color-mix(in oklab, var(--sem-read) var(--sem-mix), var(--surface));
+  color: var(--sem-read-ink);
+}
+.browser-status[data-status='In Review'] {
+  background: color-mix(in oklab, var(--sem-review) var(--sem-mix), var(--surface));
+  color: var(--sem-review-ink);
+}
+.browser-status[data-status='Flagged'] {
+  background: color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface));
+  color: var(--sem-flag-ink);
+}
+
+/* ── Numeric and identifier columns ────────────────────────────────────────── */
+
+/* Mono with tabular figures, so a column of sizes and dates lines up on the digit rather than on
+ * the glyph, and 13px because JetBrains Mono's x-height reads a size larger than Inter's at the
+ * same nominal size. Tracking back to normal: the body's -0.011em is drawn for a proportional
+ * face and tightens a monospace grid that is already tight. */
+.browser-num,
+.browser-scan {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* The Scan column's two spoken states are prose about the slide's provenance rather than a
+ * reading off it, so they drop out of the mono grid and one step further back in the ink scale.
+ * They are still stated: "not recorded" and "not a slide" are different facts, and a blank cell
+ * would collapse them into each other and into a folder. */
+.browser-scan[data-kind='not-recorded'],
+.browser-scan[data-kind='not-a-slide'] {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
 
 .browser-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 48px 16px;
-  color: hsl(var(--muted-foreground));
-  font-size: 12.5px;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  color: var(--ink-2);
+  font-size: 13px;
   text-align: center;
 }
-.browser-empty-sub { font-size: 11.5px; opacity: 0.8; max-width: 44ch; }
+.browser-empty-sub { font-size: 12.5px; color: var(--ink-3); max-width: 44ch; }
