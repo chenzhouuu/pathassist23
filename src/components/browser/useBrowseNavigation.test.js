@@ -118,6 +118,48 @@ describe('useBrowseNavigation — breadcrumb jumps', () => {
   });
 });
 
+describe('useBrowseNavigation — goTo, the move the collection rail makes', () => {
+  it('lands in a branch the table has never walked into', () => {
+    const { result } = render();
+    act(() => result.current.goTo(COLLECTION, [CASE, BLOCK]));
+    expect(result.current.collection).toBe(COLLECTION);
+    expect(result.current.path.map((f) => f._id)).toEqual(['f1', 'f2']);
+    expect(result.current.folder).toBe(BLOCK);
+    expect(result.current.crumbs.map((c) => c.name)).toEqual(['All collections', 'BRCA-DEMO', 'Case 001', 'Block A']);
+  });
+
+  it('goes sideways as readily as down — a rail click can leave the current branch entirely', () => {
+    const { result } = render();
+    act(() => result.current.goTo(COLLECTION, [CASE, BLOCK]));
+    const OTHER = { _id: 'c2', name: 'Penn Pathology' };
+    act(() => result.current.goTo(OTHER, []));
+    expect(result.current.collection).toBe(OTHER);
+    expect(result.current.path).toEqual([]);
+    expect(result.current.level).toBe('folders');
+  });
+
+  it('called with no collection is the root, and drops the folder path with it', () => {
+    const { result } = render();
+    act(() => result.current.goTo(COLLECTION, [CASE]));
+    act(() => result.current.goTo(null));
+    expect(result.current.collection).toBeNull();
+    expect(result.current.path).toEqual([]);
+    expect(result.current.level).toBe('collections');
+  });
+
+  it('clears the filters, the same as any other level change', () => {
+    const { result } = render();
+    act(() => result.current.goTo(COLLECTION, [CASE]));
+    act(() => {
+      result.current.setStatus('Flagged');
+      result.current.select('item-1');
+    });
+    act(() => result.current.goTo(COLLECTION, [CASE, BLOCK]));
+    expect(result.current.status).toBe('All');
+    expect(result.current.selectedId).toBeNull();
+  });
+});
+
 describe('useBrowseNavigation — changing level', () => {
   it('clears the filters, the selection and the optimistic overrides', () => {
     const { result } = render();

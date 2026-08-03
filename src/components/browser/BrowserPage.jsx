@@ -26,6 +26,7 @@ import {
 } from '../ui/dropdown-menu.tsx';
 import BrowserTopBar from './BrowserTopBar.jsx';
 import BrowserToolbar from './BrowserToolbar.jsx';
+import CollectionTree from './CollectionTree.jsx';
 import PreviewPane from './PreviewPane.jsx';
 import ImportModal from './ImportModal.jsx';
 import NewEntryDialog from './NewEntryDialog.jsx';
@@ -56,10 +57,10 @@ export default function BrowserPage() {
   // told when a dialog is up: the listener is on window and would otherwise navigate underneath
   // one, leaving NewEntryDialog offering to create in a level that is no longer showing.
   const {
-    collection, level, folder, crumbs,
+    collection, path, level, folder, crumbs,
     search, debouncedSearch, status, setSearch, setStatus,
     selectedId, rowSelection, select, setRowSelection, clearRowSelection,
-    overrides, setOverrides, descend, goToCrumb,
+    overrides, setOverrides, descend, goToCrumb, goTo,
   } = useBrowseNavigation({ suppressBackspace: showImport || showNew || !!shareFolder });
 
   // Always fetched, not just at the root: the Import dialog needs the collection list to offer a
@@ -205,6 +206,11 @@ export default function BrowserPage() {
       )}
 
       <div className="browser-body">
+        {/* The rail is handed the position and a way to change it, and keeps everything else to
+            itself — which branches are open is the rail's own business and nothing on this page
+            reads it. See CollectionTree.jsx for why those are two pieces of state and not one. */}
+        <CollectionTree collection={collection} path={path} onNavigate={goTo} />
+
         <div className="browser-table-wrap">
           {error ? (
             <div className="browser-empty">

@@ -71,6 +71,15 @@ export function useBrowseNavigation({ suppressBackspace = false } = {}) {
     setPath(path.slice(0, i - 1));
   }, [path]);
 
+  // Jump to any position at all, stated in full. The collection rail needs this and neither of
+  // the moves above can serve it: `descend` is one relative step from where we already are, and
+  // `goToCrumb` can only travel back along the route already walked. The rail offers branches the
+  // table has never been into, so it hands over the whole pair rather than a direction.
+  const goTo = useCallback((nextCollection, nextPath = []) => {
+    setCollection(nextCollection || null);
+    setPath(nextCollection ? nextPath : []);
+  }, []);
+
   const select = useCallback((id) => setSelectedId(id), []);
 
   // The batch bar's Cancel. It drops the checkbox set and leaves the previewed row alone: that
@@ -124,5 +133,6 @@ export function useBrowseNavigation({ suppressBackspace = false } = {}) {
     descend,
     ascend,
     goToCrumb,
+    goTo,
   };
 }

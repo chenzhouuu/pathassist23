@@ -1,1 +1,120 @@
-/* Landing page folder tree — reserved, filled by ticket 07. */
+/* Landing page: the collection rail (src/components/browser/CollectionTree.jsx).
+ *
+ * The rail is the one region of this page that reads the Graphite roles directly rather than the
+ * shadcn triplets — `--surface-2` exists precisely to name "a rail, one step behind the cards"
+ * and flattening it back through `hsl(var(--muted))` would lose that meaning. Everything here is
+ * a token; there is no literal colour, radius or duration below.
+ */
+
+.browser-tree {
+  /* Fixed rather than flexible: the rail is a list of names, and a width that moves with the
+     window makes the same collection wrap at one size and not at another. */
+  flex: 0 0 240px;
+  width: 240px;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-2);
+  background: var(--surface-2);
+  /* An inset shadow rather than a border, so the 240 is the whole rail and the table's first
+     column does not shift by a pixel when the divider colour changes between themes. */
+  box-shadow: inset -1px 0 var(--line);
+}
+
+/* The one place uppercase earns its keep on this page: this is a rail label naming the whole
+   list below it, not a column header competing with the row it sits above. */
+.browser-tree-heading {
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.browser-tree-list,
+.browser-tree-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.browser-tree-item { outline: none; }
+
+.browser-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.browser-tree-node:hover { background: var(--hover); color: var(--ink); }
+
+/* Where the table is pointing. The wash is the same selection tint the table uses, so "current"
+   means one thing on the page rather than two. */
+.browser-tree-node[data-current] {
+  background: var(--wash);
+  color: var(--brand);
+  font-weight: var(--fw-medium);
+}
+
+/* Focus lands on the treeitem, which is the <li>; the ring is drawn on the row inside it because
+   the <li> also contains the children list and a ring around that would enclose the whole
+   branch. */
+.browser-tree-item:focus-visible > .browser-tree-node {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.5);
+}
+
+.browser-tree-caret {
+  display: grid;
+  place-items: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  transition: transform var(--motion-fast), opacity var(--motion-fast);
+}
+.browser-tree-caret[data-open] { transform: rotate(90deg); }
+/* A branch that turned out to hold nothing keeps its 16px box and loses only its glyph, so every
+   label in the rail stays on the same left edge whatever depth it sits at. */
+.browser-tree-caret[data-leaf] { opacity: 0; pointer-events: none; }
+
+.browser-tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tree-count {
+  flex-shrink: 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The indent is a hairline plus a gap rather than whitespace alone: at forty sibling case folders
+   the line is what tells you the block you are reading is one branch and not the root list. */
+.browser-tree-children {
+  margin-left: 14px;
+  padding-left: 6px;
+  box-shadow: inset 1px 0 var(--line);
+}
+
+.browser-tree-note {
+  margin: 0;
+  padding: 6px var(--space-2);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* Narrow screens, matching the rule that drops the preview at 1100: below this the rail is taking
+   a third of the window from the table, and the breadcrumb already goes everywhere the rail does. */
+@media (max-width: 860px) {
+  .browser-tree { display: none; }
+}
