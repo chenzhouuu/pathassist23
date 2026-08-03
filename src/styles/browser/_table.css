@@ -90,6 +90,49 @@
 .browser-table-wrap thead th.is-sortable:hover,
 .browser-table-wrap thead th[aria-sort] { color: var(--ink); }
 
+/* ── Sort direction ────────────────────────────────────────────────────────── */
+
+/* Primer's two-tier affordance: a persistent arrow on the sorted column, and a hint arrow on every
+ * other sortable header that appears under the pointer. Before this a sorted header only darkened,
+ * so the table said which column was sorted and never which way — and on Name, where folders lead
+ * in both directions, darkening alone is genuinely ambiguous.
+ *
+ * `visibility`, not `display`. Hiding the hint with `display: none` would let the label sit 21px
+ * further left until the pointer arrived and then shove it sideways; reserving the box costs
+ * nothing and the header holds still. */
+.browser-th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.browser-sort {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--ink-3);
+}
+.browser-table-wrap thead th.is-sortable:hover .browser-sort,
+.browser-table-wrap thead th.is-sortable:focus-visible .browser-sort {
+  visibility: visible;
+}
+/* The sorted column's arrow is always there and carries the brand, which is the one place on the
+ * page where brand colour means "this is the state you set" rather than "this opens something". */
+.browser-table-wrap thead th[aria-sort] .browser-sort {
+  visibility: visible;
+  color: var(--brand);
+}
+
+/* ── Alignment ─────────────────────────────────────────────────────────────── */
+
+/* One column is right-aligned and it is the only quantitative one — Cloudscape's rule, and the
+ * reasoning is in browserColumns.jsx beside the column that carries the flag. On a right-aligned
+ * header the glyph moves to the LEFT of the label, so it stays against the digits rather than
+ * drifting out to the column's edge; Primer does this with the same `row-reverse`. */
+.browser-table-wrap th[data-align='right'],
+.browser-table-wrap td[data-align='right'] { text-align: right; }
+.browser-table-wrap th[data-align='right'] .browser-th-label { flex-direction: row-reverse; }
+
 /* ── Rows ──────────────────────────────────────────────────────────────────── */
 
 /* The divider is Radix Themes' recipe, adopted verbatim. An inset shadow on the CELL adds no
@@ -109,19 +152,63 @@
   color: var(--ink);
 }
 
-/* The row is not a click target for opening — it selects on click and opens on double click —
- * so it carries no hover fill. The affordance lives on the name button, which is the thing that
- * actually opens. These two rules undo `hover:bg-muted` and `hover:[&>td]:text-highlight` from
- * the vendored <tr>; the second has to be written with the same `:hover` in it to outrank the
- * utility, which is why it is not folded into the base `td` rule above. */
+/* The row IS a click target — it selects, and the preview follows — so it carries a hover fill.
+ *
+ * This file previously argued the opposite: that the row only opens on double click, so the whole
+ * affordance belonged on the name button. The evidence went the other way. VS Code ships
+ * `workbench.list.openMode` with both `singleClick` and `doubleClick`, and the hover colour is
+ * identical in the two; the no-hover camp is entirely native-desktop lineage, where AppKit's
+ * NSTableView.h has no occurrence of `hover` at all and GTK4's Adwaita `columnview.view` defines
+ * `:selected` and no `:hover`. No shipped web product was found suppressing row hover over
+ * double-click semantics.
+ *
+ * --hover, which 01 calibrated to the FRAME rather than to white. Do not copy shadcn's own
+ * `hover:bg-muted/50` here: it computes to #FAFAFA, which is invisible on anything that is not pure
+ * white, and this page's card is #F9F9FA.
+ *
+ * The fill goes on the cells rather than on the row because the divider is an inset shadow on the
+ * cell, and a background on the <tr> paints underneath it. These rules also undo `hover:bg-muted`
+ * and `hover:[&>td]:text-highlight` from the vendored <tr>; the second has to carry the same
+ * `:hover` to outrank the utility, which is why it is not folded into the base `td` rule. */
 .browser-table-wrap tbody tr:hover { background: transparent; }
-.browser-table-wrap tbody tr:hover > td { color: var(--ink); }
+.browser-table-wrap tbody tr:hover > td {
+  background: var(--hover);
+  color: var(--ink);
+}
 
-/* Selection is a state the row owns, so it is the one thing that tints the whole row. The wash is
- * the brand at 9% — enough to find at a glance, transparent enough that the divider still shows
- * through it, which is why --line is authored as an rgba and not as a flat grey. */
-.browser-table-wrap tbody tr[data-selected],
-.browser-table-wrap tbody tr[data-selected]:hover { background: var(--wash); }
+/* ── Selected, checked, and both at once ───────────────────────────────────── */
+
+/* A row can be the preview's row AND have its box ticked, and two background tints cannot coexist —
+ * whichever is written second simply wins and the other state stops existing. So the two states use
+ * two different mechanisms: a neutral FILL for "this row is spoken for", and an EDGE for "this is
+ * the one the pane is showing".
+ *
+ * That is what ~15 codebases converge on. VS Code moved away from a saturated blue fill to
+ * `list.activeSelectionBackground #E8E8E8` plus `outline: 1px solid; outline-offset: -1px`;
+ * Thunderbird reached the same `outline-offset: -1px` independently; Primer's ActionList refuses to
+ * express the two as tints at all, giving `active` a bar and `selected` only a checkmark. The
+ * brand wash that used to be here was the one thing on the page that could not compose with itself.
+ *
+ * 2px. The only widths anything ships for an edge indicator are 2 and 4. */
+.browser-table-wrap tbody tr[data-selected] > td,
+.browser-table-wrap tbody tr[data-checked] > td,
+.browser-table-wrap tbody tr[data-selected]:hover > td,
+.browser-table-wrap tbody tr[data-checked]:hover > td { background: var(--sel); }
+
+/* The edge is drawn INSIDE the first cell, composed with the divider it must not replace. Roundcube
+ * is the one shipped table doing this with `border-left` and its own source warns that breaks under
+ * `border-collapse: collapse`; an inset shadow has neither problem and is already how every other
+ * line in this table is drawn. */
+.browser-table-wrap tbody tr[data-selected] > td:first-child {
+  box-shadow: var(--table-row-box-shadow), inset 2px 0 var(--brand);
+}
+
+/* Thunderbird's `multi-selected` rule, which is the detail worth stealing: with a single box ticked
+ * on the row the pane is already showing, the fill and the edge are two marks for one fact. The
+ * edge earns its place only once there is more than one ticked row for it to pick between. */
+.browser-table-wrap tbody:not([data-multi]) tr[data-selected][data-checked] > td:first-child {
+  box-shadow: var(--table-row-box-shadow);
+}
 
 /* ── Name cell ─────────────────────────────────────────────────────────────── */
 
@@ -273,3 +360,14 @@
   text-align: center;
 }
 .browser-empty-sub { font-size: 12.5px; color: var(--ink-3); max-width: 44ch; }
+
+/* ── The empty value ───────────────────────────────────────────────────────── */
+
+/* One step back from the third ink, so a column of dashes reads as the absence of content rather
+ * than as content. `aria-hidden` is on the element itself — the cell's emptiness is already what a
+ * screen reader conveys, and a row of announced em dashes would be worse than the blank this
+ * replaces. See browserColumns.jsx for why it is a dash rather than a blank or a word. */
+.browser-dash {
+  color: var(--ink-3);
+  opacity: 0.6;
+}

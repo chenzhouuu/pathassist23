@@ -16,7 +16,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
 } from '@tanstack/react-table';
-import { X } from 'lucide-react';
+import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems, updateItemMetadata } from '../../api/index.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.tsx';
@@ -317,27 +317,56 @@ export default function BrowserPage() {
                             ? { width: h.column.columnDef.meta.width } : undefined}
                           onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
                           className={h.column.getCanSort() ? 'is-sortable' : undefined}
+                          data-align={h.column.columnDef.meta?.align}
                           aria-sort={
                             h.column.getIsSorted() === 'asc' ? 'ascending'
                               : h.column.getIsSorted() === 'desc' ? 'descending' : undefined
                           }
                         >
-                          {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                          {/* Primer's two-tier affordance, and the reason it is here rather than in
+                              each column's `header`: which way a column is sorted is a fact about
+                              the table's state and not about the column, and nine copies of it
+                              would be nine places to keep in step. Until now a sorted header only
+                              *darkened* — the page said which column was sorted and never which
+                              way.
+
+                              The unsorted hint arrow is `visibility: hidden` rather than
+                              `display: none`, so revealing it on hover shifts nothing: the label
+                              does not jump sideways when the pointer arrives. */}
+                          <span className="browser-th-label">
+                            {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                            {h.column.getCanSort() && (
+                              h.column.getIsSorted() === 'desc'
+                                ? <ArrowDown size={13} className="browser-sort" aria-hidden="true" />
+                                : <ArrowUp size={13} className="browser-sort" aria-hidden="true" />
+                            )}
+                          </span>
                         </TableHead>
                       ))}
                     </TableRow>
                   ))}
                 </TableHeader>
-                <TableBody>
+                {/* `data-multi` is Thunderbird's `classList.toggle("multi-selected", count > 1)`,
+                    and it is what stops the active row's brand edge from being drawn on a row whose
+                    ticked box already says the same thing. With one box ticked, "checked" and
+                    "showing in the preview" identify the same row and the bar is noise; with two,
+                    it is the only thing saying which of them the pane is showing. */}
+                <TableBody data-multi={selectedIds.length > 1 ? '' : undefined}>
                   {table.getRowModel().rows.map((r) => (
                     <TableRow
                       key={r.id}
                       data-selected={r.original.id === selectedId ? '' : undefined}
+                      data-checked={r.getIsSelected() ? '' : undefined}
                       onClick={() => select(r.original.id)}
                       onDoubleClick={() => open(r.original)}
                     >
                       {r.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                        <TableCell
+                          key={cell.id}
+                          data-align={cell.column.columnDef.meta?.align}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
                       ))}
                     </TableRow>
                   ))}

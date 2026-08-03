@@ -59,6 +59,32 @@ function ScanCell({ row }) {
   return <span ref={ref} className="browser-scan" data-kind={kind}>{text}</span>;
 }
 
+// An em dash where a cell has nothing to say.
+//
+// The systems disagree and there is no convention to defer to: Spectrum says en dash, Primer says
+// leave it blank, Microsoft says use a word. What shipped code does is U+2014 at a muted token —
+// PostHog's `const EMPTY = '—'`, Documenso's `?? '—'`, Dub, Sentry. The reason to prefer it over a
+// blank is not accessibility (the claim that screen readers announce "empty" could not be sourced
+// to W3C, WebAIM, Deque or TPGi, and is not asserted here): it is that a blank cell cannot be told
+// apart from a column that does not apply to this row, and on a table that mixes folders and slides
+// half the columns do not apply to half the rows.
+//
+// This is where the dash lives rather than inside `fmtSize`/`fmtDate`, which keep returning '' —
+// those are string functions with their own tests, and a placeholder is a rendering decision.
+//
+// The Scan column is deliberately not routed through here. It already distinguishes *not recorded*
+// from *not a slide*, and that unknown-versus-inapplicable split is the thing that actually matters;
+// collapsing both into one dash would be a loss dressed as consistency.
+const DASH = '—';
+
+function orDash(value) {
+  return value === null || value === undefined || value === '' ? <Empty /> : value;
+}
+
+function Empty() {
+  return <span className="browser-dash" aria-hidden="true">{DASH}</span>;
+}
+
 export function buildColumns({ onOpen }) {
   return [
     {
@@ -126,9 +152,17 @@ export function buildColumns({ onOpen }) {
               <span className="browser-thumb" aria-hidden="true" />
             )}
             <span className="browser-name-text">
-              <span className="browser-name-label">{r.name}</span>
-              {!isSlideRow(r) && r.count !== null && (
-                <span className="browser-name-sub">{r.count} item{r.count === 1 ? '' : 's'}</span>
+              {/* Names here reach 89 characters of dotted hex and the cell is a fixed width, so the
+                  label is truncated on most rows and the tooltip is the only way to read the rest.
+                  The grid card has carried one since it was written; the table did not. */}
+              <span className="browser-name-label" title={r.name}>{r.name}</span>
+              {/* Girder does not compute `nItems`, so this is null for very nearly every folder —
+                  which left the sub-label simply absent and the row looking like it had been
+                  measured and found to have nothing. The dash says the count was not taken. */}
+              {!isSlideRow(r) && (
+                <span className="browser-name-sub">
+                  {r.count === null ? <Empty /> : `${r.count} item${r.count === 1 ? '' : 's'}`}
+                </span>
               )}
             </span>
             {/* Sits against the name, not pushed to the far edge of the column: a chevron
@@ -143,7 +177,7 @@ export function buildColumns({ onOpen }) {
       accessorFn: (r) => (isSlideRow(r) ? (r.status || 'New') : ''),
       header: 'Status',
       meta: { width: 120, priority: 7 },
-      cell: ({ row }) => (isSlideRow(row.original) ? <StatusChip status={row.original.status} /> : null),
+      cell: ({ row }) => (isSlideRow(row.original) ? <StatusChip status={row.original.status} /> : <Empty />),
     },
     {
       // Sorted on the row's own kind and nothing else. The magnification arrives asynchronously
@@ -156,11 +190,20 @@ export function buildColumns({ onOpen }) {
       cell: ({ row }) => <ScanCell row={row.original} />,
     },
     {
+      // THE ONE RIGHT-ALIGNED COLUMN, and it is the only quantitative one. Cloudscape's rule is
+      // the one that predicts what shipped tables actually do: right-align quantitative data,
+      // left-align categorical numeric data — dates, postcodes, phone numbers. Size is scanned for
+      // magnitude, so its digits line up on the right; Scan is a handful of discrete values and
+      // Updated is a label, so both stay left with tabular figures. `tabular-nums` did not replace
+      // right-alignment, and Sentry's usage table is the cleanest artifact of using both together.
+      //
+      // This diverges from the 2026-08-02 prototype, which right-aligned Size and Updated as a
+      // pair because both are numbers. Being a number is not the criterion.
       id: 'size',
       accessorFn: (r) => r.size ?? -1,   // sort on the number, render the human form
       header: 'Size',
-      meta: { width: 90, priority: 4 },
-      cell: ({ row }) => <span className="browser-num">{fmtSize(row.original.size)}</span>,
+      meta: { width: 90, priority: 4, align: 'right' },
+      cell: ({ row }) => <span className="browser-num">{orDash(fmtSize(row.original.size))}</span>,
     },
     {
       id: 'created',
@@ -168,21 +211,36 @@ export function buildColumns({ onOpen }) {
       header: 'Updated',
       meta: { width: 90, priority: 3 },
       cell: ({ row }) => (
-        <span className="browser-num" title={row.original.created || ''}>{fmtDate(row.original.created)}</span>
+        <span className="browser-num" title={row.original.created || undefined}>
+          {orDash(fmtDate(row.original.created))}
+        </span>
       ),
     },
     // The three opt-in columns. They are free text of unbounded length, so each states a width for
     // the same reason the fixed layout needs one at all, and each clips with an ellipsis rather
     // than wrapping — a row that grew to two lines because one diagnosis is long would break the
-    // 56px rhythm the whole table is set to.
+    // 56px rhythm the whole table is set to. Each carries its own value as a tooltip, for the same
+    // reason the name does: the ellipsis is where the rest of the text went.
     { id: 'diagnosis', accessorKey: 'diagnosis', header: 'Diagnosis',
       meta: { width: 160, priority: 5 },
-      cell: ({ row }) => <span className="browser-clip">{row.original.diagnosis || ''}</span> },
+      cell: ({ row }) => (
+        <span className="browser-clip" title={row.original.diagnosis || undefined}>
+          {orDash(row.original.diagnosis)}
+        </span>
+      ) },
     { id: 'folderPath', accessorKey: 'folderPath', header: 'Folder',
       meta: { width: 160, priority: 2 },
-      cell: ({ row }) => <span className="browser-clip">{row.original.folderPath || ''}</span> },
+      cell: ({ row }) => (
+        <span className="browser-clip" title={row.original.folderPath || undefined}>
+          {orDash(row.original.folderPath)}
+        </span>
+      ) },
     { id: 'collectionName', accessorKey: 'collectionName', header: 'Collection',
       meta: { width: 160, priority: 1 },
-      cell: ({ row }) => <span className="browser-clip">{row.original.collectionName || ''}</span> },
+      cell: ({ row }) => (
+        <span className="browser-clip" title={row.original.collectionName || undefined}>
+          {orDash(row.original.collectionName)}
+        </span>
+      ) },
   ];
 }

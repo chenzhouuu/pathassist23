@@ -7,7 +7,7 @@ Design: `docs/Chen/plans/2026-08-03-browser-shell-d2-design.md` §2.4–2.7, §5
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Files:** `src/styles/browser/_table.css`, `src/components/browser/browserColumns.jsx`.
 
@@ -64,3 +64,69 @@ Design: `docs/Chen/plans/2026-08-03-browser-shell-d2-design.md` §2.4–2.7, §5
 
 `npm test` green — the 37 `browseUtils` cases and the 5 `foldersFirstIn` cases untouched.
 `npm run build` and `npm run typecheck` clean.
+
+## Comments
+
+**2026-08-03 — done.** `_table.css`, `browserColumns.jsx` and — see below — `BrowserPage.jsx`.
+611 tests green, build and typecheck clean.
+
+### Sort direction, measured
+
+Headers on TCGA-BRCA/slides, read out of `getComputedStyle`:
+
+| column | aria-sort | glyph | colour | label direction |
+|---|---|---|---|---|
+| Name | ascending | visible | `rgb(92,92,214)` — brand | row |
+| Status / Updated | — | hidden | `rgb(148,148,157)` — ink-3 | row |
+| Scan | — | *none* | — | — (`enableSorting: false`) |
+| Size | — | hidden | ink-3 | **row-reverse** |
+
+Clicking Size: `aria-sort: descending`, glyph visible and brand, still `row-reverse` so it sits
+against the digits. Clicking again: `ascending`, and the icon path changes to `ArrowUp`. Nothing
+reflows when a hint appears, because it is `visibility` and not `display`.
+
+### The three row states, measured
+
+Every cell background read live while driving real pointer events:
+
+| | row 0 | row 1 | row 2 | `data-multi` |
+|---|---|---|---|---|
+| rest | — | — | — | false |
+| hover row 1 | — | `rgba(0,0,0,.035)` `--hover` | — | false |
+| click row 0 | `.055` `--sel` **+ 2px brand edge** | hover | — | false |
+| tick row 0's box | `.055`, **edge gone** | — | — | false |
+| tick row 2's box | `.055` **+ edge back** | — | `.055`, no edge | **true** |
+| untick row 2 | `.055`, edge gone | — | — | false |
+
+Thunderbird's rule behaves exactly as intended: the edge disappears when the only ticked row is the
+one the pane is already showing, and returns the moment there is a second row for it to pick
+between. Three states remain distinguishable — `.035`, `.055`, `.055` + edge.
+
+### Reached beyond the declared files, and why
+
+**`BrowserPage.jsx`.** The sort glyph, `data-align`, `data-checked` and `data-multi` all live in the
+one `<TableHead>`/`<TableRow>` that renders every column. Which way the table is sorted is a fact
+about the table's *state*, not about any column, so putting it in nine `header` definitions would
+have been nine places to keep in step. The column still owns what is a column's: `meta.align` is
+declared on Size in `browserColumns.jsx`, beside the reasoning for why it is the only one.
+
+### Two items resolved differently from the ticket, both deliberate
+
+- **"The table is inset from the frame" — not done, and it should not be.** The ticket measured this
+  against the 2026-08-02 prototype's `padding: 16px` grid. The **D2 demo the user actually chose has
+  no inset**: `tbody td { padding: 0 var(--s3) }` at 12px, which is exactly what
+  `_table.css` already had. Adding one would diverge from what was judged at full size on real
+  data, and would leave the row's hover fill and its divider stopping short of the seam. Measured
+  after 02: the first cell's content starts 12px from the rail seam, not 0.
+- **`th` reveals its hint on `:focus-visible` too, but no header is focusable yet.** The selector is
+  written and inert. Making the headers keyboard-sortable is a real gap and a behaviour change; it
+  belongs to its own ticket rather than to a styling sweep.
+
+### One acceptance line could not be checked in the browser
+
+**"Sort Name descending: folders still lead."** No level in this instance mixes folders and slides —
+the collections root, Penn Pathology and TCGA-BRCA are folders only; BRCA-DEMO/DEMO and
+TCGA-BRCA/slides are items only. The toggle itself was verified live (asc → desc, `aria-sort`
+updates, the glyph flips), and `foldersFirstIn`'s five unit tests pass, but the comparator is
+untouched by this ticket and its grouping behaviour rests on those tests rather than on a browser
+check. Stated rather than claimed.
