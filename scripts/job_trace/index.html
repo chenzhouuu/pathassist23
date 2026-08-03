@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PathAssist · 一次运行的全链路</title>
+<link rel="stylesheet" href="/trace.css">
+</head>
+<body>
+
+<header>
+  <h1>一次运行的全链路 <span class="sub">从表单到瓦片，中间经过 6 个进程</span></h1>
+  <div id="health" class="health"></div>
+</header>
+
+<main>
+  <!-- ── 左栏：身份、切片、选区、按钮 ──────────────────────────────────── -->
+  <section class="left">
+
+    <div class="card" id="card-auth">
+      <h2>1 · 身份</h2>
+      <div id="auth-out" class="muted">未登录。</div>
+      <div class="row">
+        <input id="user" placeholder="用户名" autocomplete="username">
+        <input id="pass" type="password" placeholder="密码" autocomplete="current-password">
+        <button id="btn-login">登录</button>
+      </div>
+      <details>
+        <summary>或者直接粘一个 token</summary>
+        <div class="row">
+          <input id="token" placeholder="Girder-Token">
+          <button id="btn-token">使用</button>
+        </div>
+        <p class="hint">在主界面的浏览器控制台执行
+          <code>localStorage.getItem('girderToken')</code> 就能拿到。</p>
+      </details>
+    </div>
+
+    <div class="card" id="card-slide">
+      <h2>2 · 切片</h2>
+      <div class="row">
+        <input id="item" placeholder="Girder item id">
+        <button id="btn-slide">载入</button>
+      </div>
+      <div id="slide-out" class="muted">还没载入。</div>
+      <div id="art-out" class="muted"></div>
+    </div>
+
+    <div class="card" id="card-region">
+      <h2>3 · 在缩略图上拖一个框</h2>
+      <div class="canvas-wrap">
+        <canvas id="map" width="520" height="520"></canvas>
+      </div>
+      <div id="region-out" class="muted">还没画。</div>
+      <div class="legend">
+        <span><i class="sw sw-done"></i>已经算过的核心瓦片</span>
+        <span><i class="sw sw-roi"></i>你画的矩形</span>
+        <span><i class="sw sw-cover"></i>这一发实际要算的瓦片</span>
+      </div>
+    </div>
+
+    <div class="card" id="card-run">
+      <h2>4 · 跑</h2>
+      <div class="row wrap">
+        <button id="btn-nuclei" class="primary">运行 region 细胞分割</button>
+        <button id="btn-again">再提交一次完全相同的请求</button>
+      </div>
+      <div class="row wrap">
+        <select id="taxonomy"></select>
+        <button id="btn-classify">跑 step2 细胞分类</button>
+      </div>
+      <div class="row wrap">
+        <button id="btn-plan">整片 mode=plan（只问不跑）</button>
+        <button id="btn-stop" class="danger">停止当前运行</button>
+      </div>
+      <div id="run-out" class="muted">待命。</div>
+    </div>
+
+    <div class="card" id="card-result">
+      <h2>5 · 结果</h2>
+      <div class="canvas-wrap">
+        <canvas id="shot" width="520" height="300"></canvas>
+      </div>
+      <div id="result-out" class="muted">还没有结果。</div>
+    </div>
+
+  </section>
+
+  <!-- ── 右栏：时序 + 日志 ─────────────────────────────────────────────── -->
+  <section class="right">
+    <div class="card grow">
+      <h2>时序 <span class="muted">— 点任意一跳展开真实报文和它为什么这样设计</span></h2>
+      <ol id="hops" class="hops"></ol>
+    </div>
+
+    <div class="card grow">
+      <h2>容器输出
+        <span class="muted">— docker logs -f，实时</span>
+        <span class="spacer"></span>
+        <label class="chk"><input type="checkbox" id="log-filter" checked> 只看和这次运行有关的行</label>
+        <button id="log-clear" class="tiny">清空</button>
+      </h2>
+      <div id="logs" class="logs"></div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/trace.js"></script>
+</body>
+</html>
