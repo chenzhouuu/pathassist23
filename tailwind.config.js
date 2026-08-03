@@ -6,9 +6,8 @@ export default {
   theme: {
     extend: {
       // shadcn's token contract, which the vendored OHIF components are written against: every
-      // colour is an unwrapped HSL triplet in :root, consumed as hsl(var(--name)). The `dsa.*`
-      // scale below is the app's older hex palette; both are emitted from one source in
-      // src/styles/index.css, so there is a single place to change a colour.
+      // colour is an unwrapped HSL triplet in :root, consumed as hsl(var(--name)). The triplets
+      // are defined in src/styles/index.css, so there is a single place to change a colour.
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -59,21 +58,6 @@ export default {
         aqua: {
           pale: 'hsl(var(--muted-foreground))',
         },
-        dsa: {
-          bg: '#0d0e14',
-          panel: '#13151f',
-          sidebar: '#0f1119',
-          toolbar: '#0a0b10',
-          border: '#1e2130',
-          accent: '#4da6ff',
-          'accent-hover': '#6dbfff',
-          danger: '#e94560',
-          success: '#4caf82',
-          warning: '#f5a623',
-          text: '#cdd3e0',
-          muted: '#6b7280',
-          highlight: '#1a2035',
-        }
       },
       fontFamily: {
         ui: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
