@@ -1,0 +1,275 @@
+/* Landing page: the toolbar, the breadcrumb and the batch bar. */
+
+/* ── Toolbar / breadcrumb ──────────────────────────────────────────────────── */
+
+/* The toolbar is inside the frame now, at the top of the main column, so its line is a seam between
+ * two regions of one surface rather than a border under a band. An inset hairline in --line, not
+ * `border-bottom: 1px solid hsl(var(--border))`: that token is opaque and drew a flat grey bar
+ * across the frame. What goes in the toolbar — search joining the breadcrumb — is 04's. */
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  /* 48, up from 42. It now holds four 28px controls and a 28px field, and 42px left 7px of air
+     above and below them — the row read as a strip the controls had been squeezed into. It is also
+     the table header's height, which is what makes the two rows above the rows look like one
+     system. */
+  min-height: 48px;
+  padding: 0 12px 0 16px;
+  box-shadow: inset 0 -1px var(--line);
+}
+
+/* WHEN THIS ROW RUNS OUT OF ROOM, THE BREADCRUMB IS WHAT GIVES. That is right — the action cluster
+ * is fixed-size controls and the trail is the one elastic thing here — but it used to give from the
+ * WRONG END. `overflow: hidden` on a `flex-start` row clips the tail, and the tail is the level you
+ * are actually looking at: at 1440px with the search field focused, "All collections › TCGA-BRCA ›
+ * slides" rendered as "All collections", dropping both the folder and the level and keeping only
+ * the root nobody needed told.
+ *
+ * `justify-content: flex-end` moves the overflow to the head. There is no visual cost while there
+ * is room, because a `flex: 0 1 auto` container is only as wide as its content until it has to
+ * shrink; the alignment starts mattering at exactly the point where something has to be lost.
+ * `min-width` is a floor under that, so the trail never collapses to nothing. */
+.browser-crumbs {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 90px;
+  overflow: hidden;
+}
+.browser-crumb {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.browser-crumb:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.browser-crumb.is-current { color: hsl(var(--foreground)); font-weight: 500; cursor: default; }
+.browser-crumb.is-current:hover { background: transparent; }
+.browser-crumb-sep { color: hsl(var(--muted-foreground)); opacity: 0.5; flex-shrink: 0; }
+
+/* THE CLUSTER NEVER GIVES. Every item in it is a control, and a control that has been narrowed until
+   its label is cut in half is worse than no control — "Impo" is not a button. So the breadcrumb is
+   the only thing in this row that yields, and it yields from the head, which is the convention and
+   the harmless end.
+   Two things were tried and reverted, and they are recorded because both look like the obvious fix:
+   `min-width: 0` here lets the cluster shrink past its own buttons and clips "Import" at 1440; and
+   `flex-shrink: 0` on the children does not save it, because the CONTAINER is still shrinking and
+   its children then overflow into `.browser-main`'s `overflow: hidden`. The search field's own
+   `min-width` is left in place as a floor, but nothing squeezes it in practice. */
+.browser-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* ── The quiet control ─────────────────────────────────────────────────────── */
+
+/* What a button that is not the page's primary action looks like: the second ink, a hairline ring,
+ * no fill until the pointer is on it.
+ *
+ * WHY THIS EXISTS AT ALL. `ui/button.tsx` is vendored and its ghost variant is `text-primary`,
+ * which under Graphite resolves to the brand indigo. That was the *quiet* option on the Viewer's
+ * black ground, where a saturated blue is barely brighter than the surface; on a near-white page
+ * it is the loudest thing on screen, and three of them in a row — Columns, New folder, Import —
+ * flattened the toolbar against the table below it. The fix is the page's own rule rather than an
+ * edit to the vendored file, because the Viewer still wants the variant it has.
+ *
+ * The ring is an inset shadow rather than a border so the control's outer size is exactly the
+ * space it was given, which is what lets a 28px button line up with the 28px view switch and the
+ * 28px status select beside it without anything being off by two pixels.
+ *
+ * WHY THE SELECTOR LEADS WITH `.browser-shell`. Tailwind's utilities are emitted after browser.css
+ * and win every specificity tie, and the ones being answered here are `hover:bg-primary/25` and
+ * `hover:bg-secondary/100`, both (0,2,0) on the hover state. The shell class buys the one point
+ * that settles it. It is also the truthful scope: this is the landing page's answer, and the same
+ * `<Button>` elsewhere in the app is left alone.
+ *
+ * WHAT STAYS BRAND-COLOURED. The one genuine primary action on the page — "Open slide" in the
+ * preview pane — which keeps the default variant's brand fill and is the only thing on a Graphite
+ * screen that carries one. */
+.browser-shell .browser-quiet {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-2);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.browser-shell .browser-quiet:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+/* The trigger of an open menu reads as pressed for as long as the menu is up; Radix writes the
+ * state onto the trigger and this is the only thing that tells the two apart once the pointer has
+ * moved off the button and onto the menu. */
+.browser-shell .browser-quiet[data-state='open'] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* ── The search field ──────────────────────────────────────────────────────── */
+
+/* A WELL, NOT A BOX. Sunken ground, no border, a brand ring only while focused — the same shape the
+ * dialogs' inputs take. The 1px outline it used to wear in the brand band was the page's quietest
+ * possible way of saying "type here", on a card that is itself only 2% off white.
+ *
+ * It widens on focus instead of claiming the room permanently, because for most of the time it is a
+ * control nobody is using and the breadcrumb beside it is what the row is for. `width` rather than
+ * `flex` so the buttons to its right do not shift: the toolbar has 12px of gap and the breadcrumb
+ * absorbs the 50px. On the layout duration, because it moves other things. */
+.browser-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* It gives room back before the breadcrumb does. Adding a 190px field to a row that already held
+     seven controls is what made that row tight, so this is the item that should shrink first; 140px
+     is about where a field stops being able to show what was typed into it. */
+  flex-shrink: 1;
+  width: 190px;
+  min-width: 140px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-2);
+  background: var(--sunken);
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: width var(--motion-layout), box-shadow var(--motion-fast);
+}
+.browser-search:focus-within {
+  width: 240px;
+  box-shadow: inset 0 0 0 1px var(--brand);
+  color: var(--ink-2);
+}
+.browser-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.browser-search input::placeholder { color: var(--ink-3); }
+/* The native clear affordance is drawn by the browser as a dark glyph, which is right on this
+   page and was wrong on the Viewer's black ground — where this rule was first written, unscoped,
+   and inverted it to white. On a white page that inversion is white-on-white: the X was still
+   there and still clickable and could not be seen at all. So the inversion belongs to the dark
+   theme only, and light gets the glyph the browser already draws, one step back. */
+.browser-search input::-webkit-search-cancel-button { opacity: 0.5; }
+:root[data-mode='dark'] .browser-search input::-webkit-search-cancel-button {
+  filter: invert(1);
+}
+
+/* ── The status filter ─────────────────────────────────────────────────────── */
+
+/* Still a native `<select>` — the open list and its keyboard behaviour are the platform's, and
+ * nothing about a five-item filter justifies rebuilding those. What goes is the platform's *closed*
+ * appearance: `appearance: none` removes the system border and the system arrow, and the chevron
+ * beside it in the markup is drawn over the field. Before this it was the one control in the row
+ * still wearing OS chrome, standing between two pills.
+ *
+ * `pointer-events: none` on the glyph, or the 13px of it swallows the click that opens the menu. */
+.browser-selwrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.browser-selwrap > svg {
+  position: absolute;
+  right: 8px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.browser-select {
+  height: 28px;
+  padding: 0 26px 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  appearance: none;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.browser-select:hover { background: var(--hover); color: var(--ink); }
+.browser-select:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+
+/* ── Batch bar ─────────────────────────────────────────────────────────────── */
+
+/* A BRAND EVENT, NOT A GREY ONE. It appears because the user did something and it offers to act on
+ * what they picked, so it carries the brand wash rather than the neutral fill it had — a grey bar
+ * arriving between two grey rows is a layout shift with no news in it. It was `hsl(var(--accent))`,
+ * which is this codebase's HOVER fill: a bar permanently wearing the colour a row wears under the
+ * pointer reads as a row stuck mid-hover.
+ *
+ * It slides rather than appears, on the layout duration, because it pushes the table down and a jump
+ * of 34px reads as the list having reloaded. Gated below — this is the page's first reduced-motion
+ * query and 06 adds the rest to it. */
+.browser-batchbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  box-shadow: inset 0 -1px var(--line);
+  background: var(--wash);
+  color: var(--ink-2);
+  font-size: 12px;
+  animation: browser-slidedown var(--motion-layout);
+}
+/* The count is the one number the bar exists to state. */
+.browser-batchbar > span:first-child {
+  color: var(--brand);
+  font-weight: var(--fw-medium);
+}
+
+@keyframes browser-slidedown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Movement is the part that has to be optional; the bar itself is not. Tailwind's `animate-*` is
+ * not gated by default and neither is shadcn's Skeleton — you have to write this yourself. */
+@media (prefers-reduced-motion: reduce) {
+  .browser-batchbar { animation: none; }
+  .browser-search { transition: box-shadow var(--motion-fast); }
+}
+
+/* ── When the row runs out of room ─────────────────────────────────────────── */
+
+/* THE LABELS GO BEFORE ANYTHING IS CUT. The toolbar genuinely cannot hold what it holds below about
+ * 1550px: labelled, the action cluster measures 676px, the breadcrumb wants 254, and with 12px of
+ * gap and 28px of padding that needs 970px of main column — which the frame only has from ~1551px
+ * of window up, once the 236px rail and the 320px preview are taken out. Below it every way of
+ * distributing the shortfall ends with a control cut mid-word, and "Impo" is not a button.
+ *
+ * So the row sheds the three labels whose icons already say the same thing, which brings the cluster
+ * to 469px and puts the whole breadcrumb back. `aria-label` and `title` carry the words in both
+ * states, so nothing loses its name. This is 04's own bill: before search moved down here the
+ * cluster was 474px and the row had room to spare. */
+@media (max-width: 1550px) {
+  .browser-btn-label { display: none; }
+  .browser-toolbar-actions .browser-quiet { padding: 0 var(--space-1); }
+}

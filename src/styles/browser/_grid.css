@@ -1,0 +1,214 @@
+/* Landing page: the grid view (src/components/browser/SlideGrid.jsx) and the control that reaches
+ * it.
+ *
+ * WHY THE SEGMENTED CONTROL IS IN THIS FILE AND NOT IN _toolbar.css. It sits in the toolbar, but it
+ * exists only because this view exists: the whole of the grid — the way in and what you land on —
+ * arrives and leaves as one partial, and nothing in _toolbar.css has to know a second view was
+ * added. The partials were split apart precisely so a feature could own a file rather than a
+ * paragraph in someone else's.
+ *
+ * Everything below names the Graphite roles directly rather than the shadcn triplets, for the
+ * reason _tree.css gives: a card's ring is `--line` at 6% and its bed is `--sunken`, and both carry
+ * real translucency that the alpha-free shadcn names deliberately cannot.
+ */
+
+/* ── The view switch ───────────────────────────────────────────────────────── */
+
+/* Two icons in a sunken well, the active one lifted onto the surface — the recipe every segmented
+   control uses, because "raised" is the one visual property that reads as *selected* rather than as
+   merely hovered, at a size too small for a label. */
+.browser-viewseg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-2);
+  background: var(--sunken);
+}
+
+.browser-viewseg button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  /* Two pixels inside the well's own radius, so the raised chip's corners sit concentric with it
+     rather than crossing it. */
+  border-radius: calc(var(--radius-2) - 2px);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.browser-viewseg button:hover { color: var(--ink); }
+.browser-viewseg button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--elev-1);
+}
+.browser-viewseg button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────────── */
+
+/* auto-fill with a 190px floor: the column count follows the window, and 190 is the width at which
+   a 4:3 frame is still big enough to read a macro shape off. `1fr` rather than a fixed track so the
+   last row's leftover width is shared out instead of stranded at the right edge.
+   The inset is stated here because `.browser-table-wrap` has none — a table draws to its own edges,
+   and cards flush against the rail would read as clipped. */
+.browser-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  margin: 0;
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  list-style: none;
+}
+
+/* The double ring is not a mistake: `--elev-1` opens with its own hairline, and the `--line` ring in
+   front of it is what keeps a white card visible on a near-white canvas where a blur alone does not.
+   Selection replaces the outer ring with the brand at 2px rather than tinting the card — a wash
+   across a card would sit under the thumbnail and change the colour of the tissue. */
+.browser-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-3);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line), var(--elev-1);
+  cursor: default;
+  transition: box-shadow var(--motion-fast), transform var(--motion-fast);
+  /* The same entry the rows get, and the same reason it is not staggered — _table.css has the note.
+     Gated with everything else at the foot of this file. */
+  animation: browser-rowin 0.3s var(--ease);
+}
+.browser-card:hover {
+  box-shadow: 0 0 0 1px var(--line-2), var(--elev-2);
+  transform: translateY(-1px);
+}
+.browser-card[data-selected],
+.browser-card[data-selected]:hover {
+  box-shadow: 0 0 0 2px var(--brand), var(--elev-2);
+}
+
+/* ── The image frame ───────────────────────────────────────────────────────── */
+
+/* 4:3 and CONTAINED. Every frame on the page is the same shape and every slide keeps its own, so
+   the wall of cards is a chart of aspect ratios; `cover` would make all forty identical squares and
+   throw away the first thing a pathologist reads off a thumbnail. `max-width`/`max-height` rather
+   than `width: 100%` so a small thumbnail is not upscaled into mush. */
+.browser-card-image {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--sunken);
+  box-shadow: inset 0 -1px var(--line);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.browser-card-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* A folder is somewhere you can go, so its glyph sits a step forward in the ink scale; the other
+   two are statements about something missing and stay back at --ink-3. */
+.browser-card-image[data-kind='folder'] { color: var(--ink-2); }
+
+/* ── The caption ───────────────────────────────────────────────────────────── */
+
+/* 6px rather than a scale step: --space-1 lets the name and the meta row touch and --space-2 opens
+   a gap wide enough to read as two blocks. The rail uses the same off-scale step for the same
+   reason — the scale is for layout, and this is typesetting. */
+/* `flex: 1` so the body claims the height the grid gave the card beyond its image — without it the
+   body is only as tall as its own text and the leftover is dead space under it, which is what makes
+   the `margin-top: auto` on the meta row below do nothing at all. */
+.browser-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+/* Two lines, then stop. Real names here reach 89 characters and are dotted hex strings with no
+   spaces, so the wrap has nowhere to break unless it is allowed to break mid-token — `break-word`
+   would leave a 40-character UUID hanging off the card. Line-clamp rather than an ellipsis on one
+   line because the distinguishing part of a TCGA filename is at the front and the second line is
+   where the case id finishes. */
+.browser-card-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink);
+  text-align: left;
+  word-break: break-all;
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+/* The same affordance the table's name carries, so the thing that opens looks the same in both. */
+.browser-card-name:hover {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.browser-card-name:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-1);
+}
+
+/* Pushed to the foot of the card rather than left to follow the name. Grid rows stretch every card
+   to the tallest in the row, so a name that fits on one line would otherwise leave its chip sitting
+   seventeen pixels above its neighbours' — and with a caption band running the width of the window,
+   that one raised chip is the thing the eye catches instead of the tissue. */
+.browser-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: auto;
+}
+/* The chip is a fixed vocabulary and always fits; the scan reading is the one that can run long, so
+   it is the one that gives way. It keeps the mono face and the ink from the table. */
+.browser-card-meta .browser-status { flex-shrink: 0; }
+.browser-card-meta .browser-scan {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-card-count {
+  flex-shrink: 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The card's share of the page's one reduced-motion contract. The keyframes and the rest of the
+   query live in _table.css; this is the grid's element, so its gate is here. */
+@media (prefers-reduced-motion: reduce) {
+  .browser-card {
+    animation: none;
+    transition: none;
+  }
+  .browser-card:hover { transform: none; }
+}

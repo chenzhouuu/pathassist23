@@ -1,0 +1,442 @@
+/* Landing page: the item table and its empty state.
+ *
+ * The row is what a pathologist reads all day, so the density here is the whole design and not a
+ * detail of it. 56px of row around a 40px thumbnail; 48px of header; 14px body on a 20px line.
+ * The previous 44px row around the same 40px thumbnail left two pixels of air, which was the
+ * actual source of the crowding — the thumbnail was never too big, the row was too short.
+ *
+ * WHY THIS FILE STATES COLOUR IN THE GRAPHITE ROLES. The partials around it mostly speak the
+ * shadcn contract (`hsl(var(--border))` and friends), because that is what the vendored
+ * `ui/*.tsx` components read. The pieces below that are *not* vendored — the divider, the status
+ * chip, the thumbnail bed — name the Graphite roles directly (`--line`, `--sunken`, `--sem-*`),
+ * because those roles carry real translucency and a `color-mix` percentage that the alpha-free
+ * shadcn triplets deliberately cannot. Both sets are the same palette; see _tokens.css.
+ *
+ * WHY SEVERAL RULES LOOK OVER-QUALIFIED. `src/components/ui/table.tsx` is vendored from OHIF and
+ * must not be edited, and it puts Tailwind utilities on every `tr`, `th` and `td` — `border-b`,
+ * `p-2`, `h-10`, `text-base`, `hover:bg-muted`, `hover:[&>td]:text-highlight`. browser.css is
+ * imported *before* `@tailwind utilities` in index.css, so on a specificity tie Tailwind wins on
+ * source order. Every rule below that has to beat one of those utilities is written to outrank it
+ * rather than to look tidy, and the utility it is beating is named where it is not obvious.
+ */
+
+/* The page's layout — the grid, the plate, and which element is allowed to scroll — is in
+ * _shell.css. `.browser-body` and `.browser-table-wrap` were declared here while the body was a
+ * flex row; they moved when the body became the frame, because where the scrolling happens is now
+ * a fact about the frame rather than about the table. */
+
+/* Beats `text-base` (16px) on the vendored <table>. The negative tracking is what keeps 14px
+ * Inter from feeling loose across a 700px column run; the mono columns switch it back off.
+ *
+ * WHY `table-layout: fixed`. Under the browser's default auto layout a column is as wide as its
+ * widest cell wants to be, and the names here are 89-character TCGA barcodes with no space to
+ * break on, so Name took 710px of an 875px container and the table overflowed by 219px — Size and
+ * Updated were pushed off the right edge entirely, and `.browser-name-label`'s ellipsis never
+ * fired because a cell that grows to fit its content never overflows. The same algorithm is what
+ * made the 36px select column land at 140: `size` is a hint auto layout is free to ignore when
+ * there is slack to hand out.
+ *
+ * Fixed layout answers both at once. Every column but Name states its width in `meta` and is given
+ * exactly that; Name states none, and the CSS rule for the leftover space is that the columns with
+ * no declared width divide it — so Name is the flexible column by construction rather than by
+ * arithmetic, and the table is exactly as wide as its container at every size. The alternative,
+ * `max-width: 0` on the flexible cell, leaves the other columns' widths up to their content and
+ * would not have fixed the select column; it also asks every reader to know that trick.
+ *
+ * What fixed layout does not do is shrink a declared width, so a container narrower than the
+ * declared columns *would* overflow. That is what the priority ladder in responsiveColumns.js is
+ * for, and it is why the two have to be read together: the ladder's job is to keep the sum of the
+ * fixed widths under the container, and Name, having no fixed width, absorbs whatever is left. */
+.browser-table-wrap table {
+  table-layout: fixed;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: -0.011em;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+
+/* Sentence case at close to body size, separated from the rows by weight and colour alone. The
+ * 11px uppercase at 0.04em that stood here is the single fastest way to date a table, and it also
+ * costs a header the ability to be read as a word rather than decoded as a label. */
+.browser-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0 var(--space-3);
+  height: 48px;
+  /* The frame's own ground, not the canvas. The header is what the rows disappear under, so it has
+   * to be opaque — but inside one frame the only opaque colour available is the frame's, and that
+   * is also what makes the header's overflow past the frame's rounded corners invisible: it is the
+   * same colour as what it overflows onto. */
+  background: var(--surface);
+  /* Inset rather than a border, for the same reasons as the row divider below, plus one more: a
+   * sticky element's border is drawn at its own edge and an inset shadow is drawn inside the
+   * padding box, so this line stays put when the rows slide under it. --line-2 rather than
+   * --line because this separates two regions, not two rows. */
+  box-shadow: inset 0 -1px var(--line-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+/* `[&_tr]:border-b` on the vendored <thead>. */
+.browser-table-wrap thead tr { border-bottom: 0; }
+
+.browser-table-wrap thead th.is-sortable { cursor: pointer; user-select: none; }
+.browser-table-wrap thead th.is-sortable:hover,
+.browser-table-wrap thead th[aria-sort] { color: var(--ink); }
+
+/* ── Sort direction ────────────────────────────────────────────────────────── */
+
+/* Primer's two-tier affordance: a persistent arrow on the sorted column, and a hint arrow on every
+ * other sortable header that appears under the pointer. Before this a sorted header only darkened,
+ * so the table said which column was sorted and never which way — and on Name, where folders lead
+ * in both directions, darkening alone is genuinely ambiguous.
+ *
+ * `visibility`, not `display`. Hiding the hint with `display: none` would let the label sit 21px
+ * further left until the pointer arrived and then shove it sideways; reserving the box costs
+ * nothing and the header holds still. */
+.browser-th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.browser-sort {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--ink-3);
+}
+.browser-table-wrap thead th.is-sortable:hover .browser-sort,
+.browser-table-wrap thead th.is-sortable:focus-visible .browser-sort {
+  visibility: visible;
+}
+/* The sorted column's arrow is always there and carries the brand, which is the one place on the
+ * page where brand colour means "this is the state you set" rather than "this opens something". */
+.browser-table-wrap thead th[aria-sort] .browser-sort {
+  visibility: visible;
+  color: var(--brand);
+}
+
+/* ── Alignment ─────────────────────────────────────────────────────────────── */
+
+/* One column is right-aligned and it is the only quantitative one — Cloudscape's rule, and the
+ * reasoning is in browserColumns.jsx beside the column that carries the flag. On a right-aligned
+ * header the glyph moves to the LEFT of the label, so it stays against the digits rather than
+ * drifting out to the column's edge; Primer does this with the same `row-reverse`. */
+.browser-table-wrap th[data-align='right'],
+.browser-table-wrap td[data-align='right'] { text-align: right; }
+.browser-table-wrap th[data-align='right'] .browser-th-label { flex-direction: row-reverse; }
+
+/* ── Rows ──────────────────────────────────────────────────────────────────── */
+
+/* The divider is Radix Themes' recipe, adopted verbatim. An inset shadow on the CELL adds no
+ * layout height, does not interact with `border-collapse`, and switches off for the final row by
+ * flipping one inherited variable — none of which a `border-bottom` on the row manages. */
+.browser-table-wrap tbody { --table-row-box-shadow: inset 0 -1px var(--line); }
+.browser-table-wrap tbody tr:last-child { --table-row-box-shadow: none; }
+
+/* `border-b` on the vendored <tr>, which would otherwise draw a second line under the shadow. */
+.browser-table-wrap tbody tr { border-bottom: 0; cursor: default; }
+
+.browser-table-wrap tbody td {
+  padding: 0 var(--space-3);
+  height: 56px;
+  vertical-align: middle;
+  box-shadow: var(--table-row-box-shadow);
+  color: var(--ink);
+}
+
+/* The row IS a click target — it selects, and the preview follows — so it carries a hover fill.
+ *
+ * This file previously argued the opposite: that the row only opens on double click, so the whole
+ * affordance belonged on the name button. The evidence went the other way. VS Code ships
+ * `workbench.list.openMode` with both `singleClick` and `doubleClick`, and the hover colour is
+ * identical in the two; the no-hover camp is entirely native-desktop lineage, where AppKit's
+ * NSTableView.h has no occurrence of `hover` at all and GTK4's Adwaita `columnview.view` defines
+ * `:selected` and no `:hover`. No shipped web product was found suppressing row hover over
+ * double-click semantics.
+ *
+ * --hover, which 01 calibrated to the FRAME rather than to white. Do not copy shadcn's own
+ * `hover:bg-muted/50` here: it computes to #FAFAFA, which is invisible on anything that is not pure
+ * white, and this page's card is #F9F9FA.
+ *
+ * The fill goes on the cells rather than on the row because the divider is an inset shadow on the
+ * cell, and a background on the <tr> paints underneath it. These rules also undo `hover:bg-muted`
+ * and `hover:[&>td]:text-highlight` from the vendored <tr>; the second has to carry the same
+ * `:hover` to outrank the utility, which is why it is not folded into the base `td` rule. */
+.browser-table-wrap tbody tr:hover { background: transparent; }
+.browser-table-wrap tbody tr:hover > td {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* ── Selected, checked, and both at once ───────────────────────────────────── */
+
+/* A row can be the preview's row AND have its box ticked, and two background tints cannot coexist —
+ * whichever is written second simply wins and the other state stops existing. So the two states use
+ * two different mechanisms: a neutral FILL for "this row is spoken for", and an EDGE for "this is
+ * the one the pane is showing".
+ *
+ * That is what ~15 codebases converge on. VS Code moved away from a saturated blue fill to
+ * `list.activeSelectionBackground #E8E8E8` plus `outline: 1px solid; outline-offset: -1px`;
+ * Thunderbird reached the same `outline-offset: -1px` independently; Primer's ActionList refuses to
+ * express the two as tints at all, giving `active` a bar and `selected` only a checkmark. The
+ * brand wash that used to be here was the one thing on the page that could not compose with itself.
+ *
+ * 2px. The only widths anything ships for an edge indicator are 2 and 4. */
+.browser-table-wrap tbody tr[data-selected] > td,
+.browser-table-wrap tbody tr[data-checked] > td,
+.browser-table-wrap tbody tr[data-selected]:hover > td,
+.browser-table-wrap tbody tr[data-checked]:hover > td { background: var(--sel); }
+
+/* The edge is drawn INSIDE the first cell, composed with the divider it must not replace. Roundcube
+ * is the one shipped table doing this with `border-left` and its own source warns that breaks under
+ * `border-collapse: collapse`; an inset shadow has neither problem and is already how every other
+ * line in this table is drawn. */
+.browser-table-wrap tbody tr[data-selected] > td:first-child {
+  box-shadow: var(--table-row-box-shadow), inset 2px 0 var(--brand);
+}
+
+/* Thunderbird's `multi-selected` rule, which is the detail worth stealing: with a single box ticked
+ * on the row the pane is already showing, the fill and the edge are two marks for one fact. The
+ * edge earns its place only once there is more than one ticked row for it to pick between. */
+.browser-table-wrap tbody:not([data-multi]) tr[data-selected][data-checked] > td:first-child {
+  box-shadow: var(--table-row-box-shadow);
+}
+
+/* ── Name cell ─────────────────────────────────────────────────────────────── */
+
+.browser-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.browser-name-text { display: flex; flex-direction: column; min-width: 0; }
+.browser-name-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--motion-fast);
+}
+.browser-name-sub { color: var(--ink-2); font-size: 12px; }
+.browser-name-chevron { color: var(--ink-3); flex-shrink: 0; }
+
+/* The whole hover affordance for the row, concentrated on the eleven characters that open it. */
+.browser-name:hover .browser-name-label {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.browser-name:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+  border-radius: var(--radius-1);
+}
+
+/* ── Thumbnail ─────────────────────────────────────────────────────────────── */
+
+/* A uniform 40px frame with the image CONTAINED inside it. Slides in this instance run from
+ * 0.62 : 1 to 4.33 : 1, and `cover` crops a 4.33 : 1 tissue strip down to the square in its
+ * middle — which throws away the macro shape, the first thing anyone reads off a thumbnail. The
+ * sunken bed is what makes the letterboxing read as the slide's proportions rather than as a
+ * failed load, and the ring is inset so the frame is 40px including it. */
+.browser-thumb {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-1);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+.browser-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.browser-thumb-folder { color: var(--ink-2); }
+
+/* ── Status chip ───────────────────────────────────────────────────────────── */
+
+/* A soft tint, never a saturated solid: a filled chip is the loudest thing in the row and it
+ * flattens the hierarchy, so the slide name stops being what the eye lands on first.
+ *
+ * One rule per status and no per-theme pair. The fill is the semantic hue mixed onto whatever
+ * surface is current, and both the mix percentage and the label colour are themselves tokens —
+ * dark needs a heavier mix and a lifted label — so light and dark differ by the values in
+ * _tokens.css and not by a second block of rules here. */
+.browser-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-1);
+  background: var(--sunken);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+/* New is not a semantic hue. Nobody has looked at the slide yet, which is the absence of a
+ * finding rather than a finding, so it stays on the neutral bed set above. */
+.browser-status[data-status='Read'] {
+  background: color-mix(in oklab, var(--sem-read) var(--sem-mix), var(--surface));
+  color: var(--sem-read-ink);
+}
+.browser-status[data-status='In Review'] {
+  background: color-mix(in oklab, var(--sem-review) var(--sem-mix), var(--surface));
+  color: var(--sem-review-ink);
+}
+.browser-status[data-status='Flagged'] {
+  background: color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface));
+  color: var(--sem-flag-ink);
+}
+
+/* ── Free-text columns ─────────────────────────────────────────────────────── */
+
+/* Diagnosis, Folder and Collection hold text of no particular length in a cell of a fixed one, so
+ * each clips with an ellipsis. Wrapping is the alternative and it is worse: one long diagnosis
+ * would make its row two lines tall and break the 56px rhythm the rest of the table is set to,
+ * for one row in a hundred and unpredictably. The span exists because the ellipsis needs a block
+ * with a width to happen in, and `overflow: hidden` on the `<td>` itself would clip the name
+ * button's focus ring, which is drawn 3px outside its box. */
+.browser-clip {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Numeric and identifier columns ────────────────────────────────────────── */
+
+/* Mono with tabular figures, so a column of sizes and dates lines up on the digit rather than on
+ * the glyph, and 13px because JetBrains Mono's x-height reads a size larger than Inter's at the
+ * same nominal size. Tracking back to normal: the body's -0.011em is drawn for a proportional
+ * face and tightens a monospace grid that is already tight. */
+.browser-num,
+.browser-scan {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* The Scan column's two spoken states are prose about the slide's provenance rather than a
+ * reading off it, so they drop out of the mono grid and one step further back in the ink scale.
+ * They are still stated: "not recorded" and "not a slide" are different facts, and a blank cell
+ * would collapse them into each other and into a folder. */
+.browser-scan[data-kind='not-recorded'],
+.browser-scan[data-kind='not-a-slide'] {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* ── Row entry ─────────────────────────────────────────────────────────────── */
+
+/* A fade and a short rise as a level lands, so a folder arriving reads as content appearing rather
+ * than as the page having been replaced.
+ *
+ * NOT STAGGERED BY INDEX. The 2026-08-02 prototype ramps the delay up to 260ms, which is fine for
+ * its ten-row fixture and wrong for the 500-row folders this instance actually has: the last row
+ * would land a quarter of a second after the first and the list would appear to wipe rather than
+ * appear. One duration for every row, and the whole thing is over in 0.3s. */
+@keyframes browser-rowin {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.browser-table-wrap tbody tr { animation: browser-rowin 0.3s var(--ease); }
+
+/* ── Skeleton ──────────────────────────────────────────────────────────────── */
+
+/* At the REAL row height. That is the whole point of it — see SkeletonRows.jsx. */
+.browser-skeleton { padding: 0; }
+.browser-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 56px;
+  padding: 0 var(--space-3);
+  box-shadow: inset 0 -1px var(--line);
+}
+.browser-skeleton-box {
+  height: 10px;
+  border-radius: var(--radius-1);
+  background: var(--sunken);
+  animation: browser-pulse 1.6s var(--ease) infinite;
+}
+.browser-skeleton-thumb {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+}
+.browser-skeleton-meta { flex-shrink: 0; width: 64px; margin-left: auto; }
+
+@keyframes browser-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ── Motion, gated ─────────────────────────────────────────────────────────── */
+
+/* Carbon ships this gate on its skeleton; shadcn's does not, and Tailwind's `animate-pulse` is not
+ * gated either — `motion-safe:` is something you have to remember to write. One query for
+ * everything this page animates; _toolbar.css carries the batch bar's, which was written first. */
+@media (prefers-reduced-motion: reduce) {
+  .browser-table-wrap tbody tr,
+  .browser-skeleton-box {
+    animation: none;
+  }
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+
+/* A minimum height and an icon, so "this folder is empty" and "the request has not come back" stop
+ * being two arrangements of the same two lines of text in the middle of a blank frame. 35% is far
+ * enough back that the icon is a mood rather than a thing to read. */
+.browser-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 260px;
+  padding: var(--space-8) var(--space-4);
+  color: var(--ink-2);
+  font-size: 13px;
+  text-align: center;
+}
+.browser-empty-icon {
+  margin-bottom: var(--space-1);
+  color: var(--ink-3);
+  opacity: 0.35;
+}
+/* "Clear filters" is the third bare `<Button>` on the page — same 4px, same correction. */
+.browser-empty button { border-radius: var(--radius-2); }
+.browser-empty-sub { font-size: 12.5px; color: var(--ink-3); max-width: 44ch; }
+
+/* ── The empty value ───────────────────────────────────────────────────────── */
+
+/* One step back from the third ink, so a column of dashes reads as the absence of content rather
+ * than as content. `aria-hidden` is on the element itself — the cell's emptiness is already what a
+ * screen reader conveys, and a row of announced em dashes would be worse than the blank this
+ * replaces. See browserColumns.jsx for why it is a dash rather than a blank or a word. */
+.browser-dash {
+  color: var(--ink-3);
+  opacity: 0.6;
+}

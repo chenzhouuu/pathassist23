@@ -11,12 +11,12 @@
 // assembled from the OHIF ui-next primitives in src/components/ui (MIT) driven by
 // @tanstack/react-table, which is the same engine OHIF's own StudyList runs on. Navigation is
 // this repo's own: OHIF's study list is flat, so it has no breadcrumb to borrow.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
 } from '@tanstack/react-table';
-import { X } from 'lucide-react';
+import { ArrowDown, ArrowUp, FolderOpen, SearchX, X } from 'lucide-react';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems, updateItemMetadata } from '../../api/index.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.tsx';
@@ -26,55 +26,67 @@ import {
 } from '../ui/dropdown-menu.tsx';
 import BrowserTopBar from './BrowserTopBar.jsx';
 import BrowserToolbar from './BrowserToolbar.jsx';
+import CollectionTree from './CollectionTree.jsx';
+import SlideGrid from './SlideGrid.jsx';
 import PreviewPane from './PreviewPane.jsx';
+import SkeletonRows from './SkeletonRows.jsx';
 import ImportModal from './ImportModal.jsx';
 import NewEntryDialog from './NewEntryDialog.jsx';
 import SharePatientModal from '../share/SharePatientModal.jsx';
 import { buildColumns, HIDDEN_BY_DEFAULT } from './browserColumns.jsx';
+import { useBrowseNavigation } from './useBrowseNavigation.js';
+import { usePreviewResize } from './usePreviewResize.js';
+import { useResponsiveColumns } from './useResponsiveColumns.js';
+import { specFor } from './responsiveColumns.js';
+import { useSurfaceTheme } from './useSurfaceTheme.js';
 import {
-  crumbsFor, levelOf, parentOf, toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirst,
-  STATUSES,
+  toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirstIn, STATUSES,
 } from './browseUtils.js';
 
-const SEARCH_DEBOUNCE_MS = 300;
+// The resizer names what it resizes through `aria-controls`, so the id has to be agreed between the
+// two elements and this is the only place both are in scope.
+const PREVIEW_ID = 'browser-preview';
 
 export default function BrowserPage() {
   const qc = useQueryClient();
   const { setActiveItem, setActiveFolder, user } = useStore();
 
-  // Navigation is a (collection, path) pair — see browseUtils. Held locally rather than in the
-  // store because nothing outside this page needs to know where the browser is pointing; the
-  // store's activeCollection/activeFolder are set on the way out, for the viewer's sidebar.
-  const [collection, setCollection] = useState(null);
-  const [path, setPath] = useState([]);
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [status, setStatus] = useState('All');
-  const [selectedId, setSelectedId] = useState(null);
-  const [rowSelection, setRowSelection] = useState({});
+  // This page, and only this page, is Graphite. The hook marks the document for as long as the
+  // page is mounted and unmarks it on the way out, which is what leaves the Viewer in its own
+  // reading-room palette without a single rule in browser/ knowing the Viewer exists.
+  const { mode, toggleMode } = useSurfaceTheme('browser');
+
+  // Table or grid. It lives here rather than in `useBrowseNavigation` because it is not navigation:
+  // the hook holds where we are pointing and what that position implies, and it clears every one of
+  // those on a level change, because a status filter carried into another folder silently hides its
+  // contents. A view mode carried into another folder is the *opposite* — it is the thing the user
+  // chose about how to look, and resetting it on every step into a case folder is precisely the bug
+  // the ticket forbids. It is presentation, like the rail's expansion state; unlike that one it
+  // cannot live inside a single component, because the control is in the toolbar and the rendering
+  // is in the body, and this is the smallest place both can see.
+  const [viewMode, setViewMode] = useState('table');
+
+  // The preview's width and whether it is showing. Both are the user's, both outlive the visit, and
+  // neither is navigation — walking into another folder must not resize the pane — so they sit here
+  // beside the view mode rather than in `useBrowseNavigation`. The hook owns the pointer arithmetic
+  // and the clamp; this page only has to place the two elements and hand the resizer its props.
+  const preview = usePreviewResize({ controls: PREVIEW_ID });
+
   const [columnVisibility, setColumnVisibility] = useState(HIDDEN_BY_DEFAULT);
   const [sorting, setSorting] = useState([{ id: 'name', desc: false }]);
-  const [overrides, setOverrides] = useState({});   // itemId → freshly written meta
   const [showImport, setShowImport] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [shareFolder, setShareFolder] = useState(null);
-  const searchTimer = useRef(null);
 
-  const level = levelOf(collection, path);
-  const folder = path[path.length - 1] || null;
-
-  useEffect(() => {
-    clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setDebounced(search), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(searchTimer.current);
-  }, [search]);
-
-  // Moving to another level is a different set of rows, so nothing about the old one carries:
-  // a status filter from the previous folder would silently hide the new one's contents.
-  useEffect(() => {
-    setSearch(''); setDebounced(''); setStatus('All');
-    setSelectedId(null); setRowSelection({}); setOverrides({});
-  }, [collection?._id, folder?._id]);
+  // Where we are, what is filtered, what is selected. Backspace ascends, so the hook has to be
+  // told when a dialog is up: the listener is on window and would otherwise navigate underneath
+  // one, leaving NewEntryDialog offering to create in a level that is no longer showing.
+  const {
+    collection, path, level, folder, crumbs,
+    search, debouncedSearch, status, setSearch, setStatus,
+    selectedId, rowSelection, select, setRowSelection, clearRowSelection,
+    overrides, setOverrides, descend, goToCrumb, goTo,
+  } = useBrowseNavigation({ suppressBackspace: showImport || showNew || !!shareFolder });
 
   // Always fetched, not just at the root: the Import dialog needs the collection list to offer a
   // destination, and it can be opened from any level.
@@ -110,48 +122,21 @@ export default function BrowserPage() {
     return out;
   }, [level, collections.data, folders.data, items.data, overrides, folder, collection]);
 
-  const visible = useMemo(() => filterRows(rows, { search: debounced, status }), [rows, debounced, status]);
+  const visible = useMemo(
+    () => filterRows(rows, { search: debouncedSearch, status }),
+    [rows, debouncedSearch, status],
+  );
 
+  // A slide row is not navigation, so it never reaches the hook: it is the end of the walk, and
+  // all that is left is to hand the viewer its context and leave.
   const open = useCallback((row) => {
     if (isSlideRow(row)) {
-      // Hand the viewer the context it needs for its sidebar before leaving.
       setActiveFolder(folder);
       setActiveItem(row.raw);
       return;
     }
-    if (level === 'collections') { setCollection(row.raw); setPath([]); return; }
-    setPath((p) => [...p, row.raw]);
-  }, [level, folder, setActiveItem, setActiveFolder]);
-
-  // Backspace goes up a level, the way a file manager does — the breadcrumb is the visible route
-  // back, this is the one that does not need aiming.
-  //
-  // Suspended while a dialog is open. The listener is on window, so it fires for a keypress aimed
-  // at the dialog, and navigating underneath one is not merely untidy: NewEntryDialog reads the
-  // current level from props, so a stray Backspace turns "new folder in this case" into "new
-  // collection at the root" with the dialog still showing the old heading.
-  const modalOpen = showImport || showNew || !!shareFolder;
-
-  useEffect(() => {
-    if (modalOpen) return undefined;
-    const onKey = (e) => {
-      if (e.key !== 'Backspace') return;
-      const t = e.target;
-      if (t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      e.preventDefault();
-      const up = parentOf(collection, path);
-      setCollection(up.collection);
-      setPath(up.path);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [collection, path, modalOpen]);
-
-  // Jump straight to any crumb: index 0 is the root, 1 the collection, the rest folders.
-  const goToCrumb = useCallback((i) => {
-    if (i === 0) { setCollection(null); setPath([]); return; }
-    setPath(path.slice(0, i - 1));
-  }, [path]);
+    descend(row);
+  }, [descend, folder, setActiveItem, setActiveFolder]);
 
   const writeStatus = useCallback(async (ids, next) => {
     const list = Array.isArray(ids) ? ids : [ids];
@@ -174,13 +159,43 @@ export default function BrowserPage() {
 
   const columns = useMemo(() => buildColumns({ onOpen: open }), [open]);
 
-  // Status and Size describe a slide. On a level that holds only collections or folders they are
-  // two empty columns eating the width Name wants, so they are hidden until there is something to
-  // put in them. This is derived rather than pushed into `columnVisibility`, so a user's own
-  // choice in the Columns menu survives walking through a level that had no slides.
-  const effectiveVisibility = useMemo(() => (
-    visible.some(isSlideRow) ? columnVisibility : { ...columnVisibility, status: false, size: false }
+  // Status, Scan and Size describe a slide. On a level that holds only collections or folders they
+  // are three empty columns eating the width Name wants, so they are hidden until there is
+  // something to put in them. This is derived rather than pushed into `columnVisibility`, so a
+  // user's own choice in the Columns menu survives walking through a level that had no slides.
+  const levelVisibility = useMemo(() => (
+    visible.some(isSlideRow)
+      ? columnVisibility
+      : { ...columnVisibility, status: false, scan: false, size: false }
   ), [visible, columnVisibility]);
+
+  // The same idea, one turn further: what the table has room for. The ladder is handed only the
+  // columns that would otherwise be showing — a column the level rule has already dropped is not
+  // competing for the width — and it answers with the ones to give up, which are layered on top
+  // in exactly the same derived way. Two reasons a column can be absent, one place they compose,
+  // and `columnVisibility` still holds nothing but what the user asked for. Anything that wrote a
+  // width decision back into that state would turn dragging the preview wider into a permanent
+  // edit of the user's column choices.
+  const responsiveSpec = useMemo(
+    () => specFor(columns, levelVisibility),
+    [columns, levelVisibility],
+  );
+  const [tableRef, droppedForWidth] = useResponsiveColumns(responsiveSpec);
+
+  const effectiveVisibility = useMemo(() => {
+    if (!droppedForWidth.length) return levelVisibility;
+    const out = { ...levelVisibility };
+    for (const id of droppedForWidth) out[id] = false;
+    return out;
+  }, [levelVisibility, droppedForWidth]);
+
+  // The sort direction has to be closed over rather than read inside the comparator, because
+  // @tanstack's sortingFn signature does not carry it — and it matters here. table-core negates
+  // the whole comparator result for a descending column, kind grouping included, so the plain
+  // `foldersFirst` sends folders to the bottom the moment you sort Name descending. See
+  // `foldersFirstIn` for what it does about that.
+  const sortDesc = sorting[0]?.desc ?? false;
+  const sortingFns = useMemo(() => ({ foldersFirst: foldersFirstIn(sortDesc) }), [sortDesc]);
 
   const table = useReactTable({
     data: visible,
@@ -191,13 +206,12 @@ export default function BrowserPage() {
     onRowSelectionChange: setRowSelection,
     getRowId: (r) => r.id,
     enableRowSelection: (r) => isSlideRow(r.original),
-    sortingFns: { foldersFirst },
+    sortingFns,
     defaultColumn: { sortingFn: 'foldersFirst' },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const crumbs = crumbsFor(collection, path);
   const selectedRow = visible.find((r) => r.id === selectedId) || null;
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
   const loading = collections.isLoading || folders.isLoading || items.isLoading;
@@ -205,106 +219,195 @@ export default function BrowserPage() {
 
   return (
     <div className="browser-shell">
-      <BrowserTopBar search={search} onSearch={setSearch} user={user} />
-
-      <BrowserToolbar
-        crumbs={crumbs}
-        onCrumb={goToCrumb}
-        showStatusFilter={level === 'items'}
-        status={status}
-        onStatus={setStatus}
-        columns={table.getAllColumns().filter((c) => c.getCanHide())}
-        inCollection={!!collection}
-        onNew={() => setShowNew(true)}
-        onImport={() => setShowImport(true)}
-      />
-
-      {selectedIds.length > 0 && (
-        <div className="browser-batchbar" role="status">
-          <span>{selectedIds.length} selected</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm">Set status</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {STATUSES.filter((s) => s !== 'All').map((s) => (
-                <DropdownMenuItem key={s} onSelect={() => writeStatus(selectedIds, s)}>{s}</DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => writeStatus(selectedIds, null)}>Clear</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
-            <X size={14} /> Cancel
-          </Button>
-        </div>
-      )}
+      <BrowserTopBar user={user} mode={mode} onToggleMode={toggleMode} />
 
       <div className="browser-body">
-        <div className="browser-table-wrap">
-          {error ? (
-            <div className="browser-empty">
-              <p>Could not load this level.</p>
-              <p className="browser-empty-sub">{String(error.message || error)}</p>
+        {/* The frame. An empty element behind the four regions rather than a container around them:
+            a rounded container has to clip, clipping makes it a scroll container, and the table's
+            sticky header would then resolve against a box that never scrolls and silently slide
+            away with the rows. _shell.css has the full note and the two upstream issues. */}
+        <div className="browser-plate" aria-hidden="true" />
+
+        {/* The rail is handed the position and a way to change it, and keeps everything else to
+            itself — which branches are open is the rail's own business and nothing on this page
+            reads it. See CollectionTree.jsx for why those are two pieces of state and not one. */}
+        <CollectionTree collection={collection} path={path} onNavigate={goTo} />
+
+        {/* The middle column of the frame: where you are, what you have selected, and what is here.
+            All three used to be full-width bands above the body; inside one frame the breadcrumb
+            names the level the table below it is showing, and a bar spanning the rail as well would
+            be describing the rail too. */}
+        <div className="browser-main">
+          <BrowserToolbar
+            crumbs={crumbs}
+            onCrumb={goToCrumb}
+            search={search}
+            onSearch={setSearch}
+            showStatusFilter={level === 'items'}
+            status={status}
+            onStatus={setStatus}
+            columns={table.getAllColumns().filter((c) => c.getCanHide())}
+            columnVisibility={columnVisibility}
+            view={viewMode}
+            onView={setViewMode}
+            previewOpen={!preview.collapsed}
+            onTogglePreview={preview.toggle}
+            inCollection={!!collection}
+            onNew={() => setShowNew(true)}
+            onImport={() => setShowImport(true)}
+          />
+
+          {selectedIds.length > 0 && (
+            <div className="browser-batchbar" role="status">
+              <span>{selectedIds.length} selected</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="sm" className="browser-quiet">Set status</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {STATUSES.filter((s) => s !== 'All').map((s) => (
+                    <DropdownMenuItem key={s} onSelect={() => writeStatus(selectedIds, s)}>{s}</DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => writeStatus(selectedIds, null)}>Clear</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="ghost" size="sm" className="browser-quiet" onClick={clearRowSelection}>
+                <X size={14} /> Cancel
+              </Button>
             </div>
-          ) : (
-            <Table noScroll>
-              <TableHeader>
-                {table.getHeaderGroups().map((hg) => (
-                  <TableRow key={hg.id}>
-                    {hg.headers.map((h) => (
-                      <TableHead
-                        key={h.id}
-                        style={h.column.columnDef.size ? { width: h.column.columnDef.size } : undefined}
-                        onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
-                        className={h.column.getCanSort() ? 'is-sortable' : undefined}
-                        aria-sort={
-                          h.column.getIsSorted() === 'asc' ? 'ascending'
-                            : h.column.getIsSorted() === 'desc' ? 'descending' : undefined
-                        }
-                      >
-                        {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.map((r) => (
-                  <TableRow
-                    key={r.id}
-                    data-selected={r.original.id === selectedId ? '' : undefined}
-                    onClick={() => setSelectedId(r.original.id)}
-                    onDoubleClick={() => open(r.original)}
-                  >
-                    {r.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           )}
 
-          {!error && !loading && visible.length === 0 && (
-            <div className="browser-empty">
-              <p>{rows.length ? 'Nothing matches the current filters.' : 'This level is empty.'}</p>
-              {rows.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setStatus('All'); }}>
-                  Clear filters
-                </Button>
-              )}
-            </div>
-          )}
-          {loading && <div className="browser-empty"><p>Loading…</p></div>}
+          {/* The measured element, and the only thing on the page that scrolls the table. Its width is
+              every way the table can be made wider or narrower — collapsing the pane, dragging it,
+              resizing the window — arriving as one number. */}
+          <div className="browser-table-wrap" ref={tableRef}>
+            {error ? (
+              <div className="browser-empty">
+                <p>Could not load this level.</p>
+                <p className="browser-empty-sub">{String(error.message || error)}</p>
+              </div>
+            ) : viewMode === 'grid' ? (
+              // Fed from the table's own row model rather than from `visible`, so the two views are
+              // the same rows in the same order. The grid has no header to sort by, and a switch that
+              // silently reshuffled the level would make the sort look like a property of the table
+              // rather than of the level.
+              <SlideGrid
+                rows={table.getRowModel().rows.map((r) => r.original)}
+                selectedId={selectedId}
+                onSelect={select}
+                onOpen={open}
+              />
+            ) : (
+              <Table noScroll>
+                <TableHeader>
+                  {table.getHeaderGroups().map((hg) => (
+                    <TableRow key={hg.id}>
+                      {hg.headers.map((h) => (
+                        <TableHead
+                          key={h.id}
+                          /* The header row is what a fixed layout reads the column widths off, and
+                             the one column that declares none — Name — is the one that takes what
+                             is left. `meta.width` rather than `columnDef.size`, which @tanstack
+                             fills in with a default 150 for every column that never asked. */
+                          style={h.column.columnDef.meta?.width
+                            ? { width: h.column.columnDef.meta.width } : undefined}
+                          onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
+                          className={h.column.getCanSort() ? 'is-sortable' : undefined}
+                          data-align={h.column.columnDef.meta?.align}
+                          aria-sort={
+                            h.column.getIsSorted() === 'asc' ? 'ascending'
+                              : h.column.getIsSorted() === 'desc' ? 'descending' : undefined
+                          }
+                        >
+                          {/* Primer's two-tier affordance, and the reason it is here rather than in
+                              each column's `header`: which way a column is sorted is a fact about
+                              the table's state and not about the column, and nine copies of it
+                              would be nine places to keep in step. Until now a sorted header only
+                              *darkened* — the page said which column was sorted and never which
+                              way.
+
+                              The unsorted hint arrow is `visibility: hidden` rather than
+                              `display: none`, so revealing it on hover shifts nothing: the label
+                              does not jump sideways when the pointer arrives. */}
+                          <span className="browser-th-label">
+                            {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                            {h.column.getCanSort() && (
+                              h.column.getIsSorted() === 'desc'
+                                ? <ArrowDown size={13} className="browser-sort" aria-hidden="true" />
+                                : <ArrowUp size={13} className="browser-sort" aria-hidden="true" />
+                            )}
+                          </span>
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                {/* `data-multi` is Thunderbird's `classList.toggle("multi-selected", count > 1)`,
+                    and it is what stops the active row's brand edge from being drawn on a row whose
+                    ticked box already says the same thing. With one box ticked, "checked" and
+                    "showing in the preview" identify the same row and the bar is noise; with two,
+                    it is the only thing saying which of them the pane is showing. */}
+                <TableBody data-multi={selectedIds.length > 1 ? '' : undefined}>
+                  {table.getRowModel().rows.map((r) => (
+                    <TableRow
+                      key={r.id}
+                      data-selected={r.original.id === selectedId ? '' : undefined}
+                      data-checked={r.getIsSelected() ? '' : undefined}
+                      onClick={() => select(r.original.id)}
+                      onDoubleClick={() => open(r.original)}
+                    >
+                      {r.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          data-align={cell.column.columnDef.meta?.align}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {/* Two empty states, not one. "Nothing here" and "nothing here that matches what you
+                asked for" are different facts and only one of them has an action; collapsing them
+                would leave a user staring at an empty folder wondering which filter did it. */}
+            {!error && !loading && visible.length === 0 && (
+              <div className="browser-empty">
+                {rows.length
+                  ? <SearchX size={34} className="browser-empty-icon" aria-hidden="true" />
+                  : <FolderOpen size={34} className="browser-empty-icon" aria-hidden="true" />}
+                <p>{rows.length ? 'Nothing matches the current filters.' : 'This level is empty.'}</p>
+                {rows.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setStatus('All'); }}>
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            )}
+            {loading && <SkeletonRows />}
+          </div>
         </div>
 
-        <PreviewPane
-          row={selectedRow}
-          onOpen={open}
-          onStatus={(s) => writeStatus(selectedRow.id, s)}
-          onShare={setShareFolder}
-        />
+        {/* Collapsed means gone, not zero pixels wide. A pane at width 0 still has a border, still
+            scrolls, and still decodes a thumbnail for whatever is selected — and the resizer beside
+            it would be a control for something with nothing in it. Its grid track is `auto`, so
+            not rendering the pane is also what removes its column. */}
+        {!preview.collapsed && (
+          <>
+            <div className="browser-resizer" {...preview.separatorProps} />
+            <PreviewPane
+              id={PREVIEW_ID}
+              width={preview.width}
+              row={selectedRow}
+              onOpen={open}
+              onStatus={(s) => writeStatus(selectedRow.id, s)}
+              onShare={setShareFolder}
+            />
+          </>
+        )}
       </div>
 
       {showNew && (

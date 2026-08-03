@@ -26,3 +26,6 @@ fix/
 # Python
 __pycache__/
 *.pyc
+
+# Playwright MCP scratch output (screenshots, snapshots, console logs)
+.playwright-mcp/

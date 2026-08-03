@@ -1,0 +1,262 @@
+/* ─── Graphite — the landing page's palette, scoped ────────────────────────────────────────
+ * One palette, emitted twice, exactly as src/styles/index.css does for the reading-room palette
+ * it sits beside. Nothing here is a second copy of a colour: the shadcn triplets below are the
+ * Graphite roles above them, flattened.
+ *
+ * WHY A SCOPE AND NOT A SECOND STYLESHEET. `browser.css`'s partials and the vendored
+ * `src/components/ui/*.tsx` are written against the shadcn token names — `--background`,
+ * `--foreground`, `--border` and the rest. Graphite therefore has to supply *those names*, or
+ * every vendored component would need editing and the point of vendoring them would be gone. So
+ * re-theming the page is redefining the contract inside a scope, and not one rule or component
+ * changes to make the colour change happen.
+ *
+ * WHY THE DOCUMENT ELEMENT AND NOT `.browser-shell`. Radix renders `DropdownMenuContent` and
+ * tooltip content into a portal on `document.body`, which is outside the page's own container; a
+ * variable defined on `.browser-shell` would not reach the account menu or the Columns menu, and
+ * they would render in the Viewer's navy. Defined on `:root`, it does reach them. `App.jsx`
+ * returns `BrowserPage` *or* `ViewerApp` and never both, so a document-level attribute has
+ * nothing to collide with — `BrowserPage` sets `data-surface` on mount and clears it on unmount.
+ *
+ * WHY NOT `data-theme`. That name belonged to a bootstrap that wrote an attribute nobody read,
+ * deleted in ticket 02. Reusing it would turn a harmless corpse into a live ambiguity.
+ *
+ * WHY THE BASE `:root` IS NOT TOUCHED. The Viewer's palette is left identical not by care but by
+ * construction: `:root[data-surface="browser"]` is (0,2,0) against the base block's (0,1,0), so
+ * it wins on the same element while the attribute is present and stops existing when it is not.
+ * Because it *is* the same element, the derived legacy names in index.css — `--bg`, `--text`,
+ * `--bg-panel`, `--border-hex`, `--muted-hex`, `--highlight-hex`, `--accent-hex` — resolve their
+ * `var()` against the winning triplets and follow Graphite for free. Only the legacy names that
+ * were authored as literals need restating, and they are grouped at the end.
+ *
+ * WHY EVERY SHADCN TRIPLET IS ALPHA-FREE. Tailwind compiles `bg-primary/30` to
+ * `hsl(var(--primary) / .3)`. A token spelled `0 0% 0% / .06` would produce
+ * `hsl(0 0% 0% / .06 / .5)`, which is not a colour, and the declaration would be dropped in
+ * silence. The Graphite roles keep true `rgba()` where the design wants real translucency — a
+ * divider has to let the surface through — and the shadcn names carry the same colour already
+ * composited over the surface it sits on.
+ * ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+:root[data-surface="browser"] {
+  /* — Graphite roles, light — the values judged in the D2 demo.
+   * Light is the canonical theme; the dark block below is derived from it and then tuned.
+   *
+   * WHY THE CANVAS IS DARKER THAN THE CARD. Until 2026-08-03 the page was #fafafa on #ffffff: a
+   * 1.96% step, which is why the hairlines had to carry the whole structure and why a frameless
+   * region would simply have vanished. The ladder now lands at 6.08% / 2.16% down from white, a
+   * 3.92% step — Linear measures 6.14% / 2.22%. These are computed, not eyeballed; §3 of
+   * docs/Chen/plans/2026-08-03-browser-shell-d2-design.md shows the arithmetic. The frame is a
+   * surface sitting ON the canvas now, and every other value below is calibrated to *it* rather
+   * than to white. */
+  --canvas: #efeff0;
+  --surface: #f9f9fa;
+  --surface-2: #efeff0;                /* = canvas; the rail lives inside the frame now          */
+  --sunken: #e6e6e8;                   /* thumbnail bed, input wells, the search field           */
+  --line: rgba(0, 0, 0, 0.055);        /* dividers — translucent, so a tinted row shows through  */
+  --line-2: rgba(0, 0, 0, 0.10);       /* the frame's edge, container rings                      */
+  --ink: #18181b;
+  --ink-2: #65686f;
+  --ink-3: #94949d;
+  --hover: rgba(0, 0, 0, 0.035);       /* Δ≈9/255 off the frame, not off white                   */
+
+  /* The neutral fill a checkbox-selected row carries. Deliberately NOT `--wash`: brand tint means
+   * "this is the row the preview is showing", and a multi-select of nine rows is not nine previews.
+   * Same value as `--line` by construction — a selected row reads as one shade of substance, and
+   * a divider crossing it disappears into it, which is the intent. */
+  --sel: rgba(0, 0, 0, 0.055);
+
+  /* The white-label seam. `--brand-hsl` is the one value a deployment overrides, and everything
+   * that carries brand colour is derived from it below — the primary button, the selection wash,
+   * the focus ring, the avatar, the tree's active row. Nothing else in the palette moves hue.
+   * The semantic colours deliberately do not follow it: "flagged" is not a brand decision.
+   * Both Graphite brands sit on hue 240, so the triplet spelling works in light and dark alike. */
+  --brand-hsl: 240 60% 60%;            /* #5b5bd6 */
+  --brand: hsl(var(--brand-hsl));
+  --brand-ink: #ffffff;                /* text on a brand fill; a light brand must flip this too */
+  --wash: hsl(var(--brand-hsl) / 0.09);   /* selected                                            */
+  --wash-2: hsl(var(--brand-hsl) / 0.14); /* selected + hovered                                  */
+
+  /* Two elevation steps, each opening with a `0 0 0 1px` ring so a raised surface reads as raised
+   * on a near-white ground, where a blur alone does not. Alpha ceiling 7%. */
+  --elev-1: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --elev-2:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 1px 1px rgba(0, 0, 0, 0.02),
+    0 4px 8px -4px rgba(0, 0, 0, 0.04),
+    0 16px 24px -8px rgba(0, 0, 0, 0.06);
+
+  /* — Semantic status —
+   * One set of hues for both themes, mixed onto whichever surface is current, so a chip fill is
+   * never authored twice and never has to be re-tuned when the surface moves. The mix percentage
+   * and the label colour are tokens rather than literals for the same reason: dark needs a
+   * heavier mix and a lifted label, and that is a value change, not a second rule. Upstream OHIF
+   * leaves its `--success-bg` at the light value inside `.dark`; deriving these is what avoids
+   * repeating that. Consumed as:
+   *   background: color-mix(in oklab, var(--sem-read) var(--sem-mix), var(--surface));
+   *   color: var(--sem-read-ink); */
+  --sem-read: #15803d;
+  --sem-review: #b45309;
+  --sem-flag: #be123c;
+  --sem-mix: 13%;
+  --sem-read-ink: var(--sem-read);
+  --sem-review-ink: var(--sem-review);
+  --sem-flag-ink: var(--sem-flag);
+
+  /* — Scales —
+   * Four radii, and a spacing scale that skips 20 and 28: a step nobody can tell apart from its
+   * neighbour is a step that gets used inconsistently. */
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 8px;
+  --radius-4: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+
+  /* The shell's two numbers. `--gap` is the frame's inset from the window on all four sides, and
+   * `--card-r` is finally a job for `--radius-4`, which has been defined and referenced nowhere
+   * since the scale was written. Both are named rather than inlined because the responsive rule
+   * that makes the frame full-bleed below 1024px has to cancel exactly these two. */
+  --gap: 8px;
+  --card-r: var(--radius-4);
+
+  /* Two durations, one curve. Hover and press are 120ms because they answer a pointer; anything
+   * that moves layout is 240ms because it has to be followed rather than noticed. */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-fast: 0.12s var(--ease);
+  --motion-layout: 0.24s var(--ease);
+
+  /* — Type —
+   * Both families are self-hosted (src/styles/fonts.css); neither reaches the network. The three
+   * weights are variable-axis positions rather than the named 400/500/600, which is the whole
+   * reason for shipping the variable file: 440 holds up at 13px where 400 goes thin, and 590 is
+   * a heading that has not become bold. cv01 gives the single-storey `l` that stops 1/l/I
+   * colliding in an accession number; ss03 fixes the curly-tailed `y`. */
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-features: 'cv01', 'ss03';
+  --fw-normal: 440;
+  --fw-medium: 510;
+  --fw-strong: 590;
+
+  /* ── The shadcn contract ───────────────────────────────────────────────────────────────────
+   * The same palette in the form `browser.css` and every vendored `ui/*.tsx` reads it: unwrapped
+   * HSL, consumed as `hsl(var(--name))`. This is the whole contract and not only the nine names
+   * browser.css happens to reference, because the vendored components reach past it — `bg-muted`
+   * and `text-highlight` are both in `ui/table.tsx`, and a nine-token scope would leave a hovered
+   * Graphite row printing itself in the Viewer's cyan. */
+  --background: 240 3% 94%;            /* ← canvas #efeff0                                       */
+  --foreground: 240 6% 10%;            /* ← ink                                                  */
+  --card: 240 9% 98%;                  /* ← surface #f9f9fa                                      */
+  --card-foreground: 240 6% 10%;       /* ← ink                                                  */
+  --popover: 240 9% 98%;               /* ← surface; a menu is a raised surface, not a new colour */
+  --popover-foreground: 240 6% 10%;    /* ← ink                                                  */
+  --primary: var(--brand-hsl);
+  --primary-foreground: 0 0% 100%;     /* ← brand-ink                                            */
+  --secondary: 240 4% 91%;             /* ← sunken; a secondary button is quiet, not a second hue */
+  --secondary-foreground: 240 6% 10%;  /* ← ink                                                  */
+  --muted: 240 4% 91%;                 /* ← sunken; this is a FILL (table footer, menu separator) */
+  --muted-foreground: 222 5% 42%;      /* ← ink-2; and this is TEXT — the two are unrelated       */
+  --accent: 240 3% 94%;                /* ← hover over surface; --accent is the hover FILL here.
+                                          It lands on the canvas value, which is not a copy but
+                                          a consequence: a hovered row is meant to read one step
+                                          down from the frame, and one step down is the canvas.  */
+  --accent-foreground: 240 6% 10%;     /* ← ink                                                  */
+  --destructive: 345 83% 41%;          /* ← sem-flag; one red on the page, not two               */
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 2% 88%;                /* ← line-2 flattened over SURFACE, which is where every
+                                          consumer of this token sits — the toolbar, the batch
+                                          bar and the select are all inside the frame. (The old
+                                          comment here said "over canvas"; #e5e5e5 was line-2
+                                          over white, and neither statement was true.)           */
+  --input: 240 2% 88%;                 /* ← line-2; `--input` is an EDGE here (border-input/50)   */
+  --ring: var(--brand-hsl);
+  --highlight: 240 6% 10%;             /* ← ink; ui/table.tsx uses it as hover TEXT, so it must
+                                          be readable rather than bright                         */
+  --neutral: 222 5% 42%;               /* ← ink-2; index.css resolves --muted-hex from this       */
+  --radius: var(--radius-2);           /* Graphite's medium radius; the base block's is 8px       */
+
+  /* — Legacy names authored as literals in index.css —
+   * The rest of the legacy contract is derived from the triplets above and follows on its own.
+   * These three were written as fixed values, and the landing page reads all three: the status
+   * dots in browserColumns.jsx take --success and --danger, and the modal in _dialogs.css takes
+   * --shadow-strong, whose 90px black plume was drawn for a black ground. */
+  --success: var(--sem-read);
+  --danger: var(--sem-flag);
+  --shadow-strong: var(--elev-2);
+}
+
+/* ─── Graphite, dark ────────────────────────────────────────────────────────────────────────
+ * Derived from light and then tuned, including the semantic pairs — a hue that carried a status
+ * on white does not carry it on #0B0B0C, and inheriting the light values is exactly the mistake
+ * upstream OHIF makes inside its own `.dark`. What is absent here is as deliberate as what is
+ * present: the scales, the type and the semantic hues themselves do not vary by theme, so they
+ * are not restated.
+ * ──────────────────────────────────────────────────────────────────────────────────────────── */
+
+:root[data-surface="browser"][data-mode="dark"] {
+  /* Dark is authored, not inverted. The light step is 3.92% of a range that starts at white; the
+   * same *ratio* near black would be invisible, so the two values were picked by eye in the demo
+   * against real thumbnails and then held: the frame lifts off the canvas by 9/255, the same
+   * absolute distance light uses, which is what makes the two themes feel like one page. */
+  --canvas: #09090a;
+  --surface: #121213;
+  --surface-2: #09090a;                /* = canvas, as in light                                  */
+  --sunken: #1b1b1e;
+  --line: rgba(255, 255, 255, 0.065);
+  --line-2: rgba(255, 255, 255, 0.12);
+  --ink: #ececee;
+  --ink-2: #9b9ba3;
+  --ink-3: #6a6a73;
+  --hover: rgba(255, 255, 255, 0.04);
+  --sel: rgba(255, 255, 255, 0.06);
+
+  /* The brand lifts to stay legible against a near-black ground, and its text colour inverts with
+   * it. Same hue, so a deployment that overrides `--brand-hsl` still only edits one number. */
+  --brand-hsl: 240 84% 75%;            /* #8a8af5 */
+  --brand-ink: #09090a;                /* = canvas, which moved                                  */
+  --wash: hsl(var(--brand-hsl) / 0.14);
+  --wash-2: hsl(var(--brand-hsl) / 0.20);
+
+  /* The ring carries the elevation on a dark ground — a blur against near-black is invisible —
+   * so the drop shadows are there to darken beneath rather than to define the edge. */
+  --elev-1: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 1px 2px rgba(0, 0, 0, 0.5);
+  --elev-2:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 12px 28px -8px rgba(0, 0, 0, 0.6);
+
+  /* A 13% tint of a mid-dark hue over #141416 is indistinguishable from the surface, so the mix
+   * nearly doubles; and the hue that was the label on white is now too dark to read on its own
+   * tint, so the label lifts to the light counterpart. */
+  --sem-mix: 22%;
+  --sem-read-ink: #5fd39d;
+  --sem-review-ink: #f2b76b;
+  --sem-flag-ink: #f98ba3;
+
+  /* — The shadcn contract, dark — */
+  --background: 240 5% 3.7%;           /* ← canvas #09090a */
+  --foreground: 240 6% 93%;
+  --card: 240 3% 7.3%;                 /* ← surface #121213 */
+  --card-foreground: 240 6% 93%;
+  --popover: 240 3% 7.3%;
+  --popover-foreground: 240 6% 93%;
+  --primary-foreground: 240 5% 3.7%;   /* ← brand-ink, which is canvas in this theme */
+  --secondary: 240 5% 11%;             /* ← sunken */
+  --secondary-foreground: 240 6% 93%;
+  --muted: 240 5% 11%;                 /* ← sunken */
+  --muted-foreground: 240 4% 62%;      /* ← ink-2  */
+  --accent: 240 2% 10.8%;              /* ← hover over surface. Within half a percent of --muted
+                                          in this theme, because near-black compresses: the two
+                                          are (27,27,28) and (27,27,30). Left distinct rather
+                                          than aliased, since the light pair are not equal.     */
+  --accent-foreground: 240 6% 93%;
+  --border: 240 1% 18%;                /* ← line-2 flattened over surface */
+  --input: 240 1% 18%;
+  --highlight: 240 6% 93%;             /* ← ink */
+  --neutral: 240 4% 62%;               /* ← ink-2 */
+}
