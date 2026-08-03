@@ -1,0 +1,90 @@
+/* Landing page: the shell frame and the top bar. */
+
+.browser-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* ── Top bar ───────────────────────────────────────────────────────────────── */
+
+.browser-topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.browser-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.browser-logo { height: 22px; width: auto; display: block; }
+.browser-brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.browser-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 420px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  transition: border-color 0.15s;
+}
+.browser-search:focus-within { border-color: hsl(var(--ring)); }
+.browser-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 12px;
+}
+.browser-search input::placeholder { color: hsl(var(--muted-foreground)); }
+/* The native clear affordance is a light-theme glyph that vanishes on black. */
+.browser-search input::-webkit-search-cancel-button { filter: invert(1) opacity(0.5); }
+
+.browser-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.browser-user:hover { background: hsl(var(--accent)); }
+.browser-avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 11px;
+  font-weight: 600;
+}
+.browser-user-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,0 +1,16 @@
+/* Landing page: narrow-screen overrides. Imported last, as it was last in the file. */
+
+/* ── Narrow screens ────────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  /* The preview is the first thing to go: the table is the page, and on a laptop the columns
+     need the width more than the thumbnail does. */
+  .browser-preview { display: none; }
+}
+
+@media (max-width: 720px) {
+  .browser-brand-name { display: none; }
+  .browser-user-name { display: none; }
+  .browser-toolbar { flex-wrap: wrap; padding-bottom: 6px; }
+  .browser-toolbar-actions { margin-left: 0; }
+}

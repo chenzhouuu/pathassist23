@@ -1,0 +1,45 @@
+/* Landing page: the preview pane. */
+
+/* ── Preview pane ──────────────────────────────────────────────────────────── */
+
+.browser-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+  width: 260px;
+  padding: 14px;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  overflow-y: auto;
+}
+.browser-preview.is-empty { align-items: center; justify-content: center; }
+.browser-preview-hint { color: hsl(var(--muted-foreground)); font-size: 12px; text-align: center; }
+
+.browser-preview-image {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  overflow: hidden;
+}
+.browser-preview-image img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.browser-preview-image.is-folder { flex-direction: column; color: hsl(var(--muted-foreground)); }
+.browser-preview-image.is-folder span { font-size: 30px; font-weight: 300; color: hsl(var(--foreground)); }
+.browser-preview-image.is-folder small { font-size: 11px; }
+
+.browser-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.browser-preview-fields { display: flex; flex-direction: column; gap: 7px; font-size: 12px; }
+.browser-preview-field { display: flex; gap: 8px; }
+.browser-preview-field dt { flex-shrink: 0; width: 74px; color: hsl(var(--muted-foreground)); }
+.browser-preview-field dd { min-width: 0; word-break: break-word; }
+
+.browser-preview-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 8px; }
