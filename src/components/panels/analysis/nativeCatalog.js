@@ -1,14 +1,15 @@
-// src/components/panels/analysis/nativeCatalog.js — the native tools, declared as data.
+// src/components/panels/analysis/nativeCatalog.js — the tools, declared as data.
 //
-// A HistomicsTK CLI describes its form in Slicer XML and `parseXml.js` turns that into
-// `{ title, description, groups: [{ label, params }] }`. The native tools have no XML, so they
-// declare **the same shape** here. That is the whole trick of Inc 6 · 02: one catalog, one form
-// renderer, two producers. The alternative — a second hand-written form per tool — is what the five
-// panels already are, and is what this replaces.
+// Every tool declares `{ title, description, groups: [{ label, params }] }` here, and `ParamField`
+// renders that. Inc 6 · 02's trick was that this shape had two producers: a HistomicsTK CLI
+// described its form in Slicer XML and `parseXml.js` turned it into the same thing, so one catalog
+// and one form renderer served both. The CLI producer went on 2026-08-03
+// (docs/docker-cli-technical-report.md); this is the only one left, and the alternative it still
+// replaces is a second hand-written form per tool, which is what the five panels were.
 //
-// Params therefore speak the Slicer vocabulary (`boolean`, `float`, `string-enumeration`, …) so
-// `ParamField` renders them unchanged. Three shapes have no Slicer equivalent and are prefixed to
-// keep the two vocabularies apart:
+// Params keep the Slicer vocabulary (`boolean`, `float`, `string-enumeration`, …) because
+// `ParamField` speaks it and inventing a second vocabulary would buy nothing. Three shapes never
+// had a Slicer equivalent and stay prefixed:
 //
 //   pa-scope     whole slide or a drawn region — the choice, not the rectangle
 //   pa-region    the rectangle itself, via the shared `useRegionSelect` handle

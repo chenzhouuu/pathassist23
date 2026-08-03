@@ -49,7 +49,6 @@ export const endpoints = {
   annotationElements: (id) => `${GIRDER_BASE}/annotation/${id}/elements`,
 
   // Jobs / Tasks
-  dockerImages: () => `${GIRDER_BASE}/slicer_cli_web/docker_image`,
   jobs: () => `${GIRDER_BASE}/job?limit=50&sort=created&sortdir=-1`,
   job: (id) => `${GIRDER_BASE}/job/${id}`,
 };

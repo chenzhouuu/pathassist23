@@ -1,7 +1,11 @@
 // The one algorithm catalog (Inc 6 · 02). What is worth asserting is the consolidation itself:
-// that the docker CLIs and the native tools are one list under one search box, that a native form
-// is built from its declaration rather than from XML, and that submitting returns to the list —
-// the `running` view this ticket deletes was a modal state a page reload lost.
+// that every tool is one list under one search box, that a form is built from its declaration,
+// and that submitting returns to the list — the `running` view this ticket deletes was a modal
+// state a page reload lost.
+//
+// It used to be two sources: these tests also pinned the docker CLI half, which read a Slicer XML
+// into the same shape and posted to `/slicer_cli_web/.../run`. That went on 2026-08-03 — see
+// docs/docker-cli-technical-report.md — and with it the assertions about a mixed list.
 import React from 'react';
 import { render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -9,9 +13,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../api/index.js', () => ({
-  getDockerImages: vi.fn(),
-  getCliXmlByPath: vi.fn(),
-  runCliByPath: vi.fn(),
   listRuns: vi.fn(),
   cancelJob: vi.fn(),
 }));
@@ -25,7 +26,7 @@ vi.mock('../../api/biomarkerApi.js', () => ({ startBiomarker: vi.fn() }));
 vi.mock('../../api/taskApi.js', () => ({ startPredict: vi.fn(), listTasks: vi.fn() }));
 
 import AnalysisPanel from './AnalysisPanel.jsx';
-import { getCliXmlByPath, getDockerImages, listRuns, runCliByPath } from '../../api/index.js';
+import { listRuns } from '../../api/index.js';
 import { listArtifacts, startSegment } from '../../api/preprocessApi.js';
 import { startNuclei } from '../../api/nucleiApi.js';
 import { useStore } from '../../store/index.js';
@@ -35,22 +36,6 @@ const SLIDE = {
   largeImage: { fileId: '6a3d59c8d59c30f37fd99be0', sourceName: 'openslide' },
 };
 const ROI = { x: 7000, y: 7000, width: 4096, height: 4096 };
-
-// One docker image with one CLI — enough to prove the two sources share the list and the filter.
-const IMAGES = {
-  'dsarchive/histomicstk:latest': {
-    latest: {
-      NucleiDetection: { xmlspec: '/slicer/1/xml', run: '/slicer/1/run', title: 'Nuclei Detection' },
-    },
-  },
-};
-
-const XML = `<?xml version="1.0"?><executable>
-  <title>Nuclei Detection</title><description>Detect nuclei.</description>
-  <parameters><label>IO</label>
-    <image><name>inputImageFile</name><label>Input</label><channel>input</channel></image>
-    <double><name>foreground_threshold</name><label>Foreground threshold</label><default>60</default></double>
-  </parameters></executable>`;
 
 const render = () => rtlRender(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -64,63 +49,47 @@ beforeEach(() => {
     activeItem: SLIDE, drawingMode: null, roiSelectResult: null,
     copilotRoi: null, shownRoi: null, viewer: null,
   });
-  getDockerImages.mockResolvedValue(IMAGES);
   listRuns.mockResolvedValue([]);
-  getCliXmlByPath.mockResolvedValue(XML);
   listArtifacts.mockResolvedValue([]);
 });
 
-describe('one list, two sources', () => {
-  it('shows the native tools and the docker CLIs under their own group headings', async () => {
+describe('one list', () => {
+  it('shows every native tool under its own group heading', async () => {
     render();
-    await screen.findByText('Nuclei Detection');            // the CLI
-    // By title, not by text: each group name is both a heading and an option in the Source select.
-    expect(screen.getByTitle('PathAssist')).toBeTruthy();
-    expect(screen.getByTitle('dsarchive/histomicstk:latest')).toBeTruthy();
-    // All five native tools are there, not just the one being demonstrated.
+    // By title, not by text: the group name is both a heading and an option in the Source select.
+    expect(await screen.findByTitle('PathAssist')).toBeTruthy();
     ['Tissue segmentation', 'Nuclei segmentation', 'Tissue map', 'Marker map', 'Downstream task']
       .forEach(t => expect(screen.getByText(t)).toBeTruthy());
   });
 
-  it('counts both sources together', async () => {
+  it('counts them', async () => {
     render();
-    await screen.findByText('Nuclei Detection');
-    expect(screen.getByText('8 / 8 algorithms')).toBeTruthy();
+    expect(await screen.findByText('7 / 7 algorithms')).toBeTruthy();
   });
 
-  it('searches across both sources with the one box', async () => {
+  it('searches with the one box', async () => {
     render();
-    await screen.findByText('Nuclei Detection');
+    await screen.findByText('Nuclei segmentation');
     await userEvent.type(screen.getByPlaceholderText('Filter algorithms...'), 'nuclei');
-    // "Nuclei segmentation" (native) and "Nuclei Detection" (CLI) both match.
     expect(screen.getByText('Nuclei segmentation')).toBeTruthy();
-    expect(screen.getByText('Nuclei Detection')).toBeTruthy();
     expect(screen.queryByText('Marker map')).toBeNull();
   });
 
-  it('filters to one source, native included', async () => {
+  it('filters to the one source', async () => {
     render();
-    await screen.findByText('Nuclei Detection');
+    await screen.findByText('Nuclei segmentation');
     await userEvent.selectOptions(screen.getByLabelText('Source'), 'PathAssist');
     expect(screen.getByText('Nuclei segmentation')).toBeTruthy();
-    expect(screen.queryByText('Nuclei Detection')).toBeNull();
-  });
-
-  it('still lists the native tools when no docker image is available at all', async () => {
-    getDockerImages.mockResolvedValue({});
-    render();
-    expect(await screen.findByText('Nuclei segmentation')).toBeTruthy();
   });
 });
 
-describe('a native form is built from the declaration', () => {
-  it('renders the declared fields, not an XML-derived one', async () => {
+describe('a form is built from the declaration', () => {
+  it('renders the declared fields', async () => {
     render();
     await userEvent.click(await screen.findByText('Tissue segmentation'));
     expect(await screen.findByText('Segmenter')).toBeTruthy();
     expect(screen.getByText('Confidence threshold')).toBeTruthy();
     expect(screen.getByText('Remove pen marks')).toBeTruthy();
-    expect(getCliXmlByPath).not.toHaveBeenCalled();
   });
 
   it('submits the declared values to the tool\'s own endpoint and returns to the list', async () => {
@@ -229,28 +198,6 @@ describe('a native form is built from the declaration', () => {
       ([id, body, mode]) => id === SLIDE._id && mode === undefined
         && body.bbox === null && body.seg_hash === 'abcdef0123',
     )).toBe(true));
-  });
-});
-
-describe('the CLI path is what it was', () => {
-  it('still fetches the XML, auto-fills the slide, and posts to the CLI run route', async () => {
-    runCliByPath.mockResolvedValue({ _id: 'job-1' });
-    render();
-    await userEvent.click(await screen.findByText('Nuclei Detection'));
-    await screen.findByText('Foreground threshold');
-
-    await userEvent.click(screen.getByRole('button', { name: /run job/i }));
-    await waitFor(() => expect(runCliByPath).toHaveBeenCalled());
-    const [path, params] = runCliByPath.mock.calls[0];
-    expect(path).toBe('/slicer/1/run');
-    // The large_image FILE id, not the item id — slicer_cli_web's own selector resolves an item
-    // that way, and sending the item id is what made every image-input CLI answer 400.
-    expect(params.inputImageFile).toBe(SLIDE.largeImage.fileId);
-    expect(params.foreground_threshold).toBe('60');       // default carried through
-    expect(params.girderApiUrl).toBeTruthy();
-
-    // And it too lands back on the list rather than a running view.
-    expect(await screen.findByPlaceholderText('Filter algorithms...')).toBeTruthy();
   });
 });
 

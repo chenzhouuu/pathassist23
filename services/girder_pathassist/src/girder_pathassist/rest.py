@@ -33,7 +33,6 @@ from girder.api.describe import Description, autoDescribeRoute
 from girder.api.rest import Resource
 from girder.constants import AccessType, SortDir, TokenScope
 from girder.exceptions import RestException
-from girder.models.file import File
 from girder.models.item import Item
 from girder_jobs.constants import JobStatus
 from girder_jobs.models.job import Job
@@ -221,16 +220,7 @@ class PathAssistResource(Resource):
             dict(query, status={"$in": list(runs.FINISHED)}),
             sort=sort, limit=max(0, int(limit or 0)), includeLog=True))
 
-        files: dict[str, dict | None] = {}
         items: dict[str, dict | None] = {}
-
-        def loadFile(fileId):
-            if fileId not in files:
-                try:
-                    files[fileId] = File().load(fileId, force=True, fields=["itemId"])
-                except InvalidId:
-                    files[fileId] = None
-            return files[fileId]
 
         def loadItem(itemId):
             # `pathassist.item` is whatever the gateway sent at dispatch, so an id that is not an
@@ -248,7 +238,7 @@ class PathAssistResource(Resource):
         rows = []
         for job in unfinished + finished:
             readable = bool(user) and jobModel.hasAccess(job, user, AccessType.READ)
-            itemId = runs.item_id_of(job, loadFile) if readable else None
+            itemId = runs.item_id_of(job) if readable else None
             item = loadItem(itemId) if readable else None
             rows.append(runs.row(
                 job,

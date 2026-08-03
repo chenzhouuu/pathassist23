@@ -1,29 +1,28 @@
 // src/components/panels/AnalysisPanel.jsx
-// One algorithm catalog (Inc 6 · 02). HistomicsTK docker CLIs and the five native PathAssist tools
-// appear in the same searchable list, and clicking either opens a form built by the same renderer.
+// The algorithm catalog (Inc 6 · 02). Every tool in it is a native PathAssist tool declared as data
+// in `analysis/nativeCatalog.js`, and clicking one opens a form built from that declaration.
 //
-// A CLI describes its form in Slicer XML; a native tool declares the same shape as data in
-// `analysis/nativeCatalog.js`. That is the only difference between the two paths here — everything
-// downstream of "we have `{title, description, groups}`" is shared.
+// It used to be two sources. HistomicsTK docker CLIs described their form in Slicer XML, which
+// `parseXml.js` turned into the same `{title, description, groups}` shape, so everything downstream
+// was shared and only the two producers differed. That half went on 2026-08-03 — see
+// docs/docker-cli-technical-report.md. What survives it is the shape: `nativeCatalog` still speaks
+// the Slicer parameter vocabulary, because `ParamField` renders it and a second vocabulary would
+// buy nothing.
 //
 // The old `running` view is gone. A submitted job is not a modal state: the panel returns to the
 // list, and the Runs section beneath the catalog (03) is where every run — this slide's, other
 // slides', other users' — is watched.
 //
-// Native entries submit to their existing gateway endpoints, and every one of them is a Girder job
-// on one queue now (05 → 07). All five task panels are gone, so this is the only place any analysis
-// can be started — and a submission can be several runs: a feature index is three steps and a task
-// on a bare slide is four, planned server-side and drawn in Runs as one thing.
+// Entries submit to their own gateway endpoints, and every one of them is a Girder job on one
+// queue (05 → 07). All five task panels are gone, so this is the only place any analysis can be
+// started — and a submission can be several runs: a feature index is three steps and a task on a
+// bare slide is four, planned server-side and drawn in Runs as one thing.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '../../store/index.js';
-import { getDockerImages, getCliXmlByPath, runCliByPath } from '../../api/index.js';
 import { listArtifacts } from '../../api/preprocessApi.js';
-import { GIRDER_BASE } from '../../config/girder.js';
 import ParamField from './analysis/ParamField.jsx';
 import RunsSection from './analysis/RunsSection.jsx';
-import { cliRunParams } from './analysis/cliParams.js';
-import { isAutoFilled, parseXml } from './analysis/parseXml.js';
 import {
   NATIVE_GROUP, NATIVE_TOOLS, describePlan, firstProblem, isEnabled, seedValues, toolParams,
 } from './analysis/nativeCatalog.js';
@@ -31,7 +30,7 @@ import { useRegionSelect } from './useRegionSelect.js';
 
 // ── Main AnalysisPanel ────────────────────────────────────────────────────────
 export default function AnalysisPanel() {
-  const { activeItem, drawingMode, setDrawingMode, roiSelectResult, clearRoiSelectResult } = useStore();
+  const { activeItem } = useStore();
   const qc = useQueryClient();
   const region = useRegionSelect();
 
@@ -48,120 +47,22 @@ export default function AnalysisPanel() {
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
 
-  const isNative = selected?.source === 'native';
-
-  // ── Watch for completed ROI selection on the viewer canvas (CLI path) ──────
-  // When the user draws a rectangle (roi-select mode), populate analysis_roi param.
-  // float-vector: comma-separated  "x,y,w,h"  (HistomicsTK analysis_roi format)
-  // region:       JSON array        "[x, y, w, h]"  (Slicer CLI <region> format)
-  // Native tools do not go through this: their region is the shared `useRegionSelect` state.
-  useEffect(() => {
-    if (!roiSelectResult || !meta || isNative) return;
-    const { x, y, width, height } = roiSelectResult;
-    meta.groups.forEach(g => g.params.forEach(p => {
-      if (!isAutoFilled(p)) {
-        if (p.tag === 'float-vector') {
-          setFormValues(prev => ({ ...prev, [p.name]: `${x},${y},${width},${height}` }));
-        } else if (p.tag === 'region') {
-          setFormValues(prev => ({ ...prev, [p.name]: `[${x}, ${y}, ${width}, ${height}]` }));
-        }
-      }
-    }));
-    clearRoiSelectResult();
-  }, [roiSelectResult]); // eslint-disable-line
-
-  // ── Fetch docker images ───────────────────────────────────────────────────
-  const { data: images, isLoading: loadingImages } = useQuery({
-    queryKey: ['docker-images'],
-    queryFn: getDockerImages,
-    retry: 1,
-    staleTime: 60_000,
-  });
-
   // ── This slide's artifacts — what the upstream pickers choose from ────────
   const { data: artifacts, isLoading: loadingArtifacts } = useQuery({
     queryKey: ['artifacts', activeItem?._id],
     queryFn: () => listArtifacts(activeItem._id),
-    enabled: !!activeItem?._id && view === 'form' && isNative,
+    enabled: !!activeItem?._id && view === 'form',
     retry: 1,
   });
 
-  // ── Flatten docker images into CLI list ───────────────────────────────────
-  // Handles all Slicer CLI Web response formats:
-  //   A) { imgKey: { CLIList: { cliName: { xmlspec, run? } } } }          ← Girder v3 CLIList wrapper
-  //   B) { imgKey: { cliName: { xmlspec, run? } } }                       ← direct CLI map
-  //   C) { imgKey: [ { name, xmlspec, run? } ] }                          ← array format
-  //   D) { imgKey: { tag: { cliName: { xmlspec, run? } } } }              ← tag-nested (YOUR format)
-  // 'run' is derived from xmlspec when not present: replace /xml suffix with /run
-  const cliList = useMemo(() => {
-    if (!images) return [];
-    const META_KEYS = new Set(['name', 'tag', 'type', 'description', '_id', 'image', 'status', 'latest']);
-    const deriveRun = (xmlspec) => xmlspec ? xmlspec.replace(/\/xml(\?.*)?$/, '/run') : null;
-    const isCli = (v) => v && typeof v === 'object' && !Array.isArray(v) && (v.run || v.xmlspec || v.xml_spec);
-    const list = [];
+  // ── The catalog ───────────────────────────────────────────────────────────
+  // One group, one producer. The docker half — sixty lines that flattened four different shapes of
+  // `GET /slicer_cli_web/docker_image` into a CLI list — went on 2026-08-03 with the CLIs.
+  const entries = useMemo(() => (
+    NATIVE_TOOLS.map(t => ({ source: 'native', group: NATIVE_GROUP, name: t.id, title: t.title, tool: t }))
+  ), []);
 
-    const push = (imgKey, cliName, cli) => {
-      const xmlspec = cli.xmlspec || cli.xml_spec;
-      const run = cli.run || deriveRun(xmlspec);
-      if (!xmlspec && !run) return;
-      list.push({
-        source: 'cli', group: imgKey, name: cliName,
-        title: cli.title || cli.desc || cliName, run, xmlspec,
-      });
-    };
-
-    Object.entries(images).forEach(([imgKey, imgVal]) => {
-      if (!imgVal || typeof imgVal !== 'object') return;
-
-      // Format C — array of CLI objects
-      if (Array.isArray(imgVal)) {
-        imgVal.forEach(cli => push(imgKey, cli.name || cli.title, cli));
-        return;
-      }
-
-      // Format A — CLIList wrapper (Girder v3)
-      if (imgVal.CLIList && typeof imgVal.CLIList === 'object') {
-        Object.entries(imgVal.CLIList).forEach(([cliName, cli]) => push(imgKey, cliName, cli));
-        return;
-      }
-
-      // Format B — imgVal keys are CLI names directly
-      const lvl1 = Object.entries(imgVal).filter(([k, v]) => !META_KEYS.has(k) && isCli(v));
-      if (lvl1.length > 0) {
-        lvl1.forEach(([cliName, cli]) => push(imgKey, cliName, cli));
-        return;
-      }
-
-      // Format D — imgVal has tag wrapper (e.g. "latest") before CLI names
-      // Structure: { imageName: { "latest": { cliName: { run, xmlspec } } } }
-      let found = false;
-      Object.entries(imgVal).forEach(([tagKey, tagVal]) => {
-        if (!tagVal || typeof tagVal !== 'object' || Array.isArray(tagVal)) return;
-        if (isCli(tagVal)) { push(imgKey, tagKey, tagVal); found = true; return; }
-        const lvl2 = Object.entries(tagVal).filter(([k, v]) => !META_KEYS.has(k) && isCli(v));
-        if (lvl2.length > 0) {
-          lvl2.forEach(([cliName, cli]) => push(imgKey, cliName, cli));
-          found = true;
-        }
-      });
-      if (!found) console.warn('[AnalysisPanel] Unrecognized docker_image format for:', imgKey, JSON.stringify(imgVal).slice(0, 200));
-    });
-
-    return list;
-  }, [images]);
-
-  // ── The one catalog: native tools first, then each docker image ───────────
-  // Native entries are always present, so the list is never empty and the panel is usable on a
-  // deployment with no docker images pulled at all.
-  const entries = useMemo(() => ([
-    ...NATIVE_TOOLS.map(t => ({ source: 'native', group: NATIVE_GROUP, name: t.id, title: t.title, tool: t })),
-    ...cliList,
-  ]), [cliList]);
-
-  const groupKeys = useMemo(() => {
-    const cliKeys = [...new Set(cliList.map(c => c.group))].sort((a, b) => a.localeCompare(b));
-    return [NATIVE_GROUP, ...cliKeys];
-  }, [cliList]);
+  const groupKeys = useMemo(() => [NATIVE_GROUP], []);
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -179,54 +80,35 @@ export default function AnalysisPanel() {
     [filteredGroups],
   );
 
-  // ── Open an entry: fetch + parse XML, or read the declaration ─────────────
+  // ── Open an entry: read its declaration ───────────────────────────────────
   const openEntry = useCallback(async (entry) => {
     setSelected(entry);
     setError('');
     setSubmitted(null);
     setView('form');
 
-    if (entry.source === 'native') {
-      const tool = entry.tool;
-      setMeta(tool);
-      setFormValues(seedValues(tool));
-      // Options that only the service can answer (which tissue backends are deployed, which task
-      // heads are trained) are resolved now, so the form never offers something that is not there.
-      const dynamic = toolParams(tool).filter(p => p.optionsFrom);
-      if (dynamic.length === 0) return;
-      setLoadingForm(true);
-      try {
-        const resolved = await Promise.all(dynamic.map(async p => [p.name, await p.optionsFrom()]));
-        setMeta({
-          ...tool,
-          groups: tool.groups.map(g => ({
-            ...g,
-            params: g.params.map(p => {
-              const found = resolved.find(([n]) => n === p.name);
-              return found ? { ...p, options: found[1] } : p;
-            }),
-          })),
-        });
-      } catch (e) {
-        setError('Could not reach the service for this tool: ' + e.message);
-      }
-      setLoadingForm(false);
-      return;
-    }
-
+    const tool = entry.tool;
+    setMeta(tool);
+    setFormValues(seedValues(tool));
+    // Options that only the service can answer (which tissue backends are deployed, which task
+    // heads are trained) are resolved now, so the form never offers something that is not there.
+    const dynamic = toolParams(tool).filter(p => p.optionsFrom);
+    if (dynamic.length === 0) return;
     setLoadingForm(true);
     try {
-      const xml = await getCliXmlByPath(entry.xmlspec);
-      const parsed = parseXml(xml);
-      setMeta(parsed);
-      // Seed form with defaults
-      const defaults = {};
-      parsed.groups.forEach(g => g.params.forEach(p => {
-        if (!isAutoFilled(p)) defaults[p.name] = p.defVal ?? '';
-      }));
-      setFormValues(defaults);
+      const resolved = await Promise.all(dynamic.map(async p => [p.name, await p.optionsFrom()]));
+      setMeta({
+        ...tool,
+        groups: tool.groups.map(g => ({
+          ...g,
+          params: g.params.map(p => {
+            const found = resolved.find(([n]) => n === p.name);
+            return found ? { ...p, options: found[1] } : p;
+          }),
+        })),
+      });
     } catch (e) {
-      setError('Failed to load algorithm description: ' + e.message);
+      setError('Could not reach the service for this tool: ' + e.message);
     }
     setLoadingForm(false);
   }, []);
@@ -237,7 +119,7 @@ export default function AnalysisPanel() {
   // the button and what the button does cannot drift apart. A fourth client-side copy of the
   // dependency graph is what this replaces.
   useEffect(() => {
-    if (!isNative || !meta || !activeItem
+    if (!meta || !activeItem
         || firstProblem(meta, formValues, { roi: region.roi })) {
       setPlan(null);
       return undefined;
@@ -250,7 +132,7 @@ export default function AnalysisPanel() {
     }, 250);   // the form is a few selects; a keystroke should not be a round trip
     return () => { live = false; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNative, meta, activeItem?._id, formValues, region.roi]);
+  }, [meta, activeItem?._id, formValues, region.roi]);
 
   const backToList = useCallback(() => {
     setView('list');
@@ -268,22 +150,8 @@ export default function AnalysisPanel() {
     setSubmitting(true);
     setError('');
     try {
-      let ack = null;
-      if (selected.source === 'native') {
-        ack = await selected.tool.submit(activeItem._id, formValues, { roi: region.roi, mode });
-        qc.invalidateQueries({ queryKey: ['artifacts', activeItem._id] });
-      } else {
-        // Slicer CLI Web /run expects raw Girder ObjectId strings — NOT JSON-wrapped objects.
-        // Passing {"_id":"...","_modelType":"item"} causes "Invalid ObjectId" on the server.
-        // The rest of the mapping is `cliParams.js`, copied from slicer_cli_web's own widgets.
-        const params = cliRunParams({
-          groups: meta.groups, values: formValues, item: activeItem, cliName: selected.name,
-        });
-        // Slicer CLI worker needs Girder connection to upload results
-        params['girderApiUrl'] = GIRDER_BASE;
-        params['girderToken'] = localStorage.getItem('girderToken') || '';
-        await runCliByPath(selected.run, params);
-      }
+      const ack = await selected.tool.submit(activeItem._id, formValues, { roi: region.roi, mode });
+      qc.invalidateQueries({ queryKey: ['artifacts', activeItem._id] });
       // Do not wait out the poll interval to see what was just submitted.
       qc.invalidateQueries({ queryKey: ['pathassist-runs'] });
       // A content-addressed build whose every step already exists queues nothing, and saying
@@ -366,11 +234,7 @@ export default function AnalysisPanel() {
           {shownCount} / {entries.length} algorithm{entries.length !== 1 ? 's' : ''}
         </div>
 
-        {loadingImages && (
-          <div className="flex justify-center py-3"><div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }} /></div>
-        )}
-
-        {!loadingImages && shownCount === 0 && (
+        {shownCount === 0 && (
           <div className="text-center py-4" style={{ color: 'var(--muted-hex)', fontSize: 11 }}>
             No algorithms match the current filter.
           </div>
@@ -402,19 +266,6 @@ export default function AnalysisPanel() {
           </div>
         ))}
 
-        {/* Docker images were expected but none parsed — keep the raw response reachable */}
-        {!loadingImages && cliList.length === 0 && images && Object.keys(images).length > 0 && (
-          <details className="text-left mt-2">
-            <summary className="text-xs cursor-pointer px-2" style={{ color: '#f5a623' }}>
-              {Object.keys(images).length} docker image(s) returned, none parsed — show raw response
-            </summary>
-            <pre className="text-xs mt-1 p-2 rounded overflow-auto max-h-48 text-left"
-              style={{ background: 'var(--bg)', border: '1px solid var(--border-hex)', color: 'var(--text)', fontSize: 9, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {JSON.stringify(images, null, 2)}
-            </pre>
-          </details>
-        )}
-
       </div>
 
       {/* Under the catalog, and pinned there. The catalog is nineteen rows deep, so a Runs
@@ -429,7 +280,7 @@ export default function AnalysisPanel() {
   // ──────────────────────────────────────────────────────────────────────────
   // RENDER: FORM view
   // ──────────────────────────────────────────────────────────────────────────
-  const problem = isNative && meta
+  const problem = meta
     ? firstProblem(meta, formValues, { roi: region.roi })
     : null;
   const cost = describePlan(plan);
@@ -451,11 +302,9 @@ export default function AnalysisPanel() {
           <div className="text-xs font-semibold truncate" style={{ color: 'var(--text)' }}>
             {meta?.title || selected?.title || selected?.name}
           </div>
-          {(meta?.category || isNative) && (
-            <div style={{ color: 'var(--muted-hex)', fontSize: 9 }}>
-              {meta?.category || NATIVE_GROUP}
-            </div>
-          )}
+          <div style={{ color: 'var(--muted-hex)', fontSize: 9 }}>
+            {meta?.category || NATIVE_GROUP}
+          </div>
         </div>
       </div>
 
@@ -473,19 +322,9 @@ export default function AnalysisPanel() {
           </div>
         )}
 
-        {/* ROI drawing active banner (CLI path — native tools show it in the field itself) */}
-        {!isNative && drawingMode === 'roi-select' && (
-          <div className="mx-2 mb-2 px-3 py-2 rounded-lg flex items-center gap-2"
-            style={{ background: 'rgba(77,166,255,0.12)', border: '1px solid rgba(77,166,255,0.35)' }}>
-            <div className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: '#4da6ff' }} />
-            <span style={{ color: '#4da6ff', fontSize: 11 }}>
-              Draw a rectangle on the slide…
-            </span>
-            <button onClick={() => setDrawingMode(null)} className="ml-auto text-xs shrink-0"
-              style={{ color: 'var(--muted-hex)' }}>Esc</button>
-          </div>
-        )}
-
+        {/* The CLI path had its own "draw a rectangle" banner here, because a Slicer `region` param
+            is a text field the drawing fills in. A native tool's region is the `pa-region` field
+            itself, which says so where the value goes. */}
         {meta && !loadingForm && (
           <>
             {/* Description */}
@@ -521,15 +360,13 @@ export default function AnalysisPanel() {
                 </span>
               </div>
               <div className="mt-1.5" style={{ color: 'var(--muted-hex)', fontSize: 9 }}>
-                {isNative
-                  ? 'Output → this slide’s artifacts, in Workspace'
-                  : 'Output → same folder as input slide'}
+                Output → this slide’s artifacts, in Workspace
               </div>
             </div>
 
             {/* User-configurable parameters */}
             {meta.groups.map(group => {
-              const userParams = group.params.filter(p => isNative || !isAutoFilled(p));
+              const userParams = group.params;
               if (userParams.length === 0) return null;
               return (
                 <div key={group.label} className="mb-3">
@@ -550,13 +387,10 @@ export default function AnalysisPanel() {
                           ...prev, [p.name]: v,
                           // A tool may declare that one field decides others — the encoder binds
                           // the tiling geometry (Fork B). Declared by the tool rather than
-                          // hard-coded here, because this renderer draws docker CLIs too and has
-                          // no business knowing what an encoder is.
+                          // hard-coded here: this renderer draws whatever is declared and has no
+                          // business knowing what an encoder is.
                           ...(selected?.tool?.onChange?.(p.name, v, prev) || {}),
                         }))}
-                        onDrawRoi={(!isNative && (p.tag === 'float-vector' || p.tag === 'region'))
-                          ? () => setDrawingMode('roi-select')
-                          : undefined}
                         region={region}
                         artifacts={artifacts}
                         artifactsLoading={loadingArtifacts}

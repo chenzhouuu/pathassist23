@@ -6,10 +6,11 @@ leave the server, and what a queued run is waiting behind — are testable witho
 The whitelist is the point of this module. A job document is not safe to forward:
 
 - `kwargs` carries the `girder_token` the dispatcher handed the driver.
-- `_original_params` (slicer_cli_web, `rest_slicer_cli.py:460`) carries `girderToken` in clear.
 - `jobInfoSpec.headers['Girder-Token']` is the job's own write token.
+- `_original_params` did the same for a docker CLI (`rest_slicer_cli.py:460`, in clear). Those
+  jobs are gone, but a Girder that still holds one holds the token with it.
 
-All three are live credentials sitting on a document whose other fields the Runs list genuinely
+These are live credentials sitting on a document whose other fields the Runs list genuinely
 needs, so the row is built field by field rather than filtered field by field. `girder_jobs` makes
 the same call at a smaller scale: `exposeFields` puts `args`/`kwargs` behind SITE_ADMIN
 (`models/job.py:32`), which is also why `pathassist` — our own `girder_job_other_fields` — never
@@ -37,11 +38,6 @@ FINISHED = (SUCCESS, ERROR, CANCELED)
 
 #: The queue a dispatch lands on when the job predates `rest.py` storing one.
 DEFAULT_LANE = "pathassist"
-#: Where a docker CLI runs. Not our queue, so it does not share our queue's positions — a nuclei
-#: run waiting at `concurrency=1` is not waiting behind a HistomicsTK container.
-CLI_LANE = "girder_worker"
-
-_OBJECT_ID = re.compile(r"^[0-9a-f]{24}$")
 
 #: How much of a failure gets copied onto the row. Enough for the last frame of a traceback and
 #: the exception line under it; not enough to make the Runs list a log viewer.
@@ -51,12 +47,13 @@ REASON_CHARS = 400
 def job_types_query() -> dict:
     """The Mongo predicate for "a job the Analysis catalog could have started".
 
-    Two families, and the second is a convention rather than a constant: `slicer_cli_web` types
-    its jobs `'%s#%s' % (image, cli)` (`rest_slicer_cli.py:441`), so the `#` is the CLI marker.
-    That deliberately excludes `slicer_cli_web_job` (pulling a docker image,
-    `docker_resource.py:53`) and `assetstore_import`, which are housekeeping rather than analysis.
+    One family now. There used to be a second — `slicer_cli_web` types its jobs
+    `'%s#%s' % (image, cli)` (`rest_slicer_cli.py:441`), so a `{"type": {"$regex": "#"}}` clause
+    picked up docker CLI runs while excluding `slicer_cli_web_job` (an image pull) and
+    `assetstore_import`. The docker CLI surface went on 2026-08-03 and the clause with it; a
+    Girder still holding old CLI jobs simply stops listing them here.
     """
-    return {"$or": [{"type": "pathassist"}, {"type": {"$regex": "#"}}]}
+    return {"type": "pathassist"}
 
 
 def has_started(job: dict) -> bool:
@@ -119,50 +116,29 @@ def lane_of(job: dict) -> str:
     pa = job.get("pathassist")
     if isinstance(pa, dict):
         return pa.get("queue") or DEFAULT_LANE
-    return CLI_LANE
+    return DEFAULT_LANE
 
 
-def cli_item_id(job: dict, load_file) -> str | None:
-    """The slide a docker CLI is running on, recovered from the params it was submitted with.
+def item_id_of(job: dict) -> str | None:
+    """The slide this run is about.
 
-    `prepare_task.py:298-310` picks the *primary indexed non-output input* as the job's subject and
-    resolves a file-typed one to `file['itemId']`. Nothing writes that itemId onto the job, so this
-    reverses it: walk the submitted params in declaration order and take the first value that is an
-    ObjectId naming a real file. `outputAnnotationFile_folder` is a folder id and loads as nothing;
-    `girderToken` is 64 characters and never matches.
-
-    On a copied item this lands on the **origin**, not the copy the user opened, because a copy
-    shares the original's `largeImage.fileId` — upstream's own `reference['itemId']` has exactly
-    the same property. That is why a row carries `slideKey` as well: two runs are on the same
-    slide when they read the same image file, whichever item they were submitted against.
-
-    `load_file` is injected so this stays testable without a Mongo.
+    A dispatch writes it at submission time. A docker CLI did not, so this used to fall through to
+    `cli_item_id()`, which reversed `prepare_task.py`'s subject rule by walking the submitted params
+    for the first ObjectId that loaded as a real file. That went with the CLIs on 2026-08-03.
     """
-    for value in (job.get("_original_params") or {}).values():
-        if not isinstance(value, str) or not _OBJECT_ID.match(value):
-            continue
-        found = load_file(value)
-        if found and found.get("itemId"):
-            return str(found["itemId"])
-    return None
-
-
-def item_id_of(job: dict, load_file) -> str | None:
-    """The slide this run is about, whichever family the job belongs to."""
     pa = job.get("pathassist")
     if isinstance(pa, dict) and pa.get("item"):
         return str(pa["item"])
-    return cli_item_id(job, load_file)
+    return None
 
 
 def slide_key(item_id: str | None, item: dict | None) -> str | None:
     """What makes two runs "the same slide" for grouping.
 
     The image file, not the item. On this deployment the DEMO slide is a `copyOfItem` whose
-    `largeImage.fileId` points at the original's file, so a native run (submitted against the copy)
-    and a docker CLI run (resolved back to the original) name two different items and one slide.
-    Keying on the file is what upstream already treats as the slide's identity — it is the id
-    `ItemSelectorWidget.js:249` hands a CLI in the first place.
+    `largeImage.fileId` points at the original's file, so two runs submitted against different
+    copies name two different items and one slide. Keying on the file is what upstream already
+    treats as the slide's identity — it is the id `ItemSelectorWidget.js:249` hands a task.
     """
     file_id = ((item or {}).get("largeImage") or {}).get("fileId")
     return str(file_id) if file_id else item_id

@@ -32,7 +32,7 @@ function Divider() {
   return <div style={{ height: 1, background: 'var(--border-hex)', margin: '2px 0' }} />;
 }
 
-export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNuclei }) {
+export default function ContextMenu({ x, y, ann, viewer, onClose }) {
   const menuRef = useRef(null);
   const qc = useQueryClient();
   const { activeItem, setSelectedAnnotation, annotations } = useStore();
@@ -149,19 +149,6 @@ export default function ContextMenu({ x, y, ann, viewer, onClose, onAnnotateNucl
             label="Select annotation"
             hint="highlight"
             onClick={handleSelect}
-          />
-          <Divider />
-          <MenuItem
-            icon={
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="4"/><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/>
-                <circle cx="5" cy="8" r="1" fill="currentColor"/><circle cx="19" cy="8" r="1" fill="currentColor"/>
-                <circle cx="5" cy="16" r="1" fill="currentColor"/><circle cx="19" cy="16" r="1" fill="currentColor"/>
-              </svg>
-            }
-            label="Annotate Nuclei"
-            hint="Slicer CLI"
-            onClick={() => { onAnnotateNuclei(ann); }}
           />
           <Divider />
           <MenuItem

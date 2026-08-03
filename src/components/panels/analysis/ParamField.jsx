@@ -163,9 +163,9 @@ function ArtifactField({ param, value, onChange, artifacts, loading }) {
   );
 }
 
-/** A single rendered form field, for a CLI param or a native one. */
+/** A single rendered form field. */
 export default function ParamField({
-  param, value, onChange, onDrawRoi, region, artifacts, artifactsLoading, disabled = false,
+  param, value, onChange, region, artifacts, artifactsLoading, disabled = false,
 }) {
   const { tag, label, desc, defVal, enums, options, min, max } = param;
 
@@ -221,46 +221,10 @@ export default function ParamField({
     );
   }
 
-  // ROI inputs: both <region> and <float-vector> are used by HistomicsTK for analysis_roi
-  if (tag === 'region' || tag === 'float-vector') return (
-    <div>
-      <Label label={label} desc={desc} />
-      <div className="flex gap-1.5">
-        <div className="relative flex-1">
-          <input type="text" value={value} onChange={e => onChange(e.target.value)}
-            placeholder={tag === 'region' ? '[-1, -1, -1, -1]' : '-1,-1,-1,-1'}
-            style={{ ...inputStyle, fontFamily: 'monospace', paddingRight: value && value !== '-1,-1,-1,-1' ? 24 : 8 }}
-            onFocus={e => e.target.style.borderColor = 'rgba(77,166,255,0.5)'}
-            onBlur={e => e.target.style.borderColor = 'var(--border-hex)'} />
-          {value && value !== '-1,-1,-1,-1' && (
-            <button onClick={() => onChange('-1,-1,-1,-1')}
-              style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-hex)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, padding: 0 }}
-              title="Reset to full slide">✕</button>
-          )}
-        </div>
-        {/* Draw ROI button — triggers rectangle selection on the viewer canvas */}
-        {onDrawRoi && (
-          <button onClick={onDrawRoi}
-            className="flex items-center gap-1 px-2 py-1 rounded shrink-0 text-xs transition-all"
-            style={{ background: 'rgba(77,166,255,0.12)', color: BLUE, border: '1px solid rgba(77,166,255,0.3)', whiteSpace: 'nowrap' }}
-            title="Draw a rectangle on the slide to set ROI coordinates">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <rect x="3" y="3" width="18" height="18" rx="1" />
-            </svg>
-            Draw
-          </button>
-        )}
-      </div>
-      <div className="flex items-center gap-1 mt-1.5">
-        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="var(--muted-hex)" strokeWidth="2">
-          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-        </svg>
-        <span style={{ color: 'var(--muted-hex)', fontSize: 9 }}>
-          left, top, width, height (pixels) &nbsp;·&nbsp; <span style={{ fontFamily: 'monospace' }}>-1,-1,-1,-1</span> = entire slide
-        </span>
-      </div>
-    </div>
-  );
+  // A `region` / `float-vector` branch used to sit here: HistomicsTK encoded `analysis_roi` as a
+  // text field of four numbers, with a Draw button that put the canvas into `roi-select` and typed
+  // the result in. It went with the docker CLIs on 2026-08-03. `pa-region` above is the same idea
+  // done properly — the rectangle is state, not a string a user can mistype.
 
   if (tag === 'integer' || tag === 'float') return (
     <div>

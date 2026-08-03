@@ -269,8 +269,10 @@ export const createItemTiles = (itemId) =>
   client.post(`/item/${itemId}/tiles`).then((r) => r.data);
 
 // ─── Jobs / Tasks ─────────────────────────────────────────────────────────────
-export const getDockerImages = () =>
-  client.get('/slicer_cli_web/docker_image').then((r) => r.data);
+// The five `/slicer_cli_web` bindings that used to sit here — docker_image, the two XML fetches and
+// the two run posts — went with the docker CLI surface on 2026-08-03. Nothing in the app submits a
+// Slicer CLI any more; the Analysis catalog is the native tools only.
+// See docs/docker-cli-technical-report.md.
 export const getJobs = () =>
   client.get('/job?limit=50&sort=created&sortdir=-1').then((r) => r.data);
 export const getJob = (id) => client.get(`/job/${id}`).then((r) => r.data);
@@ -290,30 +292,3 @@ export const listRuns = (limit = 25) =>
 export const cancelJob = (id) =>
   client.put(`/job/${id}/cancel`).then((r) => r.data);
 
-// ─── Slicer CLI execution ─────────────────────────────────────────────────────
-// GET the CLI's XML descriptor (describes parameters)
-// NOTE: imageName (e.g. "dsarchive/histomicstk") contains a real path slash —
-// the Slicer CLI Web route is /<namespace>/<image>/<cli>/xml so the slash must
-// NOT be percent-encoded (encodeURIComponent would turn it into %2F which breaks routing).
-export const getCliXml = (imageName, cliName) =>
-  client.get(`/slicer_cli_web/${imageName}/${cliName}/xml`, { responseType: 'text' })
-    .then((r) => r.data);
-
-// POST to submit a Slicer CLI job. params is a plain object of parameter values.
-export const runCliJob = (imageName, cliName, params) =>
-  client.post(`/slicer_cli_web/${imageName}/${cliName}/run`, params)
-    .then((r) => r.data);
-
-// POST using the exact run path from the docker_image response (val.run).
-// Slicer CLI Web expects application/x-www-form-urlencoded (not JSON).
-// URLSearchParams serialises the plain-object params as form fields automatically.
-export const runCliByPath = (runPath, params) => {
-  const path = runPath.startsWith('/') ? runPath : `/${runPath}`;
-  return client.post(path, new URLSearchParams(params)).then((r) => r.data);
-};
-
-// GET CLI XML using the xmlspec path from the docker_image response (val.xmlspec).
-export const getCliXmlByPath = (xmlPath) => {
-  const path = (xmlPath || '').startsWith('/') ? xmlPath : `/${xmlPath}`;
-  return client.get(path, { responseType: 'text' }).then((r) => r.data);
-};

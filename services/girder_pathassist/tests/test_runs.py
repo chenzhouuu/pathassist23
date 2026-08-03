@@ -1,13 +1,12 @@
 """What leaves the server for the Runs list, and what must not (Inc 6 · ticket 03).
 
 The documents below are real ones, copied out of this deployment's `job` collection with the
-token values shortened. Two of them carry live Girder credentials in fields that sit right next to
+token values shortened. It carries live Girder credentials in fields that sit right next to
 fields the Runs list needs, which is the whole reason `row()` builds its output field by field.
 """
 
 from girder_pathassist.runs import (
     CANCELING,
-    CLI_LANE,
     DEFAULT_LANE,
     ERROR,
     QUEUED,
@@ -15,7 +14,6 @@ from girder_pathassist.runs import (
     SUCCESS,
     UNFINISHED,
     chain_of,
-    cli_item_id,
     failure_reason,
     has_started,
     item_id_of,
@@ -42,39 +40,11 @@ NATIVE = {
     "userId": "69be4029143be93cfca56a37",
 }
 
-# Compute Background Intensity, as slicer_cli_web wrote it.
-CLI = {
-    "_id": "6a6e4d99964397e5583e18df",
-    "title": "Compute Background Intensity on TCGA-WT-AB44-01A-01-TS1.svs",
-    "type": "dsarchive/histomicstk:latest#BackgroundIntensity",
-    "status": SUCCESS,
-    "created": "2026-08-01T19:48:41.268Z",
-    "progress": None,
-    "_original_params": {
-        "slide_path": "6a3d59c8d59c30f37fd99be0",
-        "sample_fraction": "0.1",
-        "outputAnnotationFile": "TCGA-WT-AB44-BackgroundIntensity-2026-08-01.anot",
-        "outputAnnotationFile_folder": "6a6e1ca82ae96ce927e33817",
-        "girderToken": "nr3AByqKOpFDeX9ywQqTbaevJn4gA20NnYCVFE2CJKGalrotHWrk47GCOyYhvDy3",
-    },
-    "userId": "69be4029143be93cfca56a37",
-}
-
-#: The deployment's file collection, for the injected loader. The output folder id is present as a
-#: *folder*, so a loader that ignored the collection it queried would resolve the wrong thing.
-FILES = {"6a3d59c8d59c30f37fd99be0": {"_id": "6a3d59c8d59c30f37fd99be0",
-                                      "itemId": "6a6e1ca82ae96ce927e33818"}}
-
-
-def load_file(file_id):
-    return FILES.get(file_id)
-
-
 class TestWhichJobsAreRuns:
-    def test_the_two_families_and_nothing_else(self):
-        """`slicer_cli_web` types a CLI job `image#cli`; image pulls and imports are neither."""
-        query = job_types_query()
-        assert query == {"$or": [{"type": "pathassist"}, {"type": {"$regex": "#"}}]}
+    def test_only_dispatched_runs(self):
+        """One family since the docker CLIs went (2026-08-03). A Girder still holding old
+        `image#cli` jobs stops listing them rather than showing rows nothing can act on."""
+        assert job_types_query() == {"type": "pathassist"}
 
     def test_canceling_still_occupies_the_queue(self):
         """824 is where `jobs.cancel` parks a live job until its runner settles it.
@@ -117,39 +87,24 @@ class TestWhichQueueARunCompetesFor:
         old = dict(NATIVE, pathassist={"kind": "nuclei", "item": "x", "artHash": "y"})
         assert lane_of(old) == DEFAULT_LANE
 
-    def test_a_docker_cli_is_a_different_lane(self):
-        """It runs on the DSA worker. A nuclei run at concurrency=1 is not waiting behind it."""
-        assert lane_of(CLI) == CLI_LANE
-
 
 class TestWhichSlideARunIsAbout:
-    def test_a_native_run_says_so_itself(self):
-        assert item_id_of(NATIVE, load_file) == "6a6e1ca82ae96ce927e33818"
+    def test_a_dispatch_says_so_itself(self):
+        assert item_id_of(NATIVE) == "6a6e1ca82ae96ce927e33818"
 
-    def test_a_cli_run_is_recovered_from_its_primary_file_input(self):
-        """Reversing `prepare_task.py:298-310`: the first param that names a real file."""
-        assert cli_item_id(CLI, load_file) == "6a6e1ca82ae96ce927e33818"
-
-    def test_the_output_folder_id_is_not_mistaken_for_the_input(self):
-        """It is a well-formed ObjectId that loads as no file, which is the only thing separating
-        it from the slide."""
-        only_output = dict(CLI, _original_params={
-            "outputAnnotationFile_folder": "6a6e1ca82ae96ce927e33817"})
-        assert cli_item_id(only_output, load_file) is None
-
-    def test_a_token_is_never_read_as_an_id(self):
-        assert cli_item_id({"_original_params": {"girderToken": "n" * 64}}, load_file) is None
-
-    def test_a_cli_with_no_recorded_params_has_no_slide(self):
-        assert item_id_of({"type": "a#b"}, load_file) is None
+    def test_a_job_with_no_dispatch_field_has_no_slide(self):
+        """A docker CLI was such a job, and `cli_item_id()` reversed `prepare_task.py`'s subject
+        rule to recover one. Both went on 2026-08-03; anything left without the field has no
+        slide to name."""
+        assert item_id_of({"type": "a#b"}) is None
 
 
 class TestWhenTwoRunsAreOnTheSameSlide:
     """The DEMO slide, measured 2026-08-01.
 
     Item `…33818` is `copyOfItem: …9bdf` and both carry `largeImage.fileId: …9be0`. A native run
-    names the copy (the gateway was handed the item the user opened); a docker CLI resolves back
-    through the file to the original. Two item ids, one slide, and grouping has to say so.
+    names the copy — the gateway was handed the item the user opened. Two users on two copies
+    are two item ids and one slide, and grouping has to say so.
     """
 
     COPY = {"name": "TCGA-WT-AB44.svs", "largeImage": {"fileId": "6a3d59c8d59c30f37fd99be0"}}
@@ -249,13 +204,6 @@ class TestWhatLeavesTheServer:
         failed = row(dict(NATIVE, status=ERROR, log=["RuntimeError: nuclei failed"]),
                      readable=True, mine=True, item_id=None, slide_name=None)
         assert failed["reason"] == "RuntimeError: nuclei failed"
-
-    def test_a_cli_row_has_no_kind_and_says_so_by_omission(self):
-        r = row(CLI, readable=True, mine=True,
-                item_id="6a6e1ca82ae96ce927e33818", slide_name="TCGA-WT-AB44.svs")
-        assert r["kind"] is None
-        assert r["progress"] is None
-        assert r["type"] == "dsarchive/histomicstk:latest#BackgroundIntensity"
 
 
 class TestChains:

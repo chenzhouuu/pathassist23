@@ -10,7 +10,6 @@ import {
   findAnnotationAtViewer,
 } from './annotationUtils.js';
 import ContextMenu from './ContextMenu.jsx';
-import NucleiDetectionModal from './NucleiDetectionModal.jsx';
 
 export default function AnnotationCanvas({ viewer }) {
   const canvasRef = useRef(null);
@@ -30,9 +29,10 @@ export default function AnnotationCanvas({ viewer }) {
   // mutable draw state (not React state — avoids re-renders on mouse move)
   const ds = useRef({ active: false, points: [], start: null, cursor: null });
 
-  // Context menu + nuclei detection modal state
-  const [ctxMenu, setCtxMenu]     = useState(null); // { x, y, ann }
-  const [nucleiAnn, setNucleiAnn] = useState(null); // annotation to run nuclei detection on
+  // Context menu state. The "Annotate Nuclei" entry and its modal — which probed the registered
+  // HistomicsTK CLIs and posted a Slicer run — went with the docker CLI surface on 2026-08-03.
+  // Nuclei segmentation is submitted from the Analysis catalog and watched in Runs.
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, ann }
 
   // Save-error notification (replaces browser alert)
   const [saveError, setSaveError] = useState(null); // { msg, hint } | null
@@ -369,15 +369,6 @@ export default function AnnotationCanvas({ viewer }) {
           ann={ctxMenu.ann}
           viewer={viewer}
           onClose={() => setCtxMenu(null)}
-          onAnnotateNuclei={(ann) => { setCtxMenu(null); setNucleiAnn(ann); }}
-        />
-      )}
-
-      {nucleiAnn && (
-        <NucleiDetectionModal
-          ann={nucleiAnn}
-          item={activeItem}
-          onClose={() => setNucleiAnn(null)}
         />
       )}
     </>
