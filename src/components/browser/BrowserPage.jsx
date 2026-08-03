@@ -32,6 +32,7 @@ import NewEntryDialog from './NewEntryDialog.jsx';
 import SharePatientModal from '../share/SharePatientModal.jsx';
 import { buildColumns, HIDDEN_BY_DEFAULT } from './browserColumns.jsx';
 import { useBrowseNavigation } from './useBrowseNavigation.js';
+import { useSurfaceTheme } from './useSurfaceTheme.js';
 import {
   toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirst, STATUSES,
 } from './browseUtils.js';
@@ -39,6 +40,11 @@ import {
 export default function BrowserPage() {
   const qc = useQueryClient();
   const { setActiveItem, setActiveFolder, user } = useStore();
+
+  // This page, and only this page, is Graphite. The hook marks the document for as long as the
+  // page is mounted and unmarks it on the way out, which is what leaves the Viewer in its own
+  // reading-room palette without a single rule in browser/ knowing the Viewer exists.
+  const { mode, toggleMode } = useSurfaceTheme('browser');
 
   const [columnVisibility, setColumnVisibility] = useState(HIDDEN_BY_DEFAULT);
   const [sorting, setSorting] = useState([{ id: 'name', desc: false }]);
@@ -157,7 +163,13 @@ export default function BrowserPage() {
 
   return (
     <div className="browser-shell">
-      <BrowserTopBar search={search} onSearch={setSearch} user={user} />
+      <BrowserTopBar
+        search={search}
+        onSearch={setSearch}
+        user={user}
+        mode={mode}
+        onToggleMode={toggleMode}
+      />
 
       <BrowserToolbar
         crumbs={crumbs}

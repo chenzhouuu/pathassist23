@@ -6,7 +6,15 @@
   height: 100dvh;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  /* The one place the page names a typeface, and it names a token instead: Inter is a decision of
+   * the Graphite layer, and IBM Plex stays the incumbent everywhere this redesign does not reach.
+   * 440 rather than 400 because the variable axis is the whole reason the file is self-hosted —
+   * 400 goes thin at 13px on a white ground. cv01 and ss03 are what keep 1/l/I apart in an
+   * accession number. */
+  font-family: var(--font-ui);
+  font-weight: var(--fw-normal);
+  font-feature-settings: var(--font-features);
+  font-optical-sizing: auto;
   overflow: hidden;
 }
 

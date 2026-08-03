@@ -7,7 +7,7 @@
 // to the thing everyone uses. Import and New folder moved into the table toolbar, where they act
 // on the level you are actually looking at.
 import React from 'react';
-import { Search, ChevronDown } from 'lucide-react';
+import { Search, ChevronDown, Moon, Sun } from 'lucide-react';
 import { useStore } from '../../store/index.js';
 import { APP_NAME, LOGO_SRC } from '../../config/branding.js';
 import { KEYCLOAK_LOGOUT_URL } from '../../config/girder.js';
@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '../ui/dropdown-menu.tsx';
 
-export default function BrowserTopBar({ search, onSearch, user }) {
+export default function BrowserTopBar({ search, onSearch, user, mode = 'light', onToggleMode }) {
   const { setPage, clearAuth, hasRole } = useStore();
 
   const pages = [
@@ -49,8 +49,24 @@ export default function BrowserTopBar({ search, onSearch, user }) {
         />
       </label>
 
+      {/* Light and dark are one surface seen two ways, so the switch is a single button rather
+          than a menu of themes: there is no third choice to make room for. It takes over the
+          `ml-auto` that pushes the account chip right (the chip gives its own up, just below),
+          because two auto margins on one flex line split the free space between them and would
+          leave the button stranded mid-bar. Styled from the tokens it is switching between, so
+          it re-themes with everything else. */}
+      <button
+        type="button"
+        onClick={onToggleMode}
+        aria-label={mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        title={mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        {mode === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+      </button>
+
       <DropdownMenu>
-        <DropdownMenuTrigger className="browser-user">
+        <DropdownMenuTrigger className="browser-user ml-0">
           <span className="browser-avatar">{initial}</span>
           <span className="browser-user-name">{user?.firstName || user?.login || 'User'}</span>
           <ChevronDown size={13} />
