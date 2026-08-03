@@ -27,6 +27,7 @@ import {
 import BrowserTopBar from './BrowserTopBar.jsx';
 import BrowserToolbar from './BrowserToolbar.jsx';
 import CollectionTree from './CollectionTree.jsx';
+import SlideGrid from './SlideGrid.jsx';
 import PreviewPane from './PreviewPane.jsx';
 import ImportModal from './ImportModal.jsx';
 import NewEntryDialog from './NewEntryDialog.jsx';
@@ -47,6 +48,15 @@ export default function BrowserPage() {
   // reading-room palette without a single rule in browser/ knowing the Viewer exists.
   const { mode, toggleMode } = useSurfaceTheme('browser');
 
+  // Table or grid. It lives here rather than in `useBrowseNavigation` because it is not navigation:
+  // the hook holds where we are pointing and what that position implies, and it clears every one of
+  // those on a level change, because a status filter carried into another folder silently hides its
+  // contents. A view mode carried into another folder is the *opposite* — it is the thing the user
+  // chose about how to look, and resetting it on every step into a case folder is precisely the bug
+  // the ticket forbids. It is presentation, like the rail's expansion state; unlike that one it
+  // cannot live inside a single component, because the control is in the toolbar and the rendering
+  // is in the body, and this is the smallest place both can see.
+  const [viewMode, setViewMode] = useState('table');
   const [columnVisibility, setColumnVisibility] = useState(HIDDEN_BY_DEFAULT);
   const [sorting, setSorting] = useState([{ id: 'name', desc: false }]);
   const [showImport, setShowImport] = useState(false);
@@ -179,6 +189,8 @@ export default function BrowserPage() {
         status={status}
         onStatus={setStatus}
         columns={table.getAllColumns().filter((c) => c.getCanHide())}
+        view={viewMode}
+        onView={setViewMode}
         inCollection={!!collection}
         onNew={() => setShowNew(true)}
         onImport={() => setShowImport(true)}
@@ -217,6 +229,17 @@ export default function BrowserPage() {
               <p>Could not load this level.</p>
               <p className="browser-empty-sub">{String(error.message || error)}</p>
             </div>
+          ) : viewMode === 'grid' ? (
+            // Fed from the table's own row model rather than from `visible`, so the two views are
+            // the same rows in the same order. The grid has no header to sort by, and a switch that
+            // silently reshuffled the level would make the sort look like a property of the table
+            // rather than of the level.
+            <SlideGrid
+              rows={table.getRowModel().rows.map((r) => r.original)}
+              selectedId={selectedId}
+              onSelect={select}
+              onOpen={open}
+            />
           ) : (
             <Table noScroll>
               <TableHeader>
