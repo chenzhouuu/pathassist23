@@ -56,9 +56,22 @@ CONTAINERS = [c for c in os.environ.get(
 #: Prefix → upstream base. Longest prefix wins, so `/api/copilot` is not eaten by `/api`.
 PROXY = [("/api/copilot", COPILOT_BASE), ("/api/v1", GIRDER_BASE)]
 
-#: Request headers worth forwarding. Everything else (Host, Origin, Accept-Encoding…) belongs to
-#: the hop between the browser and this process, not to the hop between this process and Girder.
-FORWARD = ("girder-token", "content-type", "accept")
+#: Headers that belong to the hop between the browser and this process, and must not be passed on.
+#:
+#: A deny-list rather than an allow-list, and that is the whole point. This started as
+#: `("girder-token", "content-type", "accept")`, which silently dropped `Authorization` — so
+#: `GET /user/authentication` came back `401: Use HTTP Basic Authentication`, a refusal naming
+#: the exact header the browser had in fact sent. Pasting a token still worked, which is why it
+#: survived being tested. An allow-list drops whatever nobody thought of; a deny-list only drops
+#: what is known not to travel.
+#:
+#: `accept-encoding` is on it for a different reason: `_relay` copies Content-Type and not
+#: Content-Encoding, so a compressed upstream body would reach the browser mislabelled.
+HOP_BY_HOP = frozenset({
+    "host", "origin", "referer", "connection", "keep-alive", "proxy-authenticate",
+    "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade",
+    "accept-encoding", "content-length",
+})
 
 STATIC = {"/": "index.html", "/index.html": "index.html"}
 STATIC.update({f"/{n}": n for n in
@@ -222,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
 
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
-        headers = {k: v for k, v in self.headers.items() if k.lower() in FORWARD}
+        headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
 
         req = urllib.request.Request(url, data=body, headers=headers, method=self.command)
         try:
