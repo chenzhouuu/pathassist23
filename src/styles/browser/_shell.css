@@ -6,6 +6,13 @@
   height: 100dvh;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  /* Declared so the pieces the browser draws for itself follow the page. Two of them are on this
+   * page and neither is reachable with a colour rule: the native `<select>` in the toolbar paints
+   * its own arrow and opens its own list, and the scrollbars beside a 500-row folder are the
+   * platform's. Without it they stay light while everything around them goes dark. It is two
+   * declarations rather than one reading the mode, because the property takes a keyword and a
+   * keyword cannot come from a token. */
+  color-scheme: light;
   /* The one place the page names a typeface, and it names a token instead: Inter is a decision of
    * the Graphite layer, and IBM Plex stays the incumbent everywhere this redesign does not reach.
    * 440 rather than 400 because the variable axis is the whole reason the file is self-hosted —
@@ -17,6 +24,8 @@
   font-optical-sizing: auto;
   overflow: hidden;
 }
+
+:root[data-mode='dark'] .browser-shell { color-scheme: dark; }
 
 /* ── Top bar ───────────────────────────────────────────────────────────────── */
 
@@ -33,6 +42,21 @@
 
 .browser-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .browser-logo { height: 22px; width: auto; display: block; }
+
+/* All three brand assets are dark artwork drawn for a white page — MD Anderson's wordmark is near
+ * black, Impart's mark is a dark teal, Algopath's a dark magenta — so on a #0B0B0C ground each one
+ * disappears into it. The product is white-labelled and the file is whatever a deployment dropped
+ * in, so there is no dark cut to switch to and this has to be done to the pixels.
+ *
+ * `hue-rotate(180deg)` after the inversion is what makes it a theme change rather than a negative:
+ * inverting alone takes a hue to its complement, which turns Impart's teal orange and Algopath's
+ * magenta green — a white-label deployment would see its own brand come out the wrong colour in
+ * dark mode. The rotation puts the hue back where it started and leaves only the lightness
+ * flipped, which is the whole intent. */
+:root[data-mode='dark'] .browser-logo {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 .browser-brand-name {
   font-size: 13px;
   font-weight: 600;
@@ -66,8 +90,15 @@
   font-size: 12px;
 }
 .browser-search input::placeholder { color: hsl(var(--muted-foreground)); }
-/* The native clear affordance is a light-theme glyph that vanishes on black. */
-.browser-search input::-webkit-search-cancel-button { filter: invert(1) opacity(0.5); }
+/* The native clear affordance is drawn by the browser as a dark glyph, which is right on this
+   page and was wrong on the Viewer's black ground — where the rule below was written, unscoped,
+   and inverted it to white. On a white page that inversion is white-on-white: the X was still
+   there and still clickable and could not be seen at all. So the inversion belongs to the dark
+   theme only, and light gets the glyph the browser already draws, one step back. */
+.browser-search input::-webkit-search-cancel-button { opacity: 0.5; }
+:root[data-mode='dark'] .browser-search input::-webkit-search-cancel-button {
+  filter: invert(1);
+}
 
 .browser-user {
   display: flex;

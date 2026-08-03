@@ -27,18 +27,19 @@
 // did not come back is a slide — the picture is what is missing, not the slide. So they get a
 // folder, a document and a struck-through image respectively.
 //
-// WHY THE SCAN QUERY IS WRITTEN OUT AGAIN HERE. `ScanCell` in browserColumns.jsx does the same
-// twelve lines, and lifting it into a module both files import is the right shape — but that edit
-// belongs to browserColumns.jsx, which this ticket does not own. What matters for behaviour is
-// already shared: the key is character-for-character the table's, so React Query serves both views
-// from one cache entry and switching table → grid costs no request at all.
+// WHERE THE SCAN QUERY LIVES. In `useScanFacts.js`, which the table's Scan column and the preview
+// pane call too. It used to be written out here as well, and what held the three copies together
+// was that their query keys happened to be identical character for character — React Query then
+// served all three from one cache entry, so switching table → grid cost no request. That property
+// is the reason the hook exists rather than a happy accident it replaced.
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { FileText, Folder as FolderIcon, ImageOff } from 'lucide-react';
 import { useOnScreen } from './SlideThumb.jsx';
-import { getThumbnailUrl, getTilesInfoSafe } from '../../api/index.js';
+import { getThumbnailUrl } from '../../api/index.js';
 import { isSlideRow } from './browseUtils.js';
-import { hasLargeImage, scanCell, wantsTiles } from './scanFacts.js';
+import { hasLargeImage } from './scanFacts.js';
+import { useScanFacts } from './useScanFacts.js';
+import StatusChip from './StatusChip.jsx';
 
 /**
  * What the image frame is holding, which is both the placeholder to draw and the hook the
@@ -70,16 +71,8 @@ function SlideCard({ row, selected, onSelect, onOpen }) {
   const [failed, setFailed] = useState(false);
   const slide = isSlideRow(row);
 
-  const { data: tiles } = useQuery({
-    queryKey: ['browser', 'tiles', row.id],
-    queryFn: () => getTilesInfoSafe(row.id),
-    enabled: wantsTiles(row) && seen,
-    staleTime: Infinity,
-    retry: false,
-  });
-
+  const scan = useScanFacts(row, { enabled: seen });
   const kind = frameKind(row, failed);
-  const scan = scanCell(row, tiles);
 
   return (
     <li
@@ -111,10 +104,9 @@ function SlideCard({ row, selected, onSelect, onOpen }) {
 
         <div className="browser-card-meta">
           {slide ? (
-            // The table's chip, class for class, so the status vocabulary is coloured in one place.
-            // An untriaged slide reads as New for the reason StatusChip gives: "nothing here yet"
-            // and "nobody has looked" are the same state.
-            <span className="browser-status" data-status={row.status || 'New'}>{row.status || 'New'}</span>
+            // The table's chip, the component itself and not a copy of its markup, so the status
+            // vocabulary is spelled and coloured in exactly one place.
+            <StatusChip status={row.status} />
           ) : (
             <span className="browser-card-count">
               {row.count === null ? '—' : row.count} item{row.count === 1 ? '' : 's'}

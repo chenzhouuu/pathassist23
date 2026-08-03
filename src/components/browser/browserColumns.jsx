@@ -8,28 +8,39 @@
 // The default six are the ones a pathologist reads at a glance. Diagnosis, Folder and Collection
 // are defined but start hidden — @tanstack's visibility state makes them a checkbox away, so
 // carrying them costs nothing and dropping them would cost a code change.
+//
+// WHAT `meta` CARRIES, AND WHY IT IS NOT `size`. Three numbers per column: the width it is laid
+// out at, the width it needs before the table would rather shed it, and where it sits in the queue
+// when the table runs out of room. @tanstack fills `columnDef.size` with a default of 150 for
+// every column that does not state one, so `size` cannot answer "did the author give this column a
+// width?" — it always says yes. `meta` can, and Name's answer has to be no: it is the column that
+// absorbs whatever the others leave over, and under `table-layout: fixed` that is expressed by
+// declaring no width at all. See `_table.css` for the layout and `responsiveColumns.js` for the
+// ladder.
+//
+// THE PRIORITY ORDER, LOWEST FIRST — Collection, Folder, Updated, Size, Diagnosis, Scan, Status:
+//
+//   Collection and Folder go first because the rail and the breadcrumb both say where you are,
+//   permanently, so these two are the only columns on the table that can merely agree with
+//   something already on screen.
+//   Updated goes next because it distinguishes least: an ingested TCGA cohort carries dates that
+//   all cluster in the same fortnight, so the column is six hundred rows of 06-25.
+//   Size after it — housekeeping, and the pane states it for the selected row anyway.
+//   Then Diagnosis, which is content rather than housekeeping, and finally Scan and Status, which
+//   are the two columns that make this a pathology tool rather than a file manager: one says
+//   whether the slide is readable at all and the other is the triage state the whole page is
+//   organised around.
+//   Name and the select box carry no priority, which is how "Name never drops" is stated.
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Folder as FolderIcon } from 'lucide-react';
 import { Checkbox } from '../ui/checkbox.tsx';
 import SlideThumb, { useOnScreen } from './SlideThumb.jsx';
-import { getTilesInfoSafe } from '../../api/index.js';
 import { fmtSize, fmtDate, isSlideRow } from './browseUtils.js';
-import { hasLargeImage, scanCell, wantsTiles } from './scanFacts.js';
+import { hasLargeImage } from './scanFacts.js';
+import { useScanFacts } from './useScanFacts.js';
+import StatusChip from './StatusChip.jsx';
 
 export const HIDDEN_BY_DEFAULT = { diagnosis: false, folderPath: false, collectionName: false };
-
-function StatusChip({ status }) {
-  // An untriaged slide reads as New rather than as blank: "nothing here yet" and "nobody has
-  // looked" are the same state, and calling it New is what makes the status filter useful.
-  //
-  // The status is written to a data attribute rather than turned into an inline colour, because
-  // the fill is a `color-mix` of the semantic hue over the current surface and the label is the
-  // theme's own reading of that hue — two values that have to move together when the page goes
-  // dark, which is a stylesheet's job and not a component's.
-  const label = status || 'New';
-  return <span className="browser-status" data-status={label}>{label}</span>;
-}
 
 // The Scan column's cell, which is the one cell in the table that has to ask the server a
 // question. It asks per row rather than by lifting the fetch into BrowserPage: a slide's scanner
@@ -37,25 +48,14 @@ function StatusChip({ status }) {
 // item id that only this column reads.
 //
 // Two things keep the request count sane on the 500-row folders this instance actually has.
-// `wantsTiles` answers folders and non-slide items from the row itself, with no request at all;
-// and the query is held back until the row has been near the viewport, the same gate and the same
-// observer the thumbnail beside it uses. React Query then dedups and caches, so scrolling back up
-// a list costs nothing. `staleTime: Infinity` because a slide's objective power is a property of
-// the scan and does not change while the page is open.
+// `wantsTiles`, inside the hook, answers folders and non-slide items from the row itself with no
+// request at all; and the query is held back until the row has been near the viewport, the same
+// gate and the same observer the thumbnail beside it uses. React Query then dedups and caches, so
+// scrolling back up a list costs nothing — and so does switching to the grid, which asks for the
+// same key through the same hook.
 function ScanCell({ row }) {
   const [ref, seen] = useOnScreen();
-  const ask = wantsTiles(row);
-  const { data } = useQuery({
-    queryKey: ['browser', 'tiles', row.id],
-    queryFn: () => getTilesInfoSafe(row.id),
-    enabled: ask && seen,
-    staleTime: Infinity,
-    // `getTilesInfoSafe` swallows the error and resolves null, so a retry would only repeat a
-    // request that already told us what it could.
-    retry: false,
-  });
-
-  const { text, kind } = scanCell(row, data);
+  const { text, kind } = useScanFacts(row, { enabled: seen });
   return <span ref={ref} className="browser-scan" data-kind={kind}>{text}</span>;
 }
 
@@ -65,7 +65,11 @@ export function buildColumns({ onOpen }) {
       id: 'select',
       enableSorting: false,
       enableHiding: false,
-      size: 36,
+      // No priority: a table whose rows cannot be picked is not a narrower table, it is a
+      // different one. 36px is the checkbox plus the cell's own padding, and under a fixed layout
+      // it is now a rule rather than the hint it was — this column used to absorb the table's
+      // slack and push the thumbnail a finger's width to the right.
+      meta: { width: 36 },
       header: ({ table }) => (
         <Checkbox
           checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && 'indeterminate')}
@@ -90,6 +94,12 @@ export function buildColumns({ onOpen }) {
       id: 'name',
       accessorKey: 'name',
       header: 'Name',
+      // No width, so it takes whatever the fixed columns leave; no priority, so it is never what
+      // gets left out. `minWidth` is the only number it states, and it is a threshold rather than
+      // a size: below 260px the name has less than ~180px of text after the thumbnail, which is
+      // where a TCGA barcode stops distinguishing two slides, and the table is better off giving
+      // up a column than showing eight rows of the same truncated prefix.
+      meta: { minWidth: 260 },
       cell: ({ row }) => {
         const r = row.original;
         return (
@@ -125,7 +135,7 @@ export function buildColumns({ onOpen }) {
       id: 'status',
       accessorFn: (r) => (isSlideRow(r) ? (r.status || 'New') : ''),
       header: 'Status',
-      size: 120,
+      meta: { width: 120, priority: 7 },
       cell: ({ row }) => (isSlideRow(row.original) ? <StatusChip status={row.original.status} /> : null),
     },
     {
@@ -134,7 +144,7 @@ export function buildColumns({ onOpen }) {
       // responses land — the column is there to be read, not to be sorted by.
       id: 'scan',
       header: 'Scan',
-      size: 130,
+      meta: { width: 130, priority: 6 },
       enableSorting: false,
       cell: ({ row }) => <ScanCell row={row.original} />,
     },
@@ -142,23 +152,30 @@ export function buildColumns({ onOpen }) {
       id: 'size',
       accessorFn: (r) => r.size ?? -1,   // sort on the number, render the human form
       header: 'Size',
-      size: 90,
+      meta: { width: 90, priority: 4 },
       cell: ({ row }) => <span className="browser-num">{fmtSize(row.original.size)}</span>,
     },
     {
       id: 'created',
       accessorKey: 'created',
       header: 'Updated',
-      size: 90,
+      meta: { width: 90, priority: 3 },
       cell: ({ row }) => (
         <span className="browser-num" title={row.original.created || ''}>{fmtDate(row.original.created)}</span>
       ),
     },
+    // The three opt-in columns. They are free text of unbounded length, so each states a width for
+    // the same reason the fixed layout needs one at all, and each clips with an ellipsis rather
+    // than wrapping — a row that grew to two lines because one diagnosis is long would break the
+    // 56px rhythm the whole table is set to.
     { id: 'diagnosis', accessorKey: 'diagnosis', header: 'Diagnosis',
-      cell: ({ row }) => row.original.diagnosis || '' },
+      meta: { width: 160, priority: 5 },
+      cell: ({ row }) => <span className="browser-clip">{row.original.diagnosis || ''}</span> },
     { id: 'folderPath', accessorKey: 'folderPath', header: 'Folder',
-      cell: ({ row }) => row.original.folderPath || '' },
+      meta: { width: 160, priority: 2 },
+      cell: ({ row }) => <span className="browser-clip">{row.original.folderPath || ''}</span> },
     { id: 'collectionName', accessorKey: 'collectionName', header: 'Collection',
-      cell: ({ row }) => row.original.collectionName || '' },
+      meta: { width: 160, priority: 1 },
+      cell: ({ row }) => <span className="browser-clip">{row.original.collectionName || ''}</span> },
   ];
 }

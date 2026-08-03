@@ -191,6 +191,17 @@
   padding-top: var(--space-3);
 }
 
+/* One height for the row. "Open slide" is the page's one primary action and keeps the vendored
+   default variant's brand fill; its neighbour carries `.browser-quiet` from _toolbar.css, because
+   `variant="secondary"` is a sunken fill and the pane's own ground is one step off sunken already
+   — on white the Status button had no visible boundary at all, and read as a label. Both are set
+   to 28px here rather than to the variant's 24px so the pair matches the toolbar's controls, which
+   is the other row of buttons on the page. */
+.browser-preview-actions button {
+  height: 28px;
+  font-size: 12.5px;
+}
+
 /* The pane itself is dropped at 1100px in _responsive.css, which owns that rule and the rest of the
    narrow-screen pass. The resizer is this file's element and is dropped with it here rather than
    there, so a 5px grab strip is not left resizing something that is not on screen. Ticket 10 owns

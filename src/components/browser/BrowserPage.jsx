@@ -35,6 +35,8 @@ import SharePatientModal from '../share/SharePatientModal.jsx';
 import { buildColumns, HIDDEN_BY_DEFAULT } from './browserColumns.jsx';
 import { useBrowseNavigation } from './useBrowseNavigation.js';
 import { usePreviewResize } from './usePreviewResize.js';
+import { useResponsiveColumns } from './useResponsiveColumns.js';
+import { specFor } from './responsiveColumns.js';
 import { useSurfaceTheme } from './useSurfaceTheme.js';
 import {
   toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirstIn, STATUSES,
@@ -160,11 +162,31 @@ export default function BrowserPage() {
   // are three empty columns eating the width Name wants, so they are hidden until there is
   // something to put in them. This is derived rather than pushed into `columnVisibility`, so a
   // user's own choice in the Columns menu survives walking through a level that had no slides.
-  const effectiveVisibility = useMemo(() => (
+  const levelVisibility = useMemo(() => (
     visible.some(isSlideRow)
       ? columnVisibility
       : { ...columnVisibility, status: false, scan: false, size: false }
   ), [visible, columnVisibility]);
+
+  // The same idea, one turn further: what the table has room for. The ladder is handed only the
+  // columns that would otherwise be showing — a column the level rule has already dropped is not
+  // competing for the width — and it answers with the ones to give up, which are layered on top
+  // in exactly the same derived way. Two reasons a column can be absent, one place they compose,
+  // and `columnVisibility` still holds nothing but what the user asked for. Anything that wrote a
+  // width decision back into that state would turn dragging the preview wider into a permanent
+  // edit of the user's column choices.
+  const responsiveSpec = useMemo(
+    () => specFor(columns, levelVisibility),
+    [columns, levelVisibility],
+  );
+  const [tableRef, droppedForWidth] = useResponsiveColumns(responsiveSpec);
+
+  const effectiveVisibility = useMemo(() => {
+    if (!droppedForWidth.length) return levelVisibility;
+    const out = { ...levelVisibility };
+    for (const id of droppedForWidth) out[id] = false;
+    return out;
+  }, [levelVisibility, droppedForWidth]);
 
   // The sort direction has to be closed over rather than read inside the comparator, because
   // @tanstack's sortingFn signature does not carry it — and it matters here. table-core negates
@@ -211,6 +233,7 @@ export default function BrowserPage() {
         status={status}
         onStatus={setStatus}
         columns={table.getAllColumns().filter((c) => c.getCanHide())}
+        columnVisibility={columnVisibility}
         view={viewMode}
         onView={setViewMode}
         previewOpen={!preview.collapsed}
@@ -225,7 +248,7 @@ export default function BrowserPage() {
           <span>{selectedIds.length} selected</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm">Set status</Button>
+              <Button variant="secondary" size="sm" className="browser-quiet">Set status</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
               {STATUSES.filter((s) => s !== 'All').map((s) => (
@@ -235,7 +258,7 @@ export default function BrowserPage() {
               <DropdownMenuItem onSelect={() => writeStatus(selectedIds, null)}>Clear</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="ghost" size="sm" onClick={clearRowSelection}>
+          <Button variant="ghost" size="sm" className="browser-quiet" onClick={clearRowSelection}>
             <X size={14} /> Cancel
           </Button>
         </div>
@@ -247,7 +270,10 @@ export default function BrowserPage() {
             reads it. See CollectionTree.jsx for why those are two pieces of state and not one. */}
         <CollectionTree collection={collection} path={path} onNavigate={goTo} />
 
-        <div className="browser-table-wrap">
+        {/* The measured element. It is `flex: 1` between the rail and the preview, so its width is
+            every way the table can be made wider or narrower — collapsing the pane, dragging it,
+            resizing the window — arriving as one number. */}
+        <div className="browser-table-wrap" ref={tableRef}>
           {error ? (
             <div className="browser-empty">
               <p>Could not load this level.</p>
@@ -272,7 +298,12 @@ export default function BrowserPage() {
                     {hg.headers.map((h) => (
                       <TableHead
                         key={h.id}
-                        style={h.column.columnDef.size ? { width: h.column.columnDef.size } : undefined}
+                        /* The header row is what a fixed layout reads the column widths off, and
+                           the one column that declares none — Name — is the one that takes what
+                           is left. `meta.width` rather than `columnDef.size`, which @tanstack
+                           fills in with a default 150 for every column that never asked. */
+                        style={h.column.columnDef.meta?.width
+                          ? { width: h.column.columnDef.meta.width } : undefined}
                         onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
                         className={h.column.getCanSort() ? 'is-sortable' : undefined}
                         aria-sort={

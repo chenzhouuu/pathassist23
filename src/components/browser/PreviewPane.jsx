@@ -19,48 +19,37 @@
 // median snugly and both tails still contain, because `contain` is what makes a 4.33 : 1 strip
 // readable as a strip rather than as a crop.
 //
-// WHY THE TILES QUERY IS THE SCAN COLUMN'S. Character for character the same key, the same fetch
-// and the same `staleTime`, so a row the table has already asked about costs this pane nothing at
-// all — React Query serves it from the entry the column filled. The gate is different and has to
-// be: the column holds its request back until the row is near the viewport because a folder of
-// five hundred would otherwise ask five hundred times, and there is only ever one selected row.
+// WHY THE TILES QUERY IS THE SCAN COLUMN'S. It is literally the column's, through `useScanFacts` —
+// the same key, the same fetch and the same `staleTime` — so a row the table has already asked
+// about costs this pane nothing at all. Only the gate differs, and that is the hook's one
+// parameter: the column and the grid hold their request back until the row is near the viewport,
+// because a folder of five hundred would otherwise ask five hundred times, and there is only ever
+// one selected row here.
+//
+// The pane lays the two optical readings out as two labelled fields where the column joins them
+// into one sentence, so it takes the formatters from the shared module and arranges them itself.
+// It kept private copies of both until ticket 10, and the reason they looked unshareable is that
+// the pane captions the pitch `µm/px` and the column captions it `µm` — each right where it sits.
+// That is one parameter, not two functions with the same rounding rules to keep in step.
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getThumbnailUrl, getTilesInfoSafe } from '../../api/index.js';
+import { getThumbnailUrl } from '../../api/index.js';
 import { Button } from '../ui/button.tsx';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '../ui/dropdown-menu.tsx';
 import { fmtSize, isSlideRow, STATUSES } from './browseUtils.js';
-import { wantsTiles } from './scanFacts.js';
-
-const MICRONS_PER_MM = 1000;
+import { fmtMagnification, fmtMicrons } from './scanFacts.js';
+import { useScanFacts } from './useScanFacts.js';
 
 function isPositiveNumber(v) {
   return typeof v === 'number' && Number.isFinite(v) && v > 0;
 }
 
-// The four readings the pane takes off the tiles document, each returning null where the scanner
+// The other readings the pane takes off the tiles document, each returning null where the scanner
 // did not record the value — which for the 14 MDA `.tiff` files is magnification and pitch both,
 // while dimensions and pyramid depth are still there. That per-field independence is the whole
 // point: they are recorded separately and a slide can carry any subset.
 //
-// The formatting rules for the first two are `scanFacts.js`'s, restated rather than imported: that
-// module exports the *column's* sentence, `40× · 0.25 µm`, and splitting the pair back apart is a
-// change to its public surface that this ticket does not own. SlideGrid.jsx carries the same note
-// about the query it duplicates, and for the same reason.
-function fmtMagnification(mag) {
-  return isPositiveNumber(mag) ? `${Number(mag.toFixed(1))}×` : null;
-}
-
-// Girder quotes the pixel pitch in millimetres and pathology quotes it in microns, so the
-// conversion is part of reading the field. Two significant figures: 0.2519 µm is a scanner
-// tolerance, not something anyone reads past the second digit.
-function fmtMicrons(mmX) {
-  if (!isPositiveNumber(mmX)) return null;
-  return `${Number((mmX * MICRONS_PER_MM).toPrecision(2))} µm/px`;
-}
-
 // Grouped, because these run to five and six digits — `83664 × 58852` has to be counted before it
 // can be compared with the slide next to it, and `83,664 × 58,852` does not. The locale is fixed
 // rather than the reader's: this is a measurement in a fixed-width column beside other
@@ -114,15 +103,7 @@ export default function PreviewPane({ row, width, id, onOpen, onStatus, onShare 
   // Called unconditionally, with the row's own id in the key, so switching selection is a cache
   // lookup rather than a remount — and so the empty pane below does not have to be a second
   // component just to avoid a conditional hook.
-  const { data: tiles } = useQuery({
-    queryKey: ['browser', 'tiles', row?.id],
-    queryFn: () => getTilesInfoSafe(row.id),
-    enabled: !!row && wantsTiles(row),
-    staleTime: Infinity,
-    // `getTilesInfoSafe` swallows the error and resolves null, so a retry would only repeat a
-    // request that already told us what it could.
-    retry: false,
-  });
+  const { tiles } = useScanFacts(row);
 
   const style = { width, flexBasis: width };
 
@@ -157,7 +138,7 @@ export default function PreviewPane({ row, width, id, onOpen, onStatus, onShare 
         <Field label="Status" value={slide ? (row.status || 'New') : null} />
         <Field label="Diagnosis" value={row.diagnosis} />
         <Field label="Magnification" value={fmtMagnification(tiles?.magnification)} mono />
-        <Field label="Resolution" value={fmtMicrons(tiles?.mm_x)} mono />
+        <Field label="Resolution" value={fmtMicrons(tiles?.mm_x, 'µm/px')} mono />
         <Field label="Dimensions" value={fmtDimensions(tiles)} mono />
         <Field label="Aspect" value={fmtAspect(tiles)} mono />
         <Field label="Levels" value={fmtLevels(tiles?.levels)} mono />
@@ -176,10 +157,14 @@ export default function PreviewPane({ row, width, id, onOpen, onStatus, onShare 
         <Button size="sm" onClick={() => onOpen(row)}>
           {slide ? 'Open slide' : 'Open folder'}
         </Button>
+        {/* `browser-quiet` for the reason the toolbar's controls carry it: `variant="secondary"`
+            is a sunken fill, which on the pane's own near-white ground leaves the button with no
+            visible boundary at all. The class gives it an edge and leaves the brand fill to the
+            one button here that is a primary action. */}
         {slide ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm">Status</Button>
+              <Button variant="secondary" size="sm" className="browser-quiet">Status</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {STATUSES.filter((s) => s !== 'All').map((s) => (
@@ -191,7 +176,9 @@ export default function PreviewPane({ row, width, id, onOpen, onStatus, onShare 
           </DropdownMenu>
         ) : (
           // Patient sharing is granted per folder — a share link exposes a case, not one slide.
-          <Button variant="secondary" size="sm" onClick={() => onShare(row.raw)}>Share</Button>
+          <Button variant="secondary" size="sm" className="browser-quiet" onClick={() => onShare(row.raw)}>
+            Share
+          </Button>
         )}
       </div>
     </aside>

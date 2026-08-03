@@ -43,8 +43,8 @@ function ViewSwitch({ view, onView }) {
 }
 
 export default function BrowserToolbar({
-  crumbs, onCrumb, showStatusFilter, status, onStatus, columns, inCollection, onNew, onImport,
-  view, onView, previewOpen, onTogglePreview,
+  crumbs, onCrumb, showStatusFilter, status, onStatus, columns, columnVisibility = {},
+  inCollection, onNew, onImport, view, onView, previewOpen, onTogglePreview,
 }) {
   return (
     <div className="browser-toolbar">
@@ -64,6 +64,12 @@ export default function BrowserToolbar({
         ))}
       </nav>
 
+      {/* Every button in this bar carries `browser-quiet`, which is where its colour comes from.
+          The vendored ghost variant is `text-primary`, and under Graphite `--primary` is the brand
+          indigo — three indigo buttons in a row on a near-white page are the loudest thing on it.
+          On the Viewer's black ground that same variant was the quiet option, so the mapping is
+          not wrong; what is wrong is asking one variant to be quiet against two grounds. The class
+          is the page's own answer, in _toolbar.css, rather than an edit to the vendored button. */}
       <div className="browser-toolbar-actions">
         <ViewSwitch view={view} onView={onView} />
 
@@ -74,6 +80,7 @@ export default function BrowserToolbar({
         <Button
           variant="ghost"
           size="sm"
+          className="browser-quiet"
           aria-label={previewOpen ? 'Hide preview' : 'Show preview'}
           title={previewOpen ? 'Hide preview' : 'Show preview'}
           onClick={onTogglePreview}
@@ -99,15 +106,22 @@ export default function BrowserToolbar({
         {view === 'table' && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" aria-label="Columns">
+              <Button variant="ghost" size="sm" className="browser-quiet" aria-label="Columns">
                 <SlidersHorizontal size={14} /> Columns
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* Checked from the user's own visibility map rather than from the column's current
+                  state, because those two are deliberately not the same thing. BrowserPage also
+                  drops columns for reasons that are nobody's choice — a level with no slides in
+                  it, a table too narrow for seven columns — and a menu that read the result back
+                  would show Updated unchecked at 1280px and then do nothing when it was clicked,
+                  since the user's map already says it is wanted. This list is the request; the
+                  table is the request as far as the page could honour it. */}
               {columns.map((c) => (
                 <DropdownMenuCheckboxItem
                   key={c.id}
-                  checked={c.getIsVisible()}
+                  checked={columnVisibility[c.id] !== false}
                   onCheckedChange={(v) => c.toggleVisibility(!!v)}
                 >
                   {typeof c.columnDef.header === 'string' ? c.columnDef.header : c.id}
@@ -117,10 +131,10 @@ export default function BrowserToolbar({
           </DropdownMenu>
         )}
 
-        <Button variant="ghost" size="sm" onClick={onNew}>
+        <Button variant="ghost" size="sm" className="browser-quiet" onClick={onNew}>
           <FolderPlus size={14} /> New {inCollection ? 'folder' : 'collection'}
         </Button>
-        <Button variant="ghost" size="sm" onClick={onImport}>
+        <Button variant="ghost" size="sm" className="browser-quiet" onClick={onImport}>
           <Upload size={14} /> Import
         </Button>
       </div>

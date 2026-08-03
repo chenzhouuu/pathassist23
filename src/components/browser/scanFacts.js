@@ -18,6 +18,14 @@
 // The slide/not-a-slide split is answered from the item the table already holds — Girder puts a
 // `largeImage` field on an item only once a tile source has been attached — so it costs no
 // request. Only a real slide needs the /tiles round trip, which is what `wantsTiles` is for.
+//
+// THE TWO READINGS ARE EXPORTED AS WELL AS THE SENTENCE. The Scan column wants one string,
+// `40× · 0.25 µm`, and the preview pane wants the same two numbers as two labelled rows so it can
+// omit each one independently — which is what makes an MDA tiff read as a slide missing two facts
+// rather than a slide with two blank rows. Those are two arrangements of one reading, so the
+// rounding rules live here once and `scanCell` composes the sentence out of the same pieces the
+// pane lays out separately. The pane held its own copy of both formatters until this ticket; the
+// copies had already begun to drift, which is how they earned the move.
 import { isSlideRow } from './browseUtils.js';
 
 const MICRONS_PER_MM = 1000;
@@ -26,19 +34,37 @@ function isPositiveNumber(v) {
   return typeof v === 'number' && Number.isFinite(v) && v > 0;
 }
 
-// Girder's tiles metadata quotes the pixel pitch in millimetres, and pathology quotes it in
-// microns per pixel, so the conversion is part of reading the field rather than a presentation
-// choice. Two significant figures: 0.2519 µm is a scanner tolerance, not a measurement anyone
-// reads past the second digit, and `Number()` then drops the trailing zero that `toPrecision`
-// leaves behind so 0.50 prints as 0.5.
-function fmtMicrons(mmX) {
+/**
+ * The pixel pitch, in microns.
+ *
+ * Girder's tiles metadata quotes it in millimetres and pathology quotes it in microns per pixel,
+ * so the conversion is part of reading the field rather than a presentation choice. Two
+ * significant figures: 0.2519 µm is a scanner tolerance, not a measurement anyone reads past the
+ * second digit, and `Number()` then drops the trailing zero that `toPrecision` leaves behind so
+ * 0.50 prints as 0.5.
+ *
+ * `unit` is a parameter because the two places this appears caption it differently and both are
+ * right where they sit. In the Scan column it follows `40×` on one line, where `µm/px` would
+ * restate what the pair already says; in the pane it stands alone under the label "Resolution",
+ * where `0.25 µm` on its own reads as a length rather than as a pitch.
+ *
+ * @param {number|null|undefined} mmX the `mm_x` field of the tiles document.
+ * @param {string} [unit] the caption after the number.
+ * @returns {string|null} null when the scanner did not record it.
+ */
+export function fmtMicrons(mmX, unit = 'µm') {
   if (!isPositiveNumber(mmX)) return null;
-  return `${Number((mmX * MICRONS_PER_MM).toPrecision(2))} µm`;
+  return `${Number((mmX * MICRONS_PER_MM).toPrecision(2))} ${unit}`;
 }
 
-// Objective power. Held to one decimal so a scanner that reports 40.0 prints as 40 while one
-// that reports 20.5 keeps the half step it means.
-function fmtMagnification(mag) {
+/**
+ * Objective power. Held to one decimal so a scanner that reports 40.0 prints as 40 while one that
+ * reports 20.5 keeps the half step it means.
+ *
+ * @param {number|null|undefined} mag the `magnification` field of the tiles document.
+ * @returns {string|null} null when the scanner did not record it.
+ */
+export function fmtMagnification(mag) {
   if (!isPositiveNumber(mag)) return null;
   return `${Number(mag.toFixed(1))}×`;
 }

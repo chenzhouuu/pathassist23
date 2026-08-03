@@ -26,8 +26,29 @@
 .browser-table-wrap { flex: 1; min-width: 0; overflow: auto; }
 
 /* Beats `text-base` (16px) on the vendored <table>. The negative tracking is what keeps 14px
- * Inter from feeling loose across a 700px column run; the mono columns switch it back off. */
+ * Inter from feeling loose across a 700px column run; the mono columns switch it back off.
+ *
+ * WHY `table-layout: fixed`. Under the browser's default auto layout a column is as wide as its
+ * widest cell wants to be, and the names here are 89-character TCGA barcodes with no space to
+ * break on, so Name took 710px of an 875px container and the table overflowed by 219px — Size and
+ * Updated were pushed off the right edge entirely, and `.browser-name-label`'s ellipsis never
+ * fired because a cell that grows to fit its content never overflows. The same algorithm is what
+ * made the 36px select column land at 140: `size` is a hint auto layout is free to ignore when
+ * there is slack to hand out.
+ *
+ * Fixed layout answers both at once. Every column but Name states its width in `meta` and is given
+ * exactly that; Name states none, and the CSS rule for the leftover space is that the columns with
+ * no declared width divide it — so Name is the flexible column by construction rather than by
+ * arithmetic, and the table is exactly as wide as its container at every size. The alternative,
+ * `max-width: 0` on the flexible cell, leaves the other columns' widths up to their content and
+ * would not have fixed the select column; it also asks every reader to know that trick.
+ *
+ * What fixed layout does not do is shrink a declared width, so a container narrower than the
+ * declared columns *would* overflow. That is what the priority ladder in responsiveColumns.js is
+ * for, and it is why the two have to be read together: the ladder's job is to keep the sum of the
+ * fixed widths under the container, and Name, having no fixed width, absorbs whatever is left. */
 .browser-table-wrap table {
+  table-layout: fixed;
   font-size: 14px;
   line-height: 20px;
   letter-spacing: -0.011em;
@@ -191,6 +212,21 @@
 .browser-status[data-status='Flagged'] {
   background: color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface));
   color: var(--sem-flag-ink);
+}
+
+/* ── Free-text columns ─────────────────────────────────────────────────────── */
+
+/* Diagnosis, Folder and Collection hold text of no particular length in a cell of a fixed one, so
+ * each clips with an ellipsis. Wrapping is the alternative and it is worse: one long diagnosis
+ * would make its row two lines tall and break the 56px rhythm the rest of the table is set to,
+ * for one row in a hundred and unpredictably. The span exists because the ellipsis needs a block
+ * with a width to happen in, and `overflow: hidden` on the `<td>` itself would clip the name
+ * button's focus ring, which is drawn 3px outside its box. */
+.browser-clip {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Numeric and identifier columns ────────────────────────────────────────── */
