@@ -109,23 +109,16 @@ export default function ImportModal({ collections, onClose, onImported }) {
   const isS3 = storeInfo?.type === 'S3' || storeInfo?.type === 2;
 
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-      onClick={onClose}
-    >
+    // The scrim, the corner, the edge and the shadow are the page's now, in _dialogs.css, and all
+    // three dialogs read the same four. What stays inline is only what is this dialog's own: it is
+    // wider than the other two, and its content is long enough to scroll. The hard-coded
+    // `fontFamily: 'IBM Plex Sans'` that stood here went with the rest — it made this the one
+    // element on the landing page not following `--font-ui`, in a dialog opened from it.
+    <div className="browser-modal-scrim" onClick={onClose}>
       <div
+        className="browser-modal"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg-panel)', border: '1px solid var(--border-hex)',
-          borderRadius: 4, padding: 24, width: 500, maxWidth: '92vw',
-          maxHeight: '88vh', overflowY: 'auto',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
-          fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
-        }}
+        style={{ width: 500, maxWidth: '92vw', padding: 24, gap: 0 }}
       >
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -161,14 +154,15 @@ export default function ImportModal({ collections, onClose, onImported }) {
             {/* Assetstore info (read from collection metadata) */}
             <Field label="Assetstore">
               {storeError ? (
-                <p style={{ fontSize: 12, color: '#e94560', margin: 0 }}>{storeError}</p>
+                <p style={{ fontSize: 12, color: 'var(--sem-flag-ink)', margin: 0 }}>{storeError}</p>
               ) : storeInfo ? (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
-                  background: 'rgba(76,175,130,0.08)', border: '1px solid rgba(76,175,130,0.25)',
+                  background: 'color-mix(in oklab, var(--sem-read) var(--sem-mix), var(--surface))',
+                  border: '1px solid color-mix(in oklab, var(--sem-read) 28%, transparent)',
                   borderRadius: 4,
                 }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--sem-read-ink)" strokeWidth="2">
                     <ellipse cx="12" cy="5" rx="9" ry="3"/>
                     <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
                     <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
@@ -184,7 +178,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                   </div>
                 </div>
               ) : (
-                <div style={{ height: 38, background: 'var(--highlight-hex)', borderRadius: 4, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
+                <div style={{ height: 38, background: 'var(--sunken)', borderRadius: 4, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
                   <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
                   <span style={{ fontSize: 12, color: 'var(--muted-hex)', marginLeft: 8 }}>Loading…</span>
                 </div>
@@ -228,7 +222,9 @@ export default function ImportModal({ collections, onClose, onImported }) {
             </Field>
 
             {error && (
-              <p style={{ fontSize: 12, padding: '8px 12px', borderRadius: 4, background: '#e9456015', color: '#e94560', border: '1px solid #e9456030', margin: 0 }}>
+              <p style={{ fontSize: 12, padding: '8px 12px', borderRadius: 4, background: 'color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface))',
+                color: 'var(--sem-flag-ink)',
+                border: '1px solid color-mix(in oklab, var(--sem-flag) 28%, transparent)', margin: 0 }}>
                 {error}
               </p>
             )}
@@ -254,15 +250,15 @@ export default function ImportModal({ collections, onClose, onImported }) {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '12px 0' }}>
             {status === 'prewarm' && (
               <>
-                <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, borderTopColor: '#4caf82' }} />
+                <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, borderTopColor: 'var(--brand)' }} />
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>Pre-generating thumbnails…</p>
                   <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>
                     {prewarm.total > 0 ? `${prewarm.done} / ${prewarm.total} slides` : 'Starting…'}
                   </p>
                   {prewarm.total > 0 && (
-                    <div style={{ width: 220, height: 4, background: 'var(--border-hex)', borderRadius: 2, marginTop: 10 }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: '#4caf82', width: `${Math.round((prewarm.done / prewarm.total) * 100)}%`, transition: 'width 0.3s' }} />
+                    <div style={{ width: 220, height: 4, background: 'var(--sunken)', borderRadius: 2, marginTop: 10 }}>
+                      <div style={{ height: '100%', borderRadius: 2, background: 'var(--brand)', width: `${Math.round((prewarm.done / prewarm.total) * 100)}%`, transition: 'width 0.3s' }} />
                     </div>
                   )}
                   <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted-hex)' }}>This makes worklist browsing instant. You can close and it will continue in the background.</p>
@@ -283,8 +279,8 @@ export default function ImportModal({ collections, onClose, onImported }) {
             )}
             {status === 'done' && (
               <>
-                <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#4caf8222', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4caf82" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in oklab, var(--sem-read) var(--sem-mix), var(--surface))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--sem-read-ink)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div style={{ textAlign: 'center' }}>
                   <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Import complete</p>
@@ -315,13 +311,13 @@ export default function ImportModal({ collections, onClose, onImported }) {
             )}
             {status === 'error' && (
               <>
-                <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#e9456022', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e94560" strokeWidth="2.5">
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--sem-flag-ink)" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#e94560' }}>Import failed</p>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--sem-flag-ink)' }}>Import failed</p>
                   <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted-hex)' }}>
                     {jobData?.log?.slice(-1)[0] || error || 'Check Girder job logs for details.'}
                   </p>
@@ -338,7 +334,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
               <div style={{
                 width: '100%', fontFamily: 'monospace', fontSize: 11, padding: '10px 12px',
                 borderRadius: 4, overflowY: 'auto', maxHeight: 110,
-                background: 'var(--bg)', color: 'var(--muted-hex)', border: '1px solid var(--border-hex)',
+                background: 'var(--sunken)', color: 'var(--ink-2)', border: 0,
               }}>
                 {jobData.log.slice(-8).map((line, i) => <div key={i}>{line}</div>)}
               </div>
@@ -354,7 +350,7 @@ function Field({ label, required, children }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>
-        {label}{required && <span style={{ color: '#e94560', marginLeft: 2 }}>*</span>}
+        {label}{required && <span style={{ color: 'var(--sem-flag-ink)', marginLeft: 2 }}>*</span>}
       </label>
       {children}
     </div>

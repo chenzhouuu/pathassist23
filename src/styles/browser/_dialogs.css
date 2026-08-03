@@ -1,48 +1,154 @@
-/* Landing page: the dialogs. */
+/* Landing page: the dialogs.
+ *
+ * WHY THIS FILE GREW. Three modals open from this page and they agreed on exactly one thing — a
+ * heavy flat border. Everything else was three answers to the same four questions:
+ *
+ *   | | scrim | z-index | panel radius | shadow |
+ *   |---|---|---|---|---|
+ *   | NewEntryDialog    | rgb(0 0 0 /.7)              | 60   | 6px | --elev-2         |
+ *   | ImportModal       | rgba(0,0,0,.55) + blur(4px) | 1000 | 4px | hard-coded plume |
+ *   | SharePatientModal | rgba(0,0,0,.65)             | 50   | 12px| hard-coded plume |
+ *
+ * The five names below are the single answer, and all three read them — the two that are styled
+ * inline reach them through `var()` in their own `style` objects, which is why they are custom
+ * properties rather than only class rules.
+ *
+ * WHAT THIS FILE DELIBERATELY DOES NOT DO. Behaviour. No focus trap, no focus restore, no portal,
+ * no scroll lock, no Radix `Dialog`. The dialogs get a skin; Tab still walks out of them and that is
+ * a stated limit rather than an oversight.
+ */
 
-/* ── Dialogs ───────────────────────────────────────────────────────────────── */
+:root[data-surface='browser'] {
+  /* One scrim. `rgb(0 0 0 / .7)` was inherited from the Viewer's black reading room, where a heavy
+   * veil separates two dark things; over a near-white page it reads as a blackout and the panel
+   * looks like it is floating in a different application. 40% plus a small blur is what the page
+   * under it should look like — still there, clearly not the thing you are using. */
+  --dialog-scrim: rgb(0 0 0 / 0.4);
+  --dialog-blur: 3px;
+  --dialog-z: 60;
+  --dialog-r: var(--radius-4);
+  /* The panel's edge is the FIRST STOP of its elevation and not a second line outside it.
+   * `.browser-modal` used to carry `border: 1px solid hsl(var(--border))` *and* `--elev-2`, whose
+   * own `0 0 0 1px` ring sits 1px further out — two concentric edges around every dialog. */
+  --dialog-shadow: var(--elev-2);
+}
+
+/* ── The frame ─────────────────────────────────────────────────────────────── */
 
 .browser-modal-scrim {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--dialog-z);
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgb(0 0 0 / 0.7);
+  background: var(--dialog-scrim);
+  backdrop-filter: blur(var(--dialog-blur));
 }
+
 .browser-modal {
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: min(400px, 100%);
+  max-height: calc(100dvh - 32px);
   padding: 18px;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--card));
-  box-shadow: var(--shadow-strong);
+  /* 6px around a 400px panel reads as a right angle, and ImportModal's literal 4px more so. The
+   * page's largest radius is the frame's, and a dialog is the one element allowed to be as large a
+   * shape as the frame it covers. */
+  border-radius: var(--dialog-r);
+  background: var(--surface);
+  box-shadow: var(--dialog-shadow);
+  overflow-y: auto;
 }
-.browser-modal-title { font-size: 14px; font-weight: 600; }
-.browser-modal-sub { margin-top: -8px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+
+.browser-modal-title { color: var(--ink); font-size: 14px; font-weight: var(--fw-strong); }
+.browser-modal-sub { margin-top: -8px; color: var(--ink-2); font-size: 12px; }
 .browser-modal-label {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  color: hsl(var(--muted-foreground));
+  color: var(--ink-2);
   font-size: 11.5px;
 }
 .browser-modal-optional { opacity: 0.65; }
-.browser-modal-input {
+.browser-modal-error { color: var(--sem-flag-ink); font-size: 12px; }
+.browser-modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+
+/* ── Controls ──────────────────────────────────────────────────────────────── */
+
+/* A WELL, NOT A BOX. Every input on the page is the same shape: a sunken ground, no border, and a
+ * brand ring only while it has focus. A 1px outline around an empty rectangle is the single most
+ * dated thing a form can wear, and on a card that is itself 2% off white it is also the lowest
+ * contrast way to say "type here".
+ *
+ * `.input-field` IS DEFINED HERE FOR THE FIRST TIME. It, and `.btn-secondary` below, were used on
+ * eight lines of ImportModal.jsx and had **zero definitions anywhere in the repo** — so every
+ * select, input and secondary button in the import dialog rendered as raw user-agent control
+ * chrome: square, grey, platform-drawn. That was the most literal "obvious right-angled box" on the
+ * whole page.
+ *
+ * Both are scoped under `.browser-modal-scrim` deliberately. `btn-secondary` is also used by
+ * PatientPortalPage and ReferringPortalPage, which are their own surfaces and are not being
+ * restyled here; a global definition would silently repaint both. */
+.browser-modal-input,
+.browser-modal-scrim .input-field {
   height: 30px;
-  padding: 0 9px;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px transparent;
+  color: var(--ink);
   font: inherit;
   font-size: 12.5px;
   outline: 0;
+  transition: box-shadow var(--motion-fast);
 }
-.browser-modal-input:focus { border-color: hsl(var(--ring)); }
-.browser-modal-error { color: var(--danger); font-size: 12px; }
-.browser-modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+.browser-modal-input::placeholder,
+.browser-modal-scrim .input-field::placeholder { color: var(--ink-3); }
+
+.browser-modal-input:focus,
+.browser-modal-scrim .input-field:focus {
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+
+/* A `<select>` is a well too, but the arrow the platform draws for it is not ours to restyle — so
+ * the field keeps its native arrow and only stops being a platform-grey rectangle around it.
+ * `color-scheme` on the shell is what makes the popup list follow the theme. */
+.browser-modal-scrim select.input-field {
+  padding-right: 6px;
+  cursor: pointer;
+}
+
+.browser-modal-scrim textarea.input-field {
+  height: auto;
+  padding: 8px 10px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* The same quiet control the toolbar uses, in the one place it could not reach: these are plain
+ * `<button>` elements rather than the vendored `<Button>`, so `.browser-quiet` does not apply. */
+.browser-modal-scrim .btn-secondary {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-2);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.browser-modal-scrim .btn-secondary:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.browser-modal-scrim .btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

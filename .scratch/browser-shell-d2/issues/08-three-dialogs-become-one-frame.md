@@ -7,7 +7,7 @@ Design: `docs/Chen/plans/2026-08-03-browser-shell-d2-design.md` §6.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Files:** `src/styles/browser/_dialogs.css`, `NewEntryDialog.jsx`, `ImportModal.jsx`,
 `src/components/share/SharePatientModal.jsx`.
@@ -81,3 +81,58 @@ exactly one thing — the heavy flat border.
       is a known limit and not this ticket's job.
 
 `npm test` green, `npm run build` and `npm run typecheck` clean.
+
+## Comments
+
+**2026-08-03 — done.** `_dialogs.css` rewritten; `ImportModal.jsx` and `SharePatientModal.jsx` moved
+onto tokens; `NewEntryDialog.jsx` needed no edit at all — it already read the shared classes, and
+changing those changed it.
+
+### The four properties now have one answer each
+
+Read out of `getComputedStyle` with each dialog actually open:
+
+| | scrim | blur | z-index | radius | border | background | font |
+|---|---|---|---|---|---|---|---|
+| ImportModal | `rgba(0,0,0,.4)` | 3px | 60 | 12px | **0** | `rgb(249,249,250)` | Inter |
+| NewEntryDialog | `rgba(0,0,0,.4)` | 3px | 60 | 12px | **0** | `rgb(249,249,250)` | Inter |
+| SharePatientModal | `rgba(0,0,0,.4)` | 3px | 60 | 12px | **0** | `rgb(249,249,250)` / `rgb(18,18,19)` dark | Inter |
+
+`border: 0` is the point of the third column: the panel's edge is now `--elev-2`'s own
+`0 0 0 1px` ring and nothing else. `.browser-modal` used to carry a flat opaque border *and*
+`--elev-2`, so every dialog had two concentric edges 1px apart.
+
+**Legacy colour nodes inside an open dialog: 0**, counted by walking every descendant for
+`#4da6ff`, `#4caf82`, `#e94560` or `gray-700` in its inline style or class list. Both themes.
+
+### The two classes that did not exist
+
+`.input-field` and `.btn-secondary` had zero definitions in the repo and were on eight lines of
+`ImportModal.jsx`, so every select, input and secondary button in the import dialog was raw
+user-agent chrome. Both are now defined — as wells and as the toolbar's quiet pill.
+
+**Scoped under `.browser-modal-scrim`, deliberately.** `btn-secondary` is also used by
+`PatientPortalPage.jsx` and `ReferringPortalPage.jsx`, which are separate surfaces not in this
+round. A global definition would have silently repainted both, and neither was looked at.
+
+### Also moved onto tokens, beyond the checklist
+
+ImportModal's own pre-Graphite literals — the same `#4caf82` / `#e94560` / `rgba(76,175,130,…)` the
+ticket catalogued for the share dialog — were in this file too, and are the identical defect: hues
+drawn for the Viewer's black ground now sitting on a near-white panel. All of them now mix the
+semantic hue onto the current surface, the same recipe the table's status chips use, so light and
+dark differ by `--sem-mix` and not by a second block of values. Its progress track was filled with
+`var(--border-hex)` — a *line* colour used as a fill — and is now `--sunken` with a `--brand` bar.
+
+### Not done, and why
+
+The radius literals in `ImportModal.jsx` (`borderRadius: 4` ×5, `borderRadius: 2` ×2) are left for
+**07**, which owns the sweep and lists them by name. SharePatientModal's five were done here because
+they were on lines this ticket was rewriting anyway, `borderRadius: 7` among them — a value on no
+scale in the system.
+
+### Behaviour, as decided
+
+Unchanged. No focus trap, no focus restore, no portal, no scroll lock, no Radix `Dialog`. Escape and
+the close button still work in all three, verified; Tab still walks out of the dialog, which is a
+stated limit and is repeated in 09's known-limits list.
