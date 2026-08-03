@@ -55,15 +55,19 @@
 .browser-crumb.is-current:hover { background: transparent; }
 .browser-crumb-sep { color: hsl(var(--muted-foreground)); opacity: 0.5; flex-shrink: 0; }
 
-/* `min-width: 0` so this cluster can actually give up its slack. A flex item's automatic minimum
-   size is its min-content, and with every label set `nowrap` that equals the cluster's full width —
-   so without this the row's whole shortfall landed on the breadcrumb and the search field never
-   narrowed by a pixel, whatever its own `flex-shrink` said. */
+/* THE CLUSTER NEVER GIVES. Every item in it is a control, and a control that has been narrowed until
+   its label is cut in half is worse than no control — "Impo" is not a button. So the breadcrumb is
+   the only thing in this row that yields, and it yields from the head, which is the convention and
+   the harmless end.
+   Two things were tried and reverted, and they are recorded because both look like the obvious fix:
+   `min-width: 0` here lets the cluster shrink past its own buttons and clips "Import" at 1440; and
+   `flex-shrink: 0` on the children does not save it, because the CONTAINER is still shrinking and
+   its children then overflow into `.browser-main`'s `overflow: hidden`. The search field's own
+   `min-width` is left in place as a floor, but nothing squeezes it in practice. */
 .browser-toolbar-actions {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
   margin-left: auto;
 }
 
@@ -251,4 +255,21 @@
 @media (prefers-reduced-motion: reduce) {
   .browser-batchbar { animation: none; }
   .browser-search { transition: box-shadow var(--motion-fast); }
+}
+
+/* ── When the row runs out of room ─────────────────────────────────────────── */
+
+/* THE LABELS GO BEFORE ANYTHING IS CUT. The toolbar genuinely cannot hold what it holds below about
+ * 1550px: labelled, the action cluster measures 676px, the breadcrumb wants 254, and with 12px of
+ * gap and 28px of padding that needs 970px of main column — which the frame only has from ~1551px
+ * of window up, once the 236px rail and the 320px preview are taken out. Below it every way of
+ * distributing the shortfall ends with a control cut mid-word, and "Impo" is not a button.
+ *
+ * So the row sheds the three labels whose icons already say the same thing, which brings the cluster
+ * to 469px and puts the whole breadcrumb back. `aria-label` and `title` carry the words in both
+ * states, so nothing loses its name. This is 04's own bill: before search moved down here the
+ * cluster was 474px and the row had room to spare. */
+@media (max-width: 1550px) {
+  .browser-btn-label { display: none; }
+  .browser-toolbar-actions .browser-quiet { padding: 0 var(--space-1); }
 }

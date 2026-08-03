@@ -133,8 +133,9 @@ export default function BrowserToolbar({
         {view === 'table' && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="browser-quiet" aria-label="Columns">
-                <SlidersHorizontal size={14} /> Columns
+              <Button variant="ghost" size="sm" className="browser-quiet" aria-label="Columns" title="Columns">
+                <SlidersHorizontal size={14} />
+                <span className="browser-btn-label">Columns</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -158,11 +159,23 @@ export default function BrowserToolbar({
           </DropdownMenu>
         )}
 
-        <Button variant="ghost" size="sm" className="browser-quiet" onClick={onNew}>
-          <FolderPlus size={14} /> New {inCollection ? 'folder' : 'collection'}
+        {/* The label is wrapped rather than sitting as a bare text node so the narrow-width rule can
+            take it away — see _toolbar.css. `aria-label` and `title` carry the same words, so the
+            button keeps its name whether or not the label is showing. */}
+        <Button
+          variant="ghost" size="sm" className="browser-quiet" onClick={onNew}
+          aria-label={`New ${inCollection ? 'folder' : 'collection'}`}
+          title={`New ${inCollection ? 'folder' : 'collection'}`}
+        >
+          <FolderPlus size={14} />
+          <span className="browser-btn-label">New {inCollection ? 'folder' : 'collection'}</span>
         </Button>
-        <Button variant="ghost" size="sm" className="browser-quiet" onClick={onImport}>
-          <Upload size={14} /> Import
+        <Button
+          variant="ghost" size="sm" className="browser-quiet" onClick={onImport}
+          aria-label="Import" title="Import"
+        >
+          <Upload size={14} />
+          <span className="browser-btn-label">Import</span>
         </Button>
       </div>
     </div>

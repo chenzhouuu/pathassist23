@@ -87,7 +87,14 @@ Branched from `dc92167`.
 
 | # | State |
 |---|---|
-| 01 | **done** — the palette shift, one file, verified against real Girder data in both themes |
-| 02–09 | not started |
+All nine **done**, on `feature/frontend-redesign`, one commit each except 03+04, which are one
+atomic change (03 deletes the search field, 04 re-creates it) and would otherwise leave a commit
+with no search on the page.
 
-Wave 2 (**02**, **05**, **08**) is unblocked.
+09's comments carry the pass and what it found. The short version: the frame holds and the sticky
+header survives at every width in both themes, and the pass turned up one real defect — the toolbar
+could not fit its own contents below ~1550px, which is arithmetic rather than styling and is fixed
+by shedding three labels whose icons already say the same thing.
+
+**Still open** is listed at the foot of 09. It is not a clean bill of health and should not read as
+one.
