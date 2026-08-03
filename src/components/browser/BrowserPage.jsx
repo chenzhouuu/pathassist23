@@ -11,7 +11,7 @@
 // assembled from the OHIF ui-next primitives in src/components/ui (MIT) driven by
 // @tanstack/react-table, which is the same engine OHIF's own StudyList runs on. Navigation is
 // this repo's own: OHIF's study list is flat, so it has no breadcrumb to borrow.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
@@ -31,50 +31,30 @@ import ImportModal from './ImportModal.jsx';
 import NewEntryDialog from './NewEntryDialog.jsx';
 import SharePatientModal from '../share/SharePatientModal.jsx';
 import { buildColumns, HIDDEN_BY_DEFAULT } from './browserColumns.jsx';
+import { useBrowseNavigation } from './useBrowseNavigation.js';
 import {
-  crumbsFor, levelOf, parentOf, toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirst,
-  STATUSES,
+  toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirst, STATUSES,
 } from './browseUtils.js';
-
-const SEARCH_DEBOUNCE_MS = 300;
 
 export default function BrowserPage() {
   const qc = useQueryClient();
   const { setActiveItem, setActiveFolder, user } = useStore();
 
-  // Navigation is a (collection, path) pair — see browseUtils. Held locally rather than in the
-  // store because nothing outside this page needs to know where the browser is pointing; the
-  // store's activeCollection/activeFolder are set on the way out, for the viewer's sidebar.
-  const [collection, setCollection] = useState(null);
-  const [path, setPath] = useState([]);
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [status, setStatus] = useState('All');
-  const [selectedId, setSelectedId] = useState(null);
-  const [rowSelection, setRowSelection] = useState({});
   const [columnVisibility, setColumnVisibility] = useState(HIDDEN_BY_DEFAULT);
   const [sorting, setSorting] = useState([{ id: 'name', desc: false }]);
-  const [overrides, setOverrides] = useState({});   // itemId → freshly written meta
   const [showImport, setShowImport] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [shareFolder, setShareFolder] = useState(null);
-  const searchTimer = useRef(null);
 
-  const level = levelOf(collection, path);
-  const folder = path[path.length - 1] || null;
-
-  useEffect(() => {
-    clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setDebounced(search), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(searchTimer.current);
-  }, [search]);
-
-  // Moving to another level is a different set of rows, so nothing about the old one carries:
-  // a status filter from the previous folder would silently hide the new one's contents.
-  useEffect(() => {
-    setSearch(''); setDebounced(''); setStatus('All');
-    setSelectedId(null); setRowSelection({}); setOverrides({});
-  }, [collection?._id, folder?._id]);
+  // Where we are, what is filtered, what is selected. Backspace ascends, so the hook has to be
+  // told when a dialog is up: the listener is on window and would otherwise navigate underneath
+  // one, leaving NewEntryDialog offering to create in a level that is no longer showing.
+  const {
+    collection, level, folder, crumbs,
+    search, debouncedSearch, status, setSearch, setStatus,
+    selectedId, rowSelection, select, setRowSelection, clearRowSelection,
+    overrides, setOverrides, descend, goToCrumb,
+  } = useBrowseNavigation({ suppressBackspace: showImport || showNew || !!shareFolder });
 
   // Always fetched, not just at the root: the Import dialog needs the collection list to offer a
   // destination, and it can be opened from any level.
@@ -110,48 +90,21 @@ export default function BrowserPage() {
     return out;
   }, [level, collections.data, folders.data, items.data, overrides, folder, collection]);
 
-  const visible = useMemo(() => filterRows(rows, { search: debounced, status }), [rows, debounced, status]);
+  const visible = useMemo(
+    () => filterRows(rows, { search: debouncedSearch, status }),
+    [rows, debouncedSearch, status],
+  );
 
+  // A slide row is not navigation, so it never reaches the hook: it is the end of the walk, and
+  // all that is left is to hand the viewer its context and leave.
   const open = useCallback((row) => {
     if (isSlideRow(row)) {
-      // Hand the viewer the context it needs for its sidebar before leaving.
       setActiveFolder(folder);
       setActiveItem(row.raw);
       return;
     }
-    if (level === 'collections') { setCollection(row.raw); setPath([]); return; }
-    setPath((p) => [...p, row.raw]);
-  }, [level, folder, setActiveItem, setActiveFolder]);
-
-  // Backspace goes up a level, the way a file manager does — the breadcrumb is the visible route
-  // back, this is the one that does not need aiming.
-  //
-  // Suspended while a dialog is open. The listener is on window, so it fires for a keypress aimed
-  // at the dialog, and navigating underneath one is not merely untidy: NewEntryDialog reads the
-  // current level from props, so a stray Backspace turns "new folder in this case" into "new
-  // collection at the root" with the dialog still showing the old heading.
-  const modalOpen = showImport || showNew || !!shareFolder;
-
-  useEffect(() => {
-    if (modalOpen) return undefined;
-    const onKey = (e) => {
-      if (e.key !== 'Backspace') return;
-      const t = e.target;
-      if (t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      e.preventDefault();
-      const up = parentOf(collection, path);
-      setCollection(up.collection);
-      setPath(up.path);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [collection, path, modalOpen]);
-
-  // Jump straight to any crumb: index 0 is the root, 1 the collection, the rest folders.
-  const goToCrumb = useCallback((i) => {
-    if (i === 0) { setCollection(null); setPath([]); return; }
-    setPath(path.slice(0, i - 1));
-  }, [path]);
+    descend(row);
+  }, [descend, folder, setActiveItem, setActiveFolder]);
 
   const writeStatus = useCallback(async (ids, next) => {
     const list = Array.isArray(ids) ? ids : [ids];
@@ -197,7 +150,6 @@ export default function BrowserPage() {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const crumbs = crumbsFor(collection, path);
   const selectedRow = visible.find((r) => r.id === selectedId) || null;
   const selectedIds = Object.keys(rowSelection).filter((k) => rowSelection[k]);
   const loading = collections.isLoading || folders.isLoading || items.isLoading;
@@ -234,7 +186,7 @@ export default function BrowserPage() {
               <DropdownMenuItem onSelect={() => writeStatus(selectedIds, null)}>Clear</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="ghost" size="sm" onClick={() => setRowSelection({})}>
+          <Button variant="ghost" size="sm" onClick={clearRowSelection}>
             <X size={14} /> Cancel
           </Button>
         </div>
@@ -274,7 +226,7 @@ export default function BrowserPage() {
                   <TableRow
                     key={r.id}
                     data-selected={r.original.id === selectedId ? '' : undefined}
-                    onClick={() => setSelectedId(r.original.id)}
+                    onClick={() => select(r.original.id)}
                     onDoubleClick={() => open(r.original)}
                   >
                     {r.getVisibleCells().map((cell) => (
