@@ -160,11 +160,22 @@ export function usePreviewResize({ controls } = {}) {
     });
   }, []);
 
-  // The pane is flush against the right edge of the window, so the distance from the pointer to
-  // that edge *is* the width the user is asking for. Reading it from the pointer rather than
-  // accumulating a delta is what stops the edge drifting away from the cursor over a long drag,
-  // and it means a drag that starts while the clamp is already engaged snaps to the pointer
-  // instead of moving by an offset that is no longer true.
+  // Reading the width from the pointer rather than accumulating a delta is what stops the edge
+  // drifting away from the cursor over a long drag, and it means a drag that starts while the
+  // clamp is already engaged snaps to the pointer instead of moving by an offset that is no
+  // longer true.
+  //
+  // THE PANE IS NO LONGER FLUSH AGAINST THE WINDOW. It was when this was written, which is what
+  // made "distance from the pointer to the right edge" exactly the width being asked for. Ticket
+  // 02 put the pane inside a frame inset 8px, and widened the grab strip from 5px to 9px, so the
+  // divider now sits a measured 12.5px left of the cursor — `--gap` plus half the strip. It is a
+  // constant, not a drift: the pane still tracks the pointer 1:1 and lands where it is released.
+  //
+  // Left uncorrected deliberately. Subtracting the offset means either hard-coding a number that
+  // duplicates `--gap` and would silently rot when the frame's inset changes, or reading the
+  // pane's rect — and this hook is DOM-free on purpose, which is the whole reason its clamp can be
+  // tested at 640px and 3840px without a layout engine. Recorded in .scratch/browser-shell-d2 as
+  // its own decision rather than folded into 02.
   const widthFrom = useCallback((clientX) => viewportWidth() - clientX, []);
 
   const separatorProps = useMemo(() => ({

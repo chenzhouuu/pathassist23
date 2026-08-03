@@ -20,10 +20,10 @@
  * rather than to look tidy, and the utility it is beating is named where it is not obvious.
  */
 
-/* ── Body: table + preview ─────────────────────────────────────────────────── */
-
-.browser-body { display: flex; flex: 1; min-height: 0; }
-.browser-table-wrap { flex: 1; min-width: 0; overflow: auto; }
+/* The page's layout — the grid, the plate, and which element is allowed to scroll — is in
+ * _shell.css. `.browser-body` and `.browser-table-wrap` were declared here while the body was a
+ * flex row; they moved when the body became the frame, because where the scrolling happens is now
+ * a fact about the frame rather than about the table. */
 
 /* Beats `text-base` (16px) on the vendored <table>. The negative tracking is what keeps 14px
  * Inter from feeling loose across a 700px column run; the mono columns switch it back off.
@@ -65,7 +65,11 @@
   z-index: 1;
   padding: 0 var(--space-3);
   height: 48px;
-  background: hsl(var(--background));
+  /* The frame's own ground, not the canvas. The header is what the rows disappear under, so it has
+   * to be opaque — but inside one frame the only opaque colour available is the frame's, and that
+   * is also what makes the header's overflow past the frame's rounded corners invisible: it is the
+   * same colour as what it overflows onto. */
+  background: var(--surface);
   /* Inset rather than a border, for the same reasons as the row divider below, plus one more: a
    * sticky element's border is drawn at its own edge and an inset shadow is drawn inside the
    * padding box, so this line stays put when the rows slide under it. --line-2 rather than

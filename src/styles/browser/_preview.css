@@ -14,24 +14,30 @@
 
 /* ── The resizer ───────────────────────────────────────────────────────────── */
 
-/* 5px of grab area painting a 1px line. The hit target and the divider are deliberately different
-   sizes: a 1px target is unhittable and a 5px divider is a gutter, so the element is the target and
-   its ::after is the divider. `touch-action: none` because a pointer drag on a touch screen is
-   otherwise claimed by the scroller before the first pointermove arrives. */
+/* 9px of grab area painting a 1px line down its middle. Inside one frame there is no gutter for a
+   divider to be, so the strip stopped being the gap between two panes and became a target drawn
+   over a seam: the element is the target, its ::after is the seam, and the two are deliberately
+   different sizes because a 1px target is unhittable and a 9px divider is a gutter again.
+   `touch-action: none` because a pointer drag on a touch screen is otherwise claimed by the
+   scroller before the first pointermove arrives.
+
+   Its placement and margins are the frame's, in _shell.css. */
 .browser-resizer {
-  position: relative;
-  flex: 0 0 5px;
+  width: 9px;
   cursor: col-resize;
-  background: transparent;
   touch-action: none;
 }
 
 .browser-resizer::after {
   content: '';
   position: absolute;
-  inset: 0 2px;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
   background: var(--line);
-  transition: background var(--motion-fast);
+  transition: background var(--motion-fast), width var(--motion-fast);
 }
 
 /* The brand on hover and for the whole of the drag. During the drag it is the only thing on screen
@@ -39,30 +45,32 @@
    is the entire reason the drag runs on pointer capture. */
 .browser-resizer:hover::after,
 .browser-resizer[data-dragging]::after {
+  width: 2px;
   background: var(--brand);
 }
 
 /* Focus is drawn on the line rather than as a ring around the element: a 2px outline offset from a
-   5px box is a rounded rectangle floating in the gap between two panes, which reads as a stray
-   artefact rather than as focus. Widening the line itself says "this thin thing is what you have". */
+   9px box is a rounded rectangle floating inside the frame, which reads as a stray artefact rather
+   than as focus. Widening the line itself says "this thin thing is what you have" — and it is the
+   same 2px the hover and the drag use, so focus and pointer agree on what the control looks like
+   when it is live. */
 .browser-resizer:focus-visible { outline: none; }
 .browser-resizer:focus-visible::after {
-  inset: 0 1px;
+  width: 2px;
   background: var(--brand);
 }
 
 /* ── The pane ──────────────────────────────────────────────────────────────── */
 
+/* The pane is inside the frame now and paints no ground of its own; its placement, its two rounded
+   corners and its margins are the frame's, in _shell.css. Its `auto` grid track is sized by the
+   inline width below, which is why the track can be `auto` rather than a number this file would
+   have to keep in step with the hook. */
 .browser-preview {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  /* Grow and shrink both refused: the inline width is the whole size of the pane, and letting flex
-     negotiate it would mean the table's content could push the user's choice around. */
-  flex-grow: 0;
-  flex-shrink: 0;
   padding: var(--space-4);
-  background: var(--surface-2);
   overflow-y: auto;
 }
 .browser-preview.is-empty { align-items: center; justify-content: center; }

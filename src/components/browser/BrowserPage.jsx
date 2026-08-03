@@ -226,130 +226,143 @@ export default function BrowserPage() {
         onToggleMode={toggleMode}
       />
 
-      <BrowserToolbar
-        crumbs={crumbs}
-        onCrumb={goToCrumb}
-        showStatusFilter={level === 'items'}
-        status={status}
-        onStatus={setStatus}
-        columns={table.getAllColumns().filter((c) => c.getCanHide())}
-        columnVisibility={columnVisibility}
-        view={viewMode}
-        onView={setViewMode}
-        previewOpen={!preview.collapsed}
-        onTogglePreview={preview.toggle}
-        inCollection={!!collection}
-        onNew={() => setShowNew(true)}
-        onImport={() => setShowImport(true)}
-      />
-
-      {selectedIds.length > 0 && (
-        <div className="browser-batchbar" role="status">
-          <span>{selectedIds.length} selected</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" className="browser-quiet">Set status</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {STATUSES.filter((s) => s !== 'All').map((s) => (
-                <DropdownMenuItem key={s} onSelect={() => writeStatus(selectedIds, s)}>{s}</DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => writeStatus(selectedIds, null)}>Clear</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button variant="ghost" size="sm" className="browser-quiet" onClick={clearRowSelection}>
-            <X size={14} /> Cancel
-          </Button>
-        </div>
-      )}
-
       <div className="browser-body">
+        {/* The frame. An empty element behind the four regions rather than a container around them:
+            a rounded container has to clip, clipping makes it a scroll container, and the table's
+            sticky header would then resolve against a box that never scrolls and silently slide
+            away with the rows. _shell.css has the full note and the two upstream issues. */}
+        <div className="browser-plate" aria-hidden="true" />
+
         {/* The rail is handed the position and a way to change it, and keeps everything else to
             itself — which branches are open is the rail's own business and nothing on this page
             reads it. See CollectionTree.jsx for why those are two pieces of state and not one. */}
         <CollectionTree collection={collection} path={path} onNavigate={goTo} />
 
-        {/* The measured element. It is `flex: 1` between the rail and the preview, so its width is
-            every way the table can be made wider or narrower — collapsing the pane, dragging it,
-            resizing the window — arriving as one number. */}
-        <div className="browser-table-wrap" ref={tableRef}>
-          {error ? (
-            <div className="browser-empty">
-              <p>Could not load this level.</p>
-              <p className="browser-empty-sub">{String(error.message || error)}</p>
+        {/* The middle column of the frame: where you are, what you have selected, and what is here.
+            All three used to be full-width bands above the body; inside one frame the breadcrumb
+            names the level the table below it is showing, and a bar spanning the rail as well would
+            be describing the rail too. */}
+        <div className="browser-main">
+          <BrowserToolbar
+            crumbs={crumbs}
+            onCrumb={goToCrumb}
+            showStatusFilter={level === 'items'}
+            status={status}
+            onStatus={setStatus}
+            columns={table.getAllColumns().filter((c) => c.getCanHide())}
+            columnVisibility={columnVisibility}
+            view={viewMode}
+            onView={setViewMode}
+            previewOpen={!preview.collapsed}
+            onTogglePreview={preview.toggle}
+            inCollection={!!collection}
+            onNew={() => setShowNew(true)}
+            onImport={() => setShowImport(true)}
+          />
+
+          {selectedIds.length > 0 && (
+            <div className="browser-batchbar" role="status">
+              <span>{selectedIds.length} selected</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="sm" className="browser-quiet">Set status</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {STATUSES.filter((s) => s !== 'All').map((s) => (
+                    <DropdownMenuItem key={s} onSelect={() => writeStatus(selectedIds, s)}>{s}</DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => writeStatus(selectedIds, null)}>Clear</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button variant="ghost" size="sm" className="browser-quiet" onClick={clearRowSelection}>
+                <X size={14} /> Cancel
+              </Button>
             </div>
-          ) : viewMode === 'grid' ? (
-            // Fed from the table's own row model rather than from `visible`, so the two views are
-            // the same rows in the same order. The grid has no header to sort by, and a switch that
-            // silently reshuffled the level would make the sort look like a property of the table
-            // rather than of the level.
-            <SlideGrid
-              rows={table.getRowModel().rows.map((r) => r.original)}
-              selectedId={selectedId}
-              onSelect={select}
-              onOpen={open}
-            />
-          ) : (
-            <Table noScroll>
-              <TableHeader>
-                {table.getHeaderGroups().map((hg) => (
-                  <TableRow key={hg.id}>
-                    {hg.headers.map((h) => (
-                      <TableHead
-                        key={h.id}
-                        /* The header row is what a fixed layout reads the column widths off, and
-                           the one column that declares none — Name — is the one that takes what
-                           is left. `meta.width` rather than `columnDef.size`, which @tanstack
-                           fills in with a default 150 for every column that never asked. */
-                        style={h.column.columnDef.meta?.width
-                          ? { width: h.column.columnDef.meta.width } : undefined}
-                        onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
-                        className={h.column.getCanSort() ? 'is-sortable' : undefined}
-                        aria-sort={
-                          h.column.getIsSorted() === 'asc' ? 'ascending'
-                            : h.column.getIsSorted() === 'desc' ? 'descending' : undefined
-                        }
-                      >
-                        {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.map((r) => (
-                  <TableRow
-                    key={r.id}
-                    data-selected={r.original.id === selectedId ? '' : undefined}
-                    onClick={() => select(r.original.id)}
-                    onDoubleClick={() => open(r.original)}
-                  >
-                    {r.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           )}
 
-          {!error && !loading && visible.length === 0 && (
-            <div className="browser-empty">
-              <p>{rows.length ? 'Nothing matches the current filters.' : 'This level is empty.'}</p>
-              {rows.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setStatus('All'); }}>
-                  Clear filters
-                </Button>
-              )}
-            </div>
-          )}
-          {loading && <div className="browser-empty"><p>Loading…</p></div>}
+          {/* The measured element, and the only thing on the page that scrolls the table. Its width is
+              every way the table can be made wider or narrower — collapsing the pane, dragging it,
+              resizing the window — arriving as one number. */}
+          <div className="browser-table-wrap" ref={tableRef}>
+            {error ? (
+              <div className="browser-empty">
+                <p>Could not load this level.</p>
+                <p className="browser-empty-sub">{String(error.message || error)}</p>
+              </div>
+            ) : viewMode === 'grid' ? (
+              // Fed from the table's own row model rather than from `visible`, so the two views are
+              // the same rows in the same order. The grid has no header to sort by, and a switch that
+              // silently reshuffled the level would make the sort look like a property of the table
+              // rather than of the level.
+              <SlideGrid
+                rows={table.getRowModel().rows.map((r) => r.original)}
+                selectedId={selectedId}
+                onSelect={select}
+                onOpen={open}
+              />
+            ) : (
+              <Table noScroll>
+                <TableHeader>
+                  {table.getHeaderGroups().map((hg) => (
+                    <TableRow key={hg.id}>
+                      {hg.headers.map((h) => (
+                        <TableHead
+                          key={h.id}
+                          /* The header row is what a fixed layout reads the column widths off, and
+                             the one column that declares none — Name — is the one that takes what
+                             is left. `meta.width` rather than `columnDef.size`, which @tanstack
+                             fills in with a default 150 for every column that never asked. */
+                          style={h.column.columnDef.meta?.width
+                            ? { width: h.column.columnDef.meta.width } : undefined}
+                          onClick={h.column.getCanSort() ? h.column.getToggleSortingHandler() : undefined}
+                          className={h.column.getCanSort() ? 'is-sortable' : undefined}
+                          aria-sort={
+                            h.column.getIsSorted() === 'asc' ? 'ascending'
+                              : h.column.getIsSorted() === 'desc' ? 'descending' : undefined
+                          }
+                        >
+                          {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.map((r) => (
+                    <TableRow
+                      key={r.id}
+                      data-selected={r.original.id === selectedId ? '' : undefined}
+                      onClick={() => select(r.original.id)}
+                      onDoubleClick={() => open(r.original)}
+                    >
+                      {r.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {!error && !loading && visible.length === 0 && (
+              <div className="browser-empty">
+                <p>{rows.length ? 'Nothing matches the current filters.' : 'This level is empty.'}</p>
+                {rows.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setStatus('All'); }}>
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            )}
+            {loading && <div className="browser-empty"><p>Loading…</p></div>}
+          </div>
         </div>
 
         {/* Collapsed means gone, not zero pixels wide. A pane at width 0 still has a border, still
             scrolls, and still decodes a thumbnail for whatever is selected — and the resizer beside
-            it would be a control for something with nothing in it. */}
+            it would be a control for something with nothing in it. Its grid track is `auto`, so
+            not rendering the pane is also what removes its column. */}
         {!preview.collapsed && (
           <>
             <div className="browser-resizer" {...preview.separatorProps} />

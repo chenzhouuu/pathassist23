@@ -9,7 +9,7 @@ Design: `docs/Chen/plans/2026-08-03-browser-shell-d2-design.md` §4.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Files:** `src/styles/browser/_shell.css`, `_preview.css`, `src/components/browser/BrowserPage.jsx`.
 Shares `_shell.css` with 03 — that edge is file-level, not logical; see the README.
@@ -53,3 +53,70 @@ Shares `_shell.css` with 03 — that edge is file-level, not logical; see the RE
 
 `npm run build` and `npm run typecheck` clean. `usePreviewResize`'s 398-line test file is expected to
 stay green untouched — the hook's arithmetic does not change, only what the strip looks like.
+
+## Comments
+
+**2026-08-03 — done.** Seven files. Verified against 500 real rows in TCGA-BRCA/slides, both themes,
+at 1440 / 1280 / 1100 / 1024 / 1023 / 900 / 800.
+
+### The one that will break did not
+
+`headerTop` before and after scrolling the wrap 600px, at every width above: **102 → 102** (93 → 93
+below the full-bleed breakpoint, where the band is 1px higher). The plate is a backing element, the
+four regions over it are transparent, and no ancestor of the header acquired a radius.
+
+### The frame, measured at 1440
+
+| | x | w | radius |
+|---|---|---|---|
+| plate | 8 | 1424 | `12px`, border `1px`, bg `rgb(249,249,250)` |
+| rail | 8 | 236 | `12px 0 0 12px` |
+| main | 244 | 859 | — |
+| resizer | 1103 | 9 | — |
+| preview | 1112 | 320 | `0 12px 12px 0` |
+
+All five share `y: 60, h: 832`, so the regions land exactly on the plate. At 1023 the plate is
+`x: -1, w: 1025, radius: 0` — border off-screen both sides, full-bleed. `tableFits` holds at every
+width; no horizontal overflow anywhere.
+
+### The drag
+
+`data-dragging` set, line `1px var(--line)` → `2px rgb(92,92,214)` for the whole gesture and back on
+release; pane 320 → 490; **the plate's right edge stays at 1432 throughout**.
+
+### One bug the numbers caught that the eye would not have
+
+**At 1024 the main column ran 8px past the plate** — main ended at 1024, the plate at 1016 — because
+main carries no left or right margin: the rail and the preview *are* the frame's two sides, and the
+moment a breakpoint drops one of them, main becomes that side. Rows would have painted over the
+border and squared off two corners. Fixed with two media queries that hand main the margin and the
+corners of whichever neighbour left. Re-measured: 1024 → main ends at 1016, 900 → 901, 800 (rail
+also gone) → main spans the whole plate.
+
+### Reached beyond the declared files, and why
+
+- **`_tree.css`** (3 lines) — the rail's `background` had to go or it would square off the frame's
+  two left corners, and 240 → 236px is §4's number. Its placement and radius are in `_shell.css`
+  with the rest of the frame.
+- **`_preview.css`** — same: the pane's `--surface-2` fill removed, `flex-grow/shrink` dropped (dead
+  in a grid), and the resizer rebuilt at 9px. This file was declared.
+- **`_toolbar.css`** (2 rules) — the toolbar and batch bar moved *inside* the frame, so their
+  `border-bottom: 1px solid hsl(var(--border))` became a flat opaque bar drawn across it. Both are
+  now `inset 0 -1px var(--line)`. The batch bar's `background: hsl(var(--accent))` also went to
+  `--sunken`: `--accent` is the hover fill, and a bar permanently wearing it reads as a row stuck
+  mid-hover. Everything else in that file is still 04's.
+- **`_table.css`** — `.browser-body` and `.browser-table-wrap` moved to `_shell.css`; the sticky
+  header's background went from `hsl(var(--background))` (canvas) to `var(--surface)`, which is both
+  what makes it opaque against the frame and what makes its overflow past the corners invisible.
+
+### The residual, stated rather than buried
+
+**The divider now sits 12.5px left of the cursor during a drag** — `--gap` plus half the 9px strip.
+`usePreviewResize`'s `widthFrom` is `viewportWidth() - clientX`, whose comment asserted the pane was
+flush against the window; 02 made that false. It is a constant offset, not a drift: the pane tracks
+1:1 and lands where it is released.
+
+Not corrected here. The fix is either a hard-coded 12.5 that duplicates `--gap` and rots when the
+inset changes, or reading the pane's rect — and the hook is DOM-free on purpose, which is what lets
+its clamp be tested at 640px and 3840px without a layout engine. The stale comment *was* corrected,
+because a rationale that outlives its premise is worse than none. This wants its own ticket.

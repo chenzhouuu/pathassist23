@@ -6,15 +6,25 @@
  * a token; there is no literal colour, radius or duration below.
  */
 
+/* The rail is inside the frame now, so it paints no ground of its own — its placement, its two
+   rounded corners and its margins are the frame's business and live in _shell.css. What is left
+   here is its width, its scrolling and the seam on its right.
+
+   THE SEAM IS WHAT MAKES IT ONE FRAME. Separated from the table by a hairline rather than by a
+   gutter, the rail reads as a region of the frame; given a gutter it would read as a second card
+   beside it. --line rather than --line-2, because this divides two regions of one surface and not
+   two surfaces.
+
+   Radius and scrolling on the same element is safe here and only here among the scrolling regions:
+   nothing in the rail is `position: sticky`, so there is no descendant to resolve against a box
+   that never scrolls. */
 .browser-tree {
   /* Fixed rather than flexible: the rail is a list of names, and a width that moves with the
      window makes the same collection wrap at one size and not at another. */
-  flex: 0 0 240px;
-  width: 240px;
+  width: 236px;
   overflow-y: auto;
   padding: var(--space-3) var(--space-2);
-  background: var(--surface-2);
-  /* An inset shadow rather than a border, so the 240 is the whole rail and the table's first
+  /* An inset shadow rather than a border, so the 236 is the whole rail and the table's first
      column does not shift by a pixel when the divider colour changes between themes. */
   box-shadow: inset -1px 0 var(--line);
 }

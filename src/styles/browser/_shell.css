@@ -29,6 +29,15 @@
 
 /* ── Top bar ───────────────────────────────────────────────────────────────── */
 
+/* The one region outside the frame, and the rule under it is the page's only full-width line.
+ * It paints no background of its own: the band IS the canvas, and the frame below is what sits on
+ * it. A card fill here would put a second plane between the logo and the window with nothing in it.
+ *
+ * An inset shadow rather than `border-bottom: 1px solid hsl(var(--border))`, which is what stood
+ * here. That token is opaque, so the rule was a flat grey bar drawn across the surface; --line-2 is
+ * authored as an rgba and lets the canvas through, which is what makes it read as a seam between
+ * two regions rather than as a third element. The height belongs to 03, which sizes the band from
+ * the logo. */
 .browser-topbar {
   display: flex;
   align-items: center;
@@ -36,8 +45,7 @@
   flex-shrink: 0;
   height: 52px;
   padding: 0 16px;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  box-shadow: inset 0 -1px var(--line-2);
 }
 
 .browser-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -127,3 +135,133 @@
   font-weight: 600;
 }
 .browser-user-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── The frame ───────────────────────────────────────────────────────────────────────────────
+ * Everything under the rule is one frame: the rail, the toolbar, the table and the preview, with
+ * hairlines between them instead of gutters. That is what makes it one frame rather than three
+ * touching ones.
+ *
+ * IT IS A BACKING PLATE, NOT A WRAPPER, AND THAT IS NOT A PREFERENCE. A rounded container has to
+ * clip, `overflow: hidden` makes the element a scroll container, and `position: sticky` then
+ * resolves against a box that never scrolls — so the table's header silently slides away with the
+ * rows. It does not error and it is easy to miss on a folder short enough not to scroll.
+ * `overflow: clip` does not create one, but `overflow-x: clip; overflow-y: auto` computes back to
+ * `hidden`, so the escape hatch closes the moment the region also needs to scroll. shadcn-ui/ui#3965
+ * and radix-ui/themes#767 are open for exactly this.
+ *
+ * So the frame is an empty element BEHIND four transparent regions. Radius and scrolling then only
+ * ever meet on the same element — the rail and the preview each carry their own two corners and
+ * their own `overflow-y`, and neither has a sticky child; the table's header shares the frame's
+ * background, so what overflows the corner is the same colour as what it overflows onto.
+ *
+ * EVERY TRACK BUT THE MAIN COLUMN IS `auto`, and each region states its own width. A region that a
+ * breakpoint drops takes its track with it; a fixed `236px` track would leave a 236px hole where
+ * the rail used to be, and a second media query to close it.
+ * ─────────────────────────────────────────────────────────────────────────────────────────── */
+
+.browser-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: 'rail main rsz prev';
+  flex: 1;
+  min-height: 0;
+}
+
+.browser-plate {
+  grid-row: 1;
+  grid-column: 1 / -1;
+  margin: var(--gap);
+  border: 1px solid var(--line-2);
+  border-radius: var(--card-r);
+  background: var(--surface);
+}
+
+/* No shadow. Linear, Dub and Attio all omit it, and on a canvas with a real lightness step under
+ * it the hairline and the inset already say the frame is raised — a plume would be a second answer
+ * to a question already answered.
+ *
+ * Half a pixel where there is one to have. The hairline was never too dark: #e5e5e5 at 10% over a
+ * 2% canvas is the same grey Linear runs at 11%, and theirs reads as a whisper because it is drawn
+ * at .5px on retina over a 6% canvas. 01 supplied the canvas; this is the other half. */
+@media (min-resolution: 192dpi) {
+  .browser-plate { border-width: 0.5px; }
+}
+
+/* The four regions sit ON the plate — same cells, and the same 8px on whichever sides face out, so
+ * their edges land exactly on its. None of them paints a background: a rail with a fill of its own
+ * would square off the frame's two left corners, which is the failure this arrangement exists to
+ * avoid. */
+.browser-tree,
+.browser-main,
+.browser-resizer,
+.browser-preview {
+  position: relative;
+  z-index: 1;
+  background: none;
+}
+
+.browser-tree {
+  grid-area: rail;
+  margin: var(--gap) 0 var(--gap) var(--gap);
+  border-radius: var(--card-r) 0 0 var(--card-r);
+}
+.browser-main { grid-area: main; margin: var(--gap) 0; }
+.browser-resizer { grid-area: rsz; margin: var(--gap) 0; }
+.browser-preview {
+  grid-area: prev;
+  margin: var(--gap) var(--gap) var(--gap) 0;
+  border-radius: 0 var(--card-r) var(--card-r) 0;
+}
+
+/* The breadcrumb, the batch bar and the table, stacked. `overflow: hidden` here is safe where it
+ * was not on a wrapper: this element has no radius, and the table's own wrap below it is a nearer
+ * scrolling ancestor for the sticky header. */
+.browser-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The scroll container, and the box the sticky header measures itself against. Nothing between it
+ * and the header may acquire a radius — see the note above. */
+.browser-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* WHEN A REGION IS DROPPED, THE ONE BESIDE IT INHERITS THE EDGE. The main column carries no left or
+ * right margin because the rail and the preview are the frame's two sides — so the moment a
+ * breakpoint drops one of them, main becomes that side and runs 8px past the plate, painting its
+ * rows over the border and squaring off two corners. Measured at 1024, where main ended at 1024 and
+ * the plate at 1016.
+ *
+ * This is the transparent-region arrangement's one genuine cost, and it arrives through a media
+ * query rather than through a wrapper: whatever is at the edge has to know it is at the edge. The
+ * radius is safe on `.browser-main` for the reason the frame is not — its `overflow: hidden` is
+ * already there, and the table's own wrap inside it is a nearer scrolling ancestor, so the sticky
+ * header still resolves against a box that does scroll. */
+@media (max-width: 1100px) {
+  .browser-main {
+    margin-right: var(--gap);
+    border-radius: 0 var(--card-r) var(--card-r) 0;
+  }
+}
+@media (max-width: 860px) {
+  .browser-main {
+    margin-left: var(--gap);
+    border-radius: var(--card-r);
+  }
+}
+
+/* Below 1024 the frame goes full-bleed rather than becoming a second layout. `--gap` at -1px pushes
+ * the border off-screen — Linear's own trick — and the radius goes with it, which their `margin:-1px`
+ * does not have to do because a 12px arc cannot be hidden by moving it one pixel.
+ * `.browser-shell`'s `overflow: hidden` is what clips the result. */
+@media (max-width: 1023px) {
+  .browser-shell {
+    --gap: -1px;
+    --card-r: 0px;
+  }
+}
