@@ -38,18 +38,23 @@
  * authored as an rgba and lets the canvas through, which is what makes it read as a seam between
  * two regions rather than as a third element. The height belongs to 03, which sizes the band from
  * the logo. */
+/* THE BAND'S HEIGHT FOLLOWS THE LOGO, rather than the logo being dropped into a fixed band. At 36px
+ * in the old 52px bar the mark has 8px of air to the rule and reads as jammed against it; derived,
+ * a larger mark always keeps its 14px either side. The floor is what a deployment with a small
+ * wordmark gets. `--logo-h` is the one number to change. */
 .browser-topbar {
+  --logo-h: 36px;
   display: flex;
   align-items: center;
   gap: 20px;
   flex-shrink: 0;
-  height: 52px;
+  height: max(56px, calc(var(--logo-h) + 28px));
   padding: 0 16px;
   box-shadow: inset 0 -1px var(--line-2);
 }
 
-.browser-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.browser-logo { height: 22px; width: auto; display: block; }
+.browser-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.browser-logo { height: var(--logo-h); width: auto; display: block; }
 
 /* All three brand assets are dark artwork drawn for a white page — MD Anderson's wordmark is near
  * black, Impart's mark is a dark teal, Algopath's a dark magenta — so on a #0B0B0C ground each one
@@ -72,67 +77,78 @@
   white-space: nowrap;
 }
 
-.browser-search {
+/* ── What the band carries ─────────────────────────────────────────────────────
+ * Settings that belong to the APPLICATION rather than to the level: the theme, and where the rest
+ * would go. Search is not one of those — it searches the level the breadcrumb names, so it moved
+ * down into the toolbar beside it. The field's styles left with it; _toolbar.css has them.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.browser-topbar-settings {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-  max-width: 420px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--background));
-  color: hsl(var(--muted-foreground));
-  transition: border-color 0.15s;
+  gap: var(--space-1);
+  margin-left: auto;
 }
-.browser-search:focus-within { border-color: hsl(var(--ring)); }
-.browser-search input {
-  flex: 1;
-  min-width: 0;
+
+/* A hairline, not a gap. The account chip is a different kind of thing from the three settings
+   beside it — it is who you are, not what the application does — and a rule says that in 1px where
+   whitespace would need 24. */
+.browser-vsep {
+  width: 1px;
+  height: 20px;
+  margin: 0 var(--space-2);
+  background: var(--line-2);
+}
+
+.browser-iconbtn {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
   border: 0;
-  outline: 0;
+  border-radius: var(--radius-2);
   background: transparent;
-  color: hsl(var(--foreground));
-  font: inherit;
-  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
-.browser-search input::placeholder { color: hsl(var(--muted-foreground)); }
-/* The native clear affordance is drawn by the browser as a dark glyph, which is right on this
-   page and was wrong on the Viewer's black ground — where the rule below was written, unscoped,
-   and inverted it to white. On a white page that inversion is white-on-white: the X was still
-   there and still clickable and could not be seen at all. So the inversion belongs to the dark
-   theme only, and light gets the glyph the browser already draws, one step back. */
-.browser-search input::-webkit-search-cancel-button { opacity: 0.5; }
-:root[data-mode='dark'] .browser-search input::-webkit-search-cancel-button {
-  filter: invert(1);
+.browser-iconbtn:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.browser-iconbtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.5);
 }
+.browser-iconbtn:disabled { opacity: 0.4; cursor: default; }
 
 .browser-user {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   padding: 4px 8px 4px 4px;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: var(--ink);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
-.browser-user:hover { background: hsl(var(--accent)); }
+.browser-user:hover { background: var(--hover); }
+
+/* A soft tint, not a solid brand fill. The page is allowed exactly one brand-filled element and it
+ * is the primary button — "Open slide", at the bottom of the preview pane. A solid avatar is a
+ * second one, the same weight, at the opposite corner, and with the two of them the page has no
+ * single loudest thing left. */
 .browser-avatar {
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--wash-2);
+  color: var(--brand);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 .browser-user-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -4,8 +4,8 @@
 // creates whatever the current level holds.
 import React from 'react';
 import {
-  ChevronRight, FolderPlus, LayoutGrid, PanelRightClose, PanelRightOpen, Rows3,
-  SlidersHorizontal, Upload,
+  ChevronDown, ChevronRight, FolderPlus, LayoutGrid, PanelRightClose, PanelRightOpen, Rows3,
+  Search, SlidersHorizontal, Upload,
 } from 'lucide-react';
 import { Button } from '../ui/button.tsx';
 import {
@@ -43,8 +43,8 @@ function ViewSwitch({ view, onView }) {
 }
 
 export default function BrowserToolbar({
-  crumbs, onCrumb, showStatusFilter, status, onStatus, columns, columnVisibility = {},
-  inCollection, onNew, onImport, view, onView, previewOpen, onTogglePreview,
+  crumbs, onCrumb, search, onSearch, showStatusFilter, status, onStatus, columns,
+  columnVisibility = {}, inCollection, onNew, onImport, view, onView, previewOpen, onTogglePreview,
 }) {
   return (
     <div className="browser-toolbar">
@@ -71,6 +71,24 @@ export default function BrowserToolbar({
           not wrong; what is wrong is asking one variant to be quiet against two grounds. The class
           is the page's own answer, in _toolbar.css, rather than an edit to the vendored button. */}
       <div className="browser-toolbar-actions">
+        {/* It searches the level the breadcrumb names, which is the whole reason it is here and no
+            longer in the brand band: walk into another folder and what it matches changes
+            completely, so it belongs to the row that says where you are.
+
+            The state and the 300ms debounce did not move with it — `useBrowseNavigation` still owns
+            `search` and `debouncedSearch`, and this is a field in a different place, not a
+            different behaviour. */}
+        <label className="browser-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+            placeholder="Search this level…"
+            aria-label="Search this level"
+          />
+        </label>
+
         <ViewSwitch view={view} onView={onView} />
 
         {/* The name says what the click will do rather than what is currently true, and there is no
@@ -88,15 +106,24 @@ export default function BrowserToolbar({
           {previewOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
         </Button>
 
+        {/* Still a native `<select>`, so the open menu is the platform's and the keyboard behaviour
+            is the one every user already has. What changes is the closed control: `appearance: none`
+            takes away the system border and the system arrow, and the page draws its own chevron
+            over the field, so the one control in this row wearing platform chrome stops being the
+            odd one out. The wrapper exists only to give the chevron something to be positioned
+            against, and it is `aria-hidden` because the select already announces itself. */}
         {showStatusFilter && (
-          <select
-            className="browser-select"
-            value={status}
-            onChange={(e) => onStatus(e.target.value)}
-            aria-label="Filter by status"
-          >
-            {STATUSES.map((s) => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s}</option>)}
-          </select>
+          <span className="browser-selwrap">
+            <select
+              className="browser-select"
+              value={status}
+              onChange={(e) => onStatus(e.target.value)}
+              aria-label="Filter by status"
+            >
+              {STATUSES.map((s) => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s}</option>)}
+            </select>
+            <ChevronDown size={13} aria-hidden="true" />
+          </span>
         )}
 
         {/* A card has no columns, so in the grid this menu is a control that does nothing. It is

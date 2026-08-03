@@ -218,13 +218,7 @@ export default function BrowserPage() {
 
   return (
     <div className="browser-shell">
-      <BrowserTopBar
-        search={search}
-        onSearch={setSearch}
-        user={user}
-        mode={mode}
-        onToggleMode={toggleMode}
-      />
+      <BrowserTopBar user={user} mode={mode} onToggleMode={toggleMode} />
 
       <div className="browser-body">
         {/* The frame. An empty element behind the four regions rather than a container around them:
@@ -246,6 +240,8 @@ export default function BrowserPage() {
           <BrowserToolbar
             crumbs={crumbs}
             onCrumb={goToCrumb}
+            search={search}
+            onSearch={setSearch}
             showStatusFilter={level === 'items'}
             status={status}
             onStatus={setStatus}
