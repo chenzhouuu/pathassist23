@@ -83,11 +83,7 @@ Design §7 has the full list with reasons. The three worth repeating:
 
 ## State
 
-Branched from `dc92167`.
-
-| # | State |
-|---|---|
-All nine **done**, on `feature/frontend-redesign`, one commit each except 03+04, which are one
+Branched from `dc92167`. All nine **done**, on `feature/frontend-redesign`, one commit each except 03+04, which are one
 atomic change (03 deletes the search field, 04 re-creates it) and would otherwise leave a commit
 with no search on the page.
 
