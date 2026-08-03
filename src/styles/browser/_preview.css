@@ -207,6 +207,11 @@
    is the other row of buttons on the page. */
 .browser-preview-actions button {
   height: 28px;
+  /* The vendored `<Button>` carries a bare `rounded`, which is Tailwind's un-overridden 4px — see
+     the note in _shell.css. "Open slide" is the page's one primary action and sat two pixels
+     squarer than the quiet button beside it, which is the most visible place on the page for two
+     controls to disagree about a corner. */
+  border-radius: var(--radius-2);
   font-size: 12.5px;
 }
 

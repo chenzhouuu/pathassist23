@@ -36,12 +36,12 @@
  * An inset shadow rather than `border-bottom: 1px solid hsl(var(--border))`, which is what stood
  * here. That token is opaque, so the rule was a flat grey bar drawn across the surface; --line-2 is
  * authored as an rgba and lets the canvas through, which is what makes it read as a seam between
- * two regions rather than as a third element. The height belongs to 03, which sizes the band from
- * the logo. */
-/* THE BAND'S HEIGHT FOLLOWS THE LOGO, rather than the logo being dropped into a fixed band. At 36px
- * in the old 52px bar the mark has 8px of air to the rule and reads as jammed against it; derived,
- * a larger mark always keeps its 14px either side. The floor is what a deployment with a small
- * wordmark gets. `--logo-h` is the one number to change. */
+ * two regions rather than as a third element.
+ *
+ * ITS HEIGHT FOLLOWS THE LOGO, rather than the logo being dropped into a fixed band. At 36px in the
+ * old 52px bar the mark has 8px of air to the rule and reads as jammed against it; derived, a larger
+ * mark always keeps its 14px either side. The floor is what a deployment with a small wordmark gets.
+ * `--logo-h` is the one number to change. */
 .browser-topbar {
   --logo-h: 36px;
   display: flex;
@@ -281,3 +281,43 @@
     --card-r: 0px;
   }
 }
+
+/* ── Vendored primitives, corrected inside this scope ─────────────────────────────────────────
+ * THE TAILWIND `DEFAULT` TRAP. `tailwind.config.js` overrides `lg`, `md` and `sm` and leaves
+ * `DEFAULT` alone, so a bare `rounded` — which `ui/button.tsx` and every `ui/dropdown-menu.tsx`
+ * surface carries — is Tailwind's own 4px. That is why "Open slide", the page's one primary action,
+ * rendered two pixels squarer than the "Status" button beside it, and why every menu the account
+ * chip and the Columns trigger open had a corner from a different system.
+ *
+ * IT IS NOT FIXED IN THE CONFIG. That file is global and the Viewer's buttons are the same
+ * component, so editing `DEFAULT` would repaint a surface this round has no business touching. The
+ * answer is scoped, and each control is corrected in the partial that owns it — the three that
+ * render a bare `<Button>` are in _preview.css, _dialogs.css and _table.css. What is left here is
+ * the chrome that has no partial of its own.
+ *
+ * WHY THE MENUS ARE MATCHED ON `role`. Radix renders `DropdownMenuContent` into a portal on
+ * `document.body`, outside `.browser-shell`, so a descendant selector cannot reach it — the same
+ * reason the palette is defined on the document element. `[role='menu']` is (0,2,0) against
+ * Tailwind's `.rounded` at (0,1,0), which is what settles it: browser.css is imported before
+ * `@tailwind utilities` and loses every specificity tie on source order.
+ * ─────────────────────────────────────────────────────────────────────────────────────────── */
+
+:root[data-surface='browser'] [role='menu'],
+:root[data-surface='browser'] [role='menu'] ~ [role='menu'] {
+  border-radius: var(--radius-3);
+}
+:root[data-surface='browser'] [role='menuitem'],
+:root[data-surface='browser'] [role='menuitemcheckbox'],
+:root[data-surface='browser'] [role='menuitemradio'] {
+  border-radius: var(--radius-1);
+}
+
+/* A separator is a LINE, and `--muted` is a fill token — the same colour the table footer and the
+   menu's own hover use, so at 1px it read as a thin slab rather than as a rule. */
+:root[data-surface='browser'] [role='menu'] [role='separator'] {
+  background: var(--line-2);
+}
+
+/* `rounded-sm` on the vendored checkbox is `calc(var(--radius) - 4px)` = 2px, the one value on the
+   page that belongs to no scale at all. */
+.browser-shell [role='checkbox'] { border-radius: var(--radius-1); }

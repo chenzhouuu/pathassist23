@@ -74,6 +74,8 @@
 .browser-modal-optional { opacity: 0.65; }
 .browser-modal-error { color: var(--sem-flag-ink); font-size: 12px; }
 .browser-modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+/* Both of NewEntryDialog's buttons are the vendored `<Button>` and therefore Tailwind's bare 4px. */
+.browser-modal-actions button { border-radius: var(--radius-2); }
 
 /* ── Controls ──────────────────────────────────────────────────────────────── */
 

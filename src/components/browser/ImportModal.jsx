@@ -160,7 +160,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                   display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
                   background: 'color-mix(in oklab, var(--sem-read) var(--sem-mix), var(--surface))',
                   border: '1px solid color-mix(in oklab, var(--sem-read) 28%, transparent)',
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-2)',
                 }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--sem-read-ink)" strokeWidth="2">
                     <ellipse cx="12" cy="5" rx="9" ry="3"/>
@@ -178,7 +178,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
                   </div>
                 </div>
               ) : (
-                <div style={{ height: 38, background: 'var(--sunken)', borderRadius: 4, display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
+                <div style={{ height: 38, background: 'var(--sunken)', borderRadius: 'var(--radius-2)', display: 'flex', alignItems: 'center', paddingLeft: 12 }}>
                   <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
                   <span style={{ fontSize: 12, color: 'var(--muted-hex)', marginLeft: 8 }}>Loading…</span>
                 </div>
@@ -222,7 +222,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
             </Field>
 
             {error && (
-              <p style={{ fontSize: 12, padding: '8px 12px', borderRadius: 4, background: 'color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface))',
+              <p style={{ fontSize: 12, padding: '8px 12px', borderRadius: 'var(--radius-2)', background: 'color-mix(in oklab, var(--sem-flag) var(--sem-mix), var(--surface))',
                 color: 'var(--sem-flag-ink)',
                 border: '1px solid color-mix(in oklab, var(--sem-flag) 28%, transparent)', margin: 0 }}>
                 {error}
@@ -257,8 +257,8 @@ export default function ImportModal({ collections, onClose, onImported }) {
                     {prewarm.total > 0 ? `${prewarm.done} / ${prewarm.total} slides` : 'Starting…'}
                   </p>
                   {prewarm.total > 0 && (
-                    <div style={{ width: 220, height: 4, background: 'var(--sunken)', borderRadius: 2, marginTop: 10 }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: 'var(--brand)', width: `${Math.round((prewarm.done / prewarm.total) * 100)}%`, transition: 'width 0.3s' }} />
+                    <div style={{ width: 220, height: 4, background: 'var(--sunken)', borderRadius: 'var(--radius-1)', marginTop: 10 }}>
+                      <div style={{ height: '100%', borderRadius: 'var(--radius-1)', background: 'var(--brand)', width: `${Math.round((prewarm.done / prewarm.total) * 100)}%`, transition: 'width 0.3s' }} />
                     </div>
                   )}
                   <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted-hex)' }}>This makes worklist browsing instant. You can close and it will continue in the background.</p>
@@ -333,7 +333,7 @@ export default function ImportModal({ collections, onClose, onImported }) {
             {jobData?.log?.length > 0 && (
               <div style={{
                 width: '100%', fontFamily: 'monospace', fontSize: 11, padding: '10px 12px',
-                borderRadius: 4, overflowY: 'auto', maxHeight: 110,
+                borderRadius: 'var(--radius-2)', overflowY: 'auto', maxHeight: 110,
                 background: 'var(--sunken)', color: 'var(--ink-2)', border: 0,
               }}>
                 {jobData.log.slice(-8).map((line, i) => <div key={i}>{line}</div>)}
