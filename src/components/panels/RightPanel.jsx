@@ -2,7 +2,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useStore } from '../../store/index.js';
 import MetadataPanel from './MetadataPanel.jsx';
-import AIPanel from './AIPanel.jsx';
 import AnalysisPanel from './AnalysisPanel.jsx';
 import CopilotPanel from './CopilotPanel.jsx';
 import WorkspacePanel from './WorkspacePanel.jsx';
@@ -58,10 +57,6 @@ export default function RightPanel() {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
         <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-      </svg> },
-    { id:'ai',          label:'AI',     show: hasRole('ai-users'), icon:
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
       </svg> },
     { id:'analysis',    label:'Analysis', show: hasRole('ai-users'), icon:
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -133,7 +128,6 @@ export default function RightPanel() {
       </div>
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {activeTab === 'metadata'    && <MetadataPanel/>}
-        {activeTab === 'ai'          && <AIPanel/>}
         {activeTab === 'analysis'    && <AnalysisPanel/>}
         {activeTab === 'copilot'     && <CopilotPanel/>}
         {activeTab === 'workspace'   && <WorkspacePanel/>}

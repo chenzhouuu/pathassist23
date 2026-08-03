@@ -238,6 +238,11 @@ export const getTilesInfo = async (itemId) => {
 // x, y, w, h are in base image pixels (level 0 coordinates).
 // maxOutputPx: if set, caps the output image to this size (width & height) to
 //              control blob size sent to AI models.
+// No caller since the AI tab went on 2026-08-03 — it fetched the region here and posted the bytes
+// to Anthropic or Google from the page. Kept because it is a Girder binding like everything else in
+// this file, and because pulling pixels for a drawn box is the obvious next thing to want; note
+// that `maxOutputPx = null` means the server returns the region at full `magnification` resolution,
+// which is unbounded for a large box. Cap it at the call site.
 export const getRegionImageBlob = async (itemId, x, y, w, h, magnification = 40, maxOutputPx = null) => {
   const params = {
     left:         Math.round(x),

@@ -1,8 +1,8 @@
 // src/api/nucleiApi.js — the nuclei artifact's control plane (Inc 5).
 //
-// Separate from the stateless `/segment` call the agent makes (wsiAnalysis.js): that one answers
-// "what is in this box" and returns; this one builds a stored artifact the Workspace lists and the
-// viewer draws. Same gateway, same Girder session, different lifetime.
+// Separate from the stateless `/segment` call the agent makes server-side, mid-turn: that one
+// answers "what is in this box" and returns; this one builds a stored artifact the Workspace lists
+// and the viewer draws. Same gateway, same Girder session, different lifetime.
 // Each api module carries its own base + auth + refusal vocabulary, like tissueApi and
 // biomarkerApi do — the refusals are what differ, and they are what a user actually reads.
 const COPILOT_BASE = (import.meta.env.VITE_COPILOT_API_URL || '/api/copilot').replace(/\/$/, '');

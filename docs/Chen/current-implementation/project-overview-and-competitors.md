@@ -43,9 +43,13 @@ second-opinion-reviewer → referring-physician → patient) and dedicated porta
    *(A second chat panel, **AskPA**, ran browser-direct vision LLMs against a viewport
    snapshot. It was removed on 2026-08-03 — see `docs/askpa-technical-report.md`. Claims
    below about a local, $0-egress LLM option refer to that panel and no longer hold.)*
-2. **"Pragna"** — Ki67 IHC quantification + whole-slide tissue composition analysis
+2. ~~**"Pragna"** — Ki67 IHC quantification + whole-slide tissue composition analysis
    (tumor%, stroma%, necrosis%, purity, heterogeneity index) via a grid of patches sent to
-   Claude/Gemini vision, all browser-side.
+   Claude/Gemini vision, all browser-side.~~
+   *Removed on 2026-08-03, the same day as AskPA and for the same reason: the API key had to
+   ship in the bundle and the results lived in one browser's localStorage. The platform has no
+   browser-side model call left — every analysis is submitted from the Analysis catalog and runs
+   as a Girder job. See `docs/ai-panel-technical-report.md`.*
 3. **Slide-level classifiers (MIL)** — the research group's models: BRCA IDC-vs-ILC
    (AUC 0.947), NSCLC subtyping (AUC 0.976), DLBCL (AUC 0.681), using **LCR-MIL**
    (student–teacher distillation reviewing ~6.5% of patches) and **HG-MIL**, on

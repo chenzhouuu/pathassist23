@@ -377,31 +377,16 @@ export const useStore = create((set, get) => ({
     set({ compareItems: [] });
   },
 
-  // ── AI / Ki67 ─────────────────────────────────────────────────────────────
-  // Each entry: { id, timestamp, roi, thumbnailUrl, result, usage, itemId, itemName, modelLabel }
-  // Persisted to localStorage under 'pathassist_ki67_results'
-  aiResults: (() => {
-    try { return JSON.parse(localStorage.getItem('pathassist_ki67_results') || '[]'); }
-    catch { return []; }
-  })(),
-  addAiResult: (entry) => set((s) => {
-    const next = [entry, ...s.aiResults].slice(0, 20);
-    localStorage.setItem('pathassist_ki67_results', JSON.stringify(next));
-    return { aiResults: next };
-  }),
-  removeAiResult: (id) => set((s) => {
-    const next = s.aiResults.filter((e) => e.id !== id);
-    localStorage.setItem('pathassist_ki67_results', JSON.stringify(next));
-    return { aiResults: next };
-  }),
-  clearAiResults: () => {
-    localStorage.removeItem('pathassist_ki67_results');
-    set({ aiResults: [] });
-  },
+  // The AI tab's state — a global localStorage queue of the last 20 Ki67 / tumour-grid results, plus
+  // the four flags that drove the draw-then-analyze handshake — went with that tab on 2026-08-03.
+  // The results were the problem: one browser's localStorage, not per slide, so a second reader saw
+  // nothing and the reader who ran it saw the previous slide's cards on the next slide. Every run is
+  // a Girder job now, and a job's numbers live on its artifact. See docs/ai-panel-technical-report.md.
+  // (`pathassist_ki67_results` may still sit in a returning user's localStorage; it is inert.)
 
   // AskPA's chat state — thread, model choice, pending viewport attachment — went with the tab on
-  // 2026-08-03. It was the last browser-direct model path in the app, and none of its four models
-  // was reachable from this box. What it was and why it went: docs/askpa-technical-report.md.
+  // 2026-08-03, one commit earlier. It was the last browser-direct *chat* path; the AI tab above was
+  // the last browser-direct path of any kind. See docs/askpa-technical-report.md.
   // (The old `pathassist_chat_model` key may still sit in a returning user's localStorage; inert.)
 
   // ── Copilot ──────────────────────────────────────────────────────────────────
@@ -430,32 +415,10 @@ export const useStore = create((set, get) => ({
   resetCopilot:             ()     => set({ copilotMessages: [], copilotConversationId: null,
                                             copilotStreaming: false, copilotError: null }),
 
-  // 'claude' | 'gemini' — which model to run when ROI is drawn
-  ki67PendingModel: 'claude',
-  setKi67PendingModel: (v) => set({ ki67PendingModel: v }),
-
-  // Set to true while waiting for the user to draw a Ki67 ROI
-  ki67RoiPending: false,
-  setKi67RoiPending: (v) => set({ ki67RoiPending: v }),
-
-  // Set to true while the API call is in-flight
-  ki67Analyzing: false,
-  setKi67Analyzing: (v) => set({ ki67Analyzing: v }),
-
-  // ── WSI / ROI-grid analysis ───────────────────────────────────────────────
-  roiWsiPending: false,
-  setRoiWsiPending: (v) => set({ roiWsiPending: v }),
-
-  wsiAnalyzing: false,
-  setWsiAnalyzing: (v) => set({ wsiAnalyzing: v }),
-  // { current, total, patchGrid: Array<'pending'|'analyzing'|'done'|'skipped'|'failed'> }
-  wsiProgress: null,
-  setWsiProgress: (p) => set({ wsiProgress: p }),
-
   // Panel state — the localStorage cart of captured viewport ROIs — went with the Panels tab. Its
   // one action was a batch Ki67 call whose region was squashed to 512 px however large the capture
-  // was, so the counts it produced could not mean anything. Single-ROI Ki67 is still on the
-  // annotation context menu, and the camera button still uploads its capture to Girder `Captures`.
+  // was, so the counts it produced could not mean anything. Single-ROI Ki67 outlived it by a day and
+  // then went too; the camera button still uploads its capture to Girder `Captures`.
   // (The old `pathassist_panels` key may still sit in a returning user's localStorage; it is inert.)
 
   // Theme state was removed with the light/clinical/H&E variants: the app now has one palette,

@@ -1,13 +1,14 @@
 # PathAssist UI — Development Changelog
 
-> Recent development cycle covering AI Integration, Viewport Captures, and EC2 Server Setup.
+> Recent development cycle covering Viewport Captures, EC2 Server Setup, and the removal of the
+> browser-side AI layer.
 > All changes are on branch `keycloak-integration`.
 
 ---
 
 ## Table of Contents
 
-1. [Pragna AI Integration](#1-pragna-ai-integration)
+1. [Browser-side AI — removed](#1-browser-side-ai--removed)
 2. [Viewport Captures → Girder](#2-viewport-captures--girder)
 3. [Multi-Brand Deployment Architecture](#3-multi-brand-deployment-architecture)
 4. [EC2 Server Setup & Infrastructure](#4-ec2-server-setup--infrastructure)
@@ -18,90 +19,32 @@
 
 ---
 
-## 1. Pragna AI Integration
+## 1. Browser-side AI — removed
 
-### Overview
+Ki67 IHC scoring and two tumour-composition grids used to run **in the browser**: the page fetched a
+region from Girder, posted the pixels to Anthropic or Google using each vendor's JavaScript SDK, and
+showed the returned JSON in an **AI** tab. Both models were presented under one brand name, *Pragna*.
+All of it was removed on 2026-08-03 (`{HASH}`).
 
-Ki67 IHC (immunohistochemistry) analysis is powered by two underlying vision models — **Claude Sonnet 4.6** (Anthropic) and **Gemini 2.5 Flash Lite** (Google) — both exposed to users under the unified brand name **"Pragna"**.
+> **Why.** The API key had to reach the browser as a `VITE_*` variable, which Vite inlines into the
+> bundle — shipping the feature meant publishing the key to anyone who could load the page. The
+> results were held in one browser's `localStorage`, capped at 20 and not keyed by slide, so a second
+> reader saw nothing and the reader who ran it saw the previous slide's cards on the next slide. Both
+> "Locate ROI" buttons passed image-pixel coordinates to OpenSeadragon's `fitBounds()`, which takes
+> viewport coordinates, so neither jumped to the right place. And the single-ROI path put no cap on
+> the region it fetched, so a large box produced a PNG too big for the request to succeed.
 
-The analysis runs **entirely in the browser** using each provider's JavaScript SDK. No image data is sent through the Girder server.
+What replaced it: analyses are submitted from the **Analysis** catalog, run as Girder jobs, and land
+as artifacts that the **Workspace** reads and the **Runs** list tracks — server-side credentials,
+results that outlive the browser, and numbers attached to the slide they came from.
 
-### Architecture
+Deleted: `src/api/claudeApi.js`, `src/api/geminiApi.js`, `src/api/wsiAnalysis.js`,
+`src/components/panels/AIPanel.jsx`, `WsiResultCard.jsx`, `WsiAnalyzingCard.jsx`, the four
+`Analyze …` entries in `ContextMenu.jsx`, and the `@anthropic-ai/sdk` / `@google/generative-ai`
+dependencies. `VITE_ANTHROPIC_API_KEY` and `VITE_GEMINI_API_KEY` are read by nothing.
 
-```
-User draws ROI on slide
-        │
-        ▼
-Girder API: GET /api/v1/item/{id}/tiles/region
-        │  (returns PNG/JPEG blob for that pixel region)
-        ▼
-Browser → Anthropic SDK / Google Generative AI SDK
-        │  (base64 image + Ki67 prompt → JSON result)
-        ▼
-AIPanel displays result + token cost
-```
-
-### Files
-
-| File | Purpose |
-|------|---------|
-| `src/api/claudeApi.js` | Claude Sonnet 4.6 vision call, prompt, cost calc |
-| `src/api/geminiApi.js` | Gemini 2.5 Flash Lite vision call, prompt, cost calc |
-| `src/api/wsiAnalysis.js` | Whole-slide grid analysis (16-patch mode) |
-| `src/components/panels/AIPanel.jsx` | Results display panel |
-| `src/components/panels/WsiResultCard.jsx` | WSI grid result card |
-| `src/components/panels/WsiAnalyzingCard.jsx` | WSI analysis progress card |
-| `src/components/annotations/ContextMenu.jsx` | Right-click menu to trigger analysis |
-
-### What the AI Returns (Ki67 JSON Schema)
-
-```json
-{
-  "ki67_percentage": 42.5,
-  "positive_count": 212,
-  "negative_count": 288,
-  "total_count": 500,
-  "stain_quality": "good",
-  "proliferation_activity": "high",
-  "interpretation": "High Ki67 proliferation index consistent with aggressive neoplasm.",
-  "confidence": "high",
-  "notes": ""
-}
-```
-
-- `proliferation_activity`: `low` (<15%), `intermediate` (15–30%), `high` (>30%)
-- `stain_quality`: `good` | `fair` | `poor`
-- `confidence`: `high` | `medium` | `low`
-
-### Branding: All Models Display as "Pragna"
-
-The model label displayed in the UI is always **"Pragna"** regardless of which underlying model is called. This is set via the `AI_MODEL_LABEL` / `GEMINI_MODEL_LABEL` exports:
-
-```js
-// src/api/claudeApi.js
-export const AI_MODEL_LABEL = 'Pragna';
-
-// src/api/geminiApi.js
-export const GEMINI_MODEL_LABEL = 'Pragna';
-```
-
-The `ModelTag` component in `AIPanel.jsx` and all right-click menu items always display "Pragna".
-
-### Analysis Modes
-
-| Mode | How to trigger | Description |
-|------|---------------|-------------|
-| **Single ROI** | Right-click slide → Analyze Ki67 % → draw rectangle | Analyzes one region at chosen magnification |
-| **Whole Slide (WSI)** | Right-click slide → Analyze Whole Slide | Splits slide into 3×3 or 4×4 patch grid, analyzes each, aggregates |
-
-### API Keys Required
-
-```
-VITE_ANTHROPIC_API_KEY=sk-ant-api03-...
-VITE_GEMINI_API_KEY=AIzaSy...
-```
-
-These go in `.env.local` on EC2 at `/opt/pathassist23/.env.local`. They are **not** included in git.
+Full account of what it did, what it got wrong, and what rebuilding it would take:
+**`docs/ai-panel-technical-report.md`**.
 
 ---
 
@@ -137,7 +80,7 @@ region = {
 
 Metadata saved with the upload: `sourceItemId`, `sourceItemName`, `sourceFolderId`, `capturedAt`, `capturedBy`, `region` (JSON string).
 
-> A **Panels** tab used to collect these captures in `localStorage` and submit them to Pragna as a batch Ki67 run. It was removed on 2026-08-02 (`1c6844a`): the batch fetched every region at 512 px however large the capture was, so its counts could not mean anything. Single-ROI and whole-slide Ki67 are unaffected — see §1.
+> A **Panels** tab used to collect these captures in `localStorage` and submit them to Pragna as a batch Ki67 run. It was removed on 2026-08-02 (`1c6844a`): the batch fetched every region at 512 px however large the capture was, so its counts could not mean anything. Single-ROI and whole-slide Ki67 outlived it by a day and then went too — see §1. The camera button itself is unaffected.
 
 ---
 
@@ -425,11 +368,10 @@ COG/pyramidal TIFF tiles cache far more efficiently and reduce per-tile CPU cost
 
 ### EC2 `.env.local` (`/opt/pathassist23/.env.local`)
 
-```env
-# AI API keys — required for Pragna analysis
-VITE_ANTHROPIC_API_KEY=sk-ant-api03-...
-VITE_GEMINI_API_KEY=AIzaSy...
-```
+Nothing is required here any more. `VITE_ANTHROPIC_API_KEY` and `VITE_GEMINI_API_KEY` used to live in
+this file; they went with the AI tab on 2026-08-03 (§1) and are read by nothing. Delete them from any
+`.env.local` you are carrying forward — a `VITE_*` key is inlined into the bundle, so it is readable
+by anyone who loads the page. Model credentials belong to the server-side services.
 
 **Do NOT add branding variables here.** Branding is injected as shell env vars at build time.
 
@@ -440,8 +382,6 @@ VITE_GEMINI_API_KEY=AIzaSy...
 | `VITE_APP_NAME` | Brand name shown in header/title | `MDA PathAssist` |
 | `VITE_LOGO_SRC` | Path to logo in `public/` | `/mda-logo.png` |
 | `VITE_APP_TAGLINE` | Subtitle under logo | `Digital Pathology Platform` |
-| `VITE_ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-api03-...` |
-| `VITE_GEMINI_API_KEY` | Google AI API key | `AIzaSy...` |
 | `VITE_GIRDER_API_URL` | Girder API base URL | `https://mda.pathassist.health/api/v1` |
 
 ### Priority Order (highest to lowest)

@@ -30,10 +30,15 @@ const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [
 // and read in the Workspace, so a tab for either would be a second way to start the same run.
 // Panels left on its own, for a different reason than the rest: its batch Ki67 fetched every
 // capture at 512 px however large the region was, so its counts could not mean anything. Six.
-// AskPA went next, for a third reason: it was the last browser-direct model path, and none of its
+// AskPA went next, for a third reason: it was the last browser-direct chat path, and none of its
 // four models was reachable. See docs/askpa-technical-report.md. Five.
+// AI went last, and took the browser-direct habit with it: Ki67 and the tumour grids called
+// Anthropic and Google from the page, so the key shipped in the bundle and the results lived in
+// one browser's localStorage — neither of which survives contact with a second reader. Every run
+// is a Girder job now, and every job is submitted from Analysis and read in the Workspace. Four.
+// See docs/ai-panel-technical-report.md.
 const EXPECTED_TABS = [
-  'Workspace', 'Info', 'AI', 'Analysis', 'Copilot',
+  'Workspace', 'Info', 'Analysis', 'Copilot',
 ];
 
 describe('RightPanel tab bar', () => {
