@@ -33,6 +33,27 @@ Something has to give, and which column gives first is a decision worth making o
 - [ ] Real data, not a fixture: a BRACS folder, TCGA-BRCA for the 4.33 : 1 strips, the MDA tiffs for
       the *not recorded* scan state, and Penn Pathology for the deep-but-empty tree branch.
 
+## Found during implementation, and landing here
+
+Three things nobody's ticket owns, each spotted by looking at the page rather than at a diff.
+They are in scope for this one because this is the pass that looks at the whole thing.
+
+- **The toolbar shouts.** `ui/button.tsx`'s ghost variant is `text-primary`, and under Graphite
+  `--primary` is the brand indigo. On the Viewer's black ground a blue ghost button was the quiet
+  option; on a near-white canvas three indigo buttons in a row become the loudest thing on the
+  page and flatten the toolbar against the table. The prototype's answer is that a toolbar control
+  is `--ink-2` with an `inset 0 0 0 1px var(--line-2)` ring, and only the one primary action
+  carries a brand fill. Fix in `_toolbar.css`, not in the vendored button.
+- **The logo vanishes in dark.** All three brand assets are dark artwork drawn for a white page,
+  and the product is white-labelled so they cannot simply be re-cut. The prototype's rule is
+  `[data-mode="dark"] .browser-logo { filter: invert(1) hue-rotate(180deg) }` — the hue rotation
+  is what keeps Impart's teal teal and Algopath's magenta magenta, which a plain `invert()` would
+  not.
+- **The select column is ~140px of dead space.** `browserColumns.jsx` sets `size: 36` and
+  `BrowserPage` passes it through as a `width` style, but in an auto-layout table with spare room
+  that is a hint rather than a rule, so the checkbox column absorbs the slack and pushes the
+  thumbnail a finger's width right. Pre-existing, but invisible on black and obvious on white.
+
 ## Known limits, not fixed here
 
 Stated so the pass does not read as a clean bill of health:
