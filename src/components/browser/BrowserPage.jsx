@@ -34,10 +34,15 @@ import NewEntryDialog from './NewEntryDialog.jsx';
 import SharePatientModal from '../share/SharePatientModal.jsx';
 import { buildColumns, HIDDEN_BY_DEFAULT } from './browserColumns.jsx';
 import { useBrowseNavigation } from './useBrowseNavigation.js';
+import { usePreviewResize } from './usePreviewResize.js';
 import { useSurfaceTheme } from './useSurfaceTheme.js';
 import {
   toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirstIn, STATUSES,
 } from './browseUtils.js';
+
+// The resizer names what it resizes through `aria-controls`, so the id has to be agreed between the
+// two elements and this is the only place both are in scope.
+const PREVIEW_ID = 'browser-preview';
 
 export default function BrowserPage() {
   const qc = useQueryClient();
@@ -57,6 +62,13 @@ export default function BrowserPage() {
   // cannot live inside a single component, because the control is in the toolbar and the rendering
   // is in the body, and this is the smallest place both can see.
   const [viewMode, setViewMode] = useState('table');
+
+  // The preview's width and whether it is showing. Both are the user's, both outlive the visit, and
+  // neither is navigation — walking into another folder must not resize the pane — so they sit here
+  // beside the view mode rather than in `useBrowseNavigation`. The hook owns the pointer arithmetic
+  // and the clamp; this page only has to place the two elements and hand the resizer its props.
+  const preview = usePreviewResize({ controls: PREVIEW_ID });
+
   const [columnVisibility, setColumnVisibility] = useState(HIDDEN_BY_DEFAULT);
   const [sorting, setSorting] = useState([{ id: 'name', desc: false }]);
   const [showImport, setShowImport] = useState(false);
@@ -201,6 +213,8 @@ export default function BrowserPage() {
         columns={table.getAllColumns().filter((c) => c.getCanHide())}
         view={viewMode}
         onView={setViewMode}
+        previewOpen={!preview.collapsed}
+        onTogglePreview={preview.toggle}
         inCollection={!!collection}
         onNew={() => setShowNew(true)}
         onImport={() => setShowImport(true)}
@@ -302,12 +316,22 @@ export default function BrowserPage() {
           {loading && <div className="browser-empty"><p>Loading…</p></div>}
         </div>
 
-        <PreviewPane
-          row={selectedRow}
-          onOpen={open}
-          onStatus={(s) => writeStatus(selectedRow.id, s)}
-          onShare={setShareFolder}
-        />
+        {/* Collapsed means gone, not zero pixels wide. A pane at width 0 still has a border, still
+            scrolls, and still decodes a thumbnail for whatever is selected — and the resizer beside
+            it would be a control for something with nothing in it. */}
+        {!preview.collapsed && (
+          <>
+            <div className="browser-resizer" {...preview.separatorProps} />
+            <PreviewPane
+              id={PREVIEW_ID}
+              width={preview.width}
+              row={selectedRow}
+              onOpen={open}
+              onStatus={(s) => writeStatus(selectedRow.id, s)}
+              onShare={setShareFolder}
+            />
+          </>
+        )}
       </div>
 
       {showNew && (

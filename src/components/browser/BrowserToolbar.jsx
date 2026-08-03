@@ -3,7 +3,10 @@
 // table is showing — the status filter only appears where there are slides to filter, and "New"
 // creates whatever the current level holds.
 import React from 'react';
-import { ChevronRight, LayoutGrid, Rows3, Upload, FolderPlus, SlidersHorizontal } from 'lucide-react';
+import {
+  ChevronRight, FolderPlus, LayoutGrid, PanelRightClose, PanelRightOpen, Rows3,
+  SlidersHorizontal, Upload,
+} from 'lucide-react';
 import { Button } from '../ui/button.tsx';
 import {
   DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
@@ -41,7 +44,7 @@ function ViewSwitch({ view, onView }) {
 
 export default function BrowserToolbar({
   crumbs, onCrumb, showStatusFilter, status, onStatus, columns, inCollection, onNew, onImport,
-  view, onView,
+  view, onView, previewOpen, onTogglePreview,
 }) {
   return (
     <div className="browser-toolbar">
@@ -63,6 +66,20 @@ export default function BrowserToolbar({
 
       <div className="browser-toolbar-actions">
         <ViewSwitch view={view} onView={onView} />
+
+        {/* The name says what the click will do rather than what is currently true, and there is no
+            `aria-pressed` beside it: a toggle that both renames itself and reports a pressed state
+            announces the same fact twice and in opposite directions — "Hide preview, pressed" is a
+            sentence nobody can act on. The icon carries the same asymmetry, closing or opening. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={previewOpen ? 'Hide preview' : 'Show preview'}
+          title={previewOpen ? 'Hide preview' : 'Show preview'}
+          onClick={onTogglePreview}
+        >
+          {previewOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+        </Button>
 
         {showStatusFilter && (
           <select

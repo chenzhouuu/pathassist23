@@ -1,45 +1,200 @@
-/* Landing page: the preview pane. */
+/* Landing page: the preview pane (src/components/browser/PreviewPane.jsx) and the edge that
+ * resizes it (src/components/browser/usePreviewResize.js).
+ *
+ * The pane has no width here. It is the one region of the page whose size is the user's rather
+ * than the design's, so the number arrives inline from `usePreviewResize` and this file states
+ * only that the pane does not flex around it. A `width` declaration below would be a second
+ * opinion that wins on first paint and loses on every render after, which is exactly the kind of
+ * flicker that gets diagnosed as a state bug.
+ *
+ * Everything else names the Graphite roles directly rather than the shadcn triplets, for the reason
+ * _tree.css gives: `--surface-2` means "a rail, one step behind the cards", `--sunken` means "the
+ * bed a thumbnail sits on", and both carry translucency the alpha-free shadcn names cannot.
+ */
 
-/* ── Preview pane ──────────────────────────────────────────────────────────── */
+/* ── The resizer ───────────────────────────────────────────────────────────── */
+
+/* 5px of grab area painting a 1px line. The hit target and the divider are deliberately different
+   sizes: a 1px target is unhittable and a 5px divider is a gutter, so the element is the target and
+   its ::after is the divider. `touch-action: none` because a pointer drag on a touch screen is
+   otherwise claimed by the scroller before the first pointermove arrives. */
+.browser-resizer {
+  position: relative;
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.browser-resizer::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  background: var(--line);
+  transition: background var(--motion-fast);
+}
+
+/* The brand on hover and for the whole of the drag. During the drag it is the only thing on screen
+   confirming that the gesture is still live — the pointer has usually left the strip by then, which
+   is the entire reason the drag runs on pointer capture. */
+.browser-resizer:hover::after,
+.browser-resizer[data-dragging]::after {
+  background: var(--brand);
+}
+
+/* Focus is drawn on the line rather than as a ring around the element: a 2px outline offset from a
+   5px box is a rounded rectangle floating in the gap between two panes, which reads as a stray
+   artefact rather than as focus. Widening the line itself says "this thin thing is what you have". */
+.browser-resizer:focus-visible { outline: none; }
+.browser-resizer:focus-visible::after {
+  inset: 0 1px;
+  background: var(--brand);
+}
+
+/* ── The pane ──────────────────────────────────────────────────────────────── */
 
 .browser-preview {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-4);
+  /* Grow and shrink both refused: the inline width is the whole size of the pane, and letting flex
+     negotiate it would mean the table's content could push the user's choice around. */
+  flex-grow: 0;
   flex-shrink: 0;
-  width: 260px;
-  padding: 14px;
-  border-left: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  padding: var(--space-4);
+  background: var(--surface-2);
   overflow-y: auto;
 }
 .browser-preview.is-empty { align-items: center; justify-content: center; }
-.browser-preview-hint { color: hsl(var(--muted-foreground)); font-size: 12px; text-align: center; }
+.browser-preview-hint {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  text-align: center;
+}
 
+/* ── The thumbnail ─────────────────────────────────────────────────────────── */
+
+/* 3:2 and CONTAINED. Slides here run 0.58 : 1 to 8.28 : 1 with a median of 1.66, so a frame wider
+   than it is tall fits the typical slide with almost no bed showing while both tails still fit
+   whole. `max-width`/`max-height` on the image rather than `width: 100%` so the thumbnail is never
+   upscaled into mush — a soft macro is worse than a small one when the whole job of this pane is
+   deciding whether to open the slide.
+   The 384px ceiling follows from that directly and is not a taste number: `getThumbnailUrl` asks
+   for a 256px box, so 384 × 256 is the smallest 3:2 frame that can hold *any* answer that endpoint
+   gives at native size, portrait or strip. Past it the frame would only be growing its own bed,
+   and the width the user dragged for is better spent on the field grid below, which turns it into
+   more columns. `margin-inline: auto` centres what is left over.
+   An inset ring rather than a border, so the frame's outer size is exactly the space it was given
+   and the image inside it is not two pixels short of the fields below. */
 .browser-preview-image {
   display: grid;
   place-items: center;
-  aspect-ratio: 1;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--background));
+  width: 100%;
+  max-width: 384px;
+  margin-inline: auto;
+  aspect-ratio: 3 / 2;
+  border-radius: var(--radius-3);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--line);
   overflow: hidden;
 }
-.browser-preview-image img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.browser-preview-image.is-folder { flex-direction: column; color: hsl(var(--muted-foreground)); }
-.browser-preview-image.is-folder span { font-size: 30px; font-weight: 300; color: hsl(var(--foreground)); }
-.browser-preview-image.is-folder small { font-size: 11px; }
-
-.browser-preview-title {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.35;
-  word-break: break-word;
+.browser-preview-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
-.browser-preview-fields { display: flex; flex-direction: column; gap: 7px; font-size: 12px; }
-.browser-preview-field { display: flex; gap: 8px; }
-.browser-preview-field dt { flex-shrink: 0; width: 74px; color: hsl(var(--muted-foreground)); }
-.browser-preview-field dd { min-width: 0; word-break: break-word; }
+/* A folder has no picture, so the frame holds the one number about it that a folder actually has.
+   `align-content: center` is load-bearing and not a duplicate of the `place-items: center` above:
+   that one centres each item inside its own row, while the two auto rows themselves default to
+   `stretch` and split the frame's 192px between them — which pushes the count to the top of the
+   frame and its unit to the bottom, reading as two unrelated things rather than as one number. */
+.browser-preview-image.is-folder {
+  grid-auto-flow: row;
+  align-content: center;
+  gap: 2px;
+  color: var(--ink-3);
+}
+.browser-preview-image.is-folder span {
+  color: var(--ink);
+  font-size: 30px;
+  font-weight: var(--fw-normal);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.browser-preview-image.is-folder small { font-size: 11.5px; }
 
-.browser-preview-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 8px; }
+/* ── The title ─────────────────────────────────────────────────────────────── */
+
+/* `break-all`, not `break-word`. Real names here reach 89 characters of dotted hex with not one
+   space to break on, so a word-level rule leaves a 40-character UUID hanging out of the pane. */
+.browser-preview-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.012em;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+/* ── The fields ────────────────────────────────────────────────────────────── */
+
+/* Label above value, in as many columns as the pane's current width allows. This is the one place
+   the resizing has to be answered in CSS rather than by the hook: at the 15% clamp the pane is
+   ~190px and the fields are one column, and at the 50% clamp they are four, without a breakpoint
+   anywhere — `auto-fit` reads the width the user chose. A side-by-side label and value cannot do
+   that, because it spends a fixed 74px of every column on the label. */
+.browser-preview-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+.browser-preview-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.browser-preview-field dt {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.browser-preview-field dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  word-break: break-word;
+}
+/* Measurements and identifiers in the mono face with tabular figures, the same treatment the Scan
+   column and the rail's counts get, so two slides' dimensions line up digit for digit when the eye
+   runs down the pane. */
+.browser-preview-field dd.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The actions ───────────────────────────────────────────────────────────── */
+
+/* Pushed to the foot of the pane. The pane is as tall as the window and the field set is not, so
+   without this the buttons sit wherever the last field happened to end — which moves every time the
+   selection changes, because a slide with no recorded magnification has two fewer rows. */
+.browser-preview-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-3);
+}
+
+/* The pane itself is dropped at 1100px in _responsive.css, which owns that rule and the rest of the
+   narrow-screen pass. The resizer is this file's element and is dropped with it here rather than
+   there, so a 5px grab strip is not left resizing something that is not on screen. Ticket 10 owns
+   consolidating the two. */
+@media (max-width: 1100px) {
+  .browser-resizer { display: none; }
+}
