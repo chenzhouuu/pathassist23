@@ -2,7 +2,13 @@
 **Server:** DCPenn (`ssh dcpenn` → `192.168.191.109`)  
 **Account used:** `path01`  
 **Date:** 2026-04-07  
-**Purpose:** BRCA breast cancer POC training + Gemma 4 local LLM for AskPA
+**Purpose:** BRCA breast cancer POC training + Gemma 4 local LLM
+
+> **Status note (2026-08-03):** the server side below is unchanged and still describes how these
+> services were built. What went is their **caller** — the AskPA panel was removed, so neither the
+> Gemma chat server (`:11500`) nor the BRCA classifier (`:11501`) has a frontend entry point any
+> more. §10 describes UI changes that have since been reverted.
+> See `docs/askpa-technical-report.md`.
 
 ---
 
@@ -235,7 +241,7 @@ tmux new-session -d -s gemma_server \
 
 ### What it does
 - Listens on `0.0.0.0:11500`
-- Receives chat requests from PathAssist AskPA panel
+- Receives chat requests over HTTP (the PathAssist AskPA panel was the caller until 2026-08-03)
 - Converts Anthropic-format messages → Ollama `/api/chat` format
 - Calls local Ollama at `localhost:11434` with `MODEL_NAME` (default: `gemma4`)
 - Returns `{ text, usage }` — same shape as Claude/MedGemma responses
@@ -259,28 +265,21 @@ curl -s -X POST http://localhost:11500/chat \
 
 ---
 
-## 10. PathAssist UI Changes
+## 10. PathAssist UI Changes — reverted 2026-08-03
 
-### Files modified
-| File | Change |
-|------|--------|
-| `src/api/pathChatApi.js` | Added `gemma3:27b` model + `sendDcpennChat()` + `VITE_ENABLED_CHAT_MODELS` filter |
-| `src/components/panels/PathChatPanel.jsx` | Green `⚡ Gemma4 27B` button for local models |
-| `.env.local` | Added LLM config variables |
-| `deploy/.env.example` | Documented new env vars |
+Every frontend change from this session has been undone. `src/api/pathChatApi.js` and
+`src/components/panels/PathChatPanel.jsx` are deleted; `VITE_DCPENN_LLM_URL`,
+`VITE_DCPENN_BRCA_URL`, and `VITE_ENABLED_CHAT_MODELS` are read by nothing and were dropped from
+`deploy/.env.example`. `VITE_ANTHROPIC_API_KEY` and `VITE_GEMINI_API_KEY` stay — they still power
+the Ki67 analysis paths.
 
-### `.env.local` config knobs
+To reach the Gemma server now, call it directly:
+
 ```bash
-# DCPenn server URL (default: DCPenn LAN IP)
-VITE_DCPENN_LLM_URL=http://192.168.191.109:11500
-
-# Which models appear in AskPA (comma-separated). Leave unset = show all.
-# VITE_ENABLED_CHAT_MODELS=claude-sonnet-4-6,gemma3:27b
-
-# API keys (cloud models)
-# VITE_ANTHROPIC_API_KEY=sk-ant-...
-# VITE_GEMINI_API_KEY=AIza...
+curl -s http://192.168.191.109:11500/health
 ```
+
+See `docs/askpa-technical-report.md` for what the panel was and what it would take to rebuild.
 
 ---
 

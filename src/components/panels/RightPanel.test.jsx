@@ -30,8 +30,10 @@ const AS_ADMIN = { user: { _id: 'u1', login: 'dev', admin: true }, userGroups: [
 // and read in the Workspace, so a tab for either would be a second way to start the same run.
 // Panels left on its own, for a different reason than the rest: its batch Ki67 fetched every
 // capture at 512 px however large the region was, so its counts could not mean anything. Six.
+// AskPA went next, for a third reason: it was the last browser-direct model path, and none of its
+// four models was reachable. See docs/askpa-technical-report.md. Five.
 const EXPECTED_TABS = [
-  'Workspace', 'Info', 'AI', 'Analysis', 'AskPA', 'Copilot',
+  'Workspace', 'Info', 'AI', 'Analysis', 'Copilot',
 ];
 
 describe('RightPanel tab bar', () => {

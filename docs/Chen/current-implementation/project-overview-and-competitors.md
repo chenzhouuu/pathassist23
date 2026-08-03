@@ -36,19 +36,21 @@ second-opinion-reviewer → referring-physician → patient) and dedicated porta
 
 ### 1.2 AI Suite (key differentiation)
 
-1. **AskPA** — a multimodal **AI pathology copilot chat panel**. Captures the live
-   OpenSeadragon viewport → JPEG → feeds it with zoom/ROI context to a vision LLM. Routes
-   across **Claude Sonnet/Opus 4.6** (Anthropic), **MedGemma 4B IT** (Google), and
-   **Gemma 4** (local Ollama on the DCPenn GPU — $0, no data egress). Does differential
-   diagnosis, staining interpretation, and one-click structured report drafting, with
-   per-message token-cost tracking.
+1. **Copilot** — a conversational agent over the shared tool library, running against the
+   `services/agent` gateway with per-slide threads persisted server-side. It grounds its
+   answers in tool output (nuclei counts, tissue maps, marker maps) rather than in a
+   screenshot, and every number it states is tool-derived.
+   *(A second chat panel, **AskPA**, ran browser-direct vision LLMs against a viewport
+   snapshot. It was removed on 2026-08-03 — see `docs/askpa-technical-report.md`. Claims
+   below about a local, $0-egress LLM option refer to that panel and no longer hold.)*
 2. **"Pragna"** — Ki67 IHC quantification + whole-slide tissue composition analysis
    (tumor%, stroma%, necrosis%, purity, heterogeneity index) via a grid of patches sent to
    Claude/Gemini vision, all browser-side.
 3. **Slide-level classifiers (MIL)** — the research group's models: BRCA IDC-vs-ILC
    (AUC 0.947), NSCLC subtyping (AUC 0.976), DLBCL (AUC 0.681), using **LCR-MIL**
    (student–teacher distillation reviewing ~6.5% of patches) and **HG-MIL**, on
-   UNI / H-optimus-0 foundation-model features. Deployed as FastAPI microservices AskPA can call.
+   UNI / H-optimus-0 foundation-model features. Deployed as FastAPI microservices on DCPenn.
+   **The BRCA classifier currently has no frontend entry point** — AskPA was its only caller.
 4. **Nuclei segmentation** — HoVer-Net (TIAToolbox) + Cellpose/CellViT via Slicer CLI Docker modules.
 
 ### 1.3 Context
@@ -64,7 +66,7 @@ for WSIs: when to think, where to look, and when to stop"*).
 
 The product spans **three layers**, each with distinct competitors:
 (A) image-management / viewer **platform**, (B) AI-diagnostic **application**, and
-(C) AI **copilot / agent**. The copilot layer (AskPA) is the most novel — and most contested.
+(C) AI **copilot / agent**. The copilot layer is the most novel — and most contested.
 
 ### 2.A Industry — Full-stack AI diagnostic & platform companies
 
@@ -80,15 +82,15 @@ The product spans **three layers**, each with distinct competitors:
 | **Lunit** | SCOPE IO / PD-L1 | Strong in IHC/biomarker AI |
 | **Others** | **Sectra**, **Philips IntelliSite** (first FDA-cleared WSI system), **Leica/Aperio**, **Roche (uPath/Ventana)**, **Aiforia**, **Visiopharm**, **Gestalt Diagnostics**, **Pramana**, **Tribun Health**, **Mindpeak**, **Deep Bio**, **Artera** (FDA-cleared breast risk stratification) | Scanner OEMs, IMS vendors, tissue-specific AI |
 
-### 2.B Industry — AI copilot (closest to AskPA)
+### 2.B Industry — AI copilot (closest to our Copilot panel)
 
 - **Modella AI — PathChat / PathChat 2 / PathChat+** — the single most direct competitor to
-  **AskPA**: conversational multimodal copilot for pathologists, published in *Nature* (2024),
+  our copilot: conversational multimodal copilot for pathologists, published in *Nature* (2024),
   **FDA Breakthrough Device Designation (Jan 2025)**, and **acquired by AstraZeneca (Jan 2026)**.
-  Same concept as AskPA but with a pathology-native trained model, regulatory traction, and
+  Same concept, but with a pathology-native trained model, regulatory traction, and
   Big Pharma backing. **Most strategically important competitor.**
-- **Google Health AI / Path Foundation + MedGemma** — both a *dependency* (AskPA uses MedGemma)
-  and a latent platform competitor.
+- **Google Health AI / Path Foundation + MedGemma** — a latent platform competitor. MedGemma was
+  also a runtime dependency until AskPA was removed; the Copilot path does not use it.
 
 ### 2.C Industry — Open-source / build-vs-buy alternatives
 
@@ -137,13 +139,14 @@ Where the group's agentic-pathology roadmap competes head-on (fast-moving 2025 f
 **Strengths / white space**
 - Lymphoma-first focus (commercially neglected)
 - Multi-tenant white-label model (one backend, many branded labs)
-- A genuinely integrated copilot (AskPA) with a **local/private, $0-egress LLM option** — a real
-  HIPAA-friendly selling point the large vendors lack
+- A genuinely integrated copilot, grounded in tool output rather than screenshots
+  *(the **local/private, $0-egress LLM option** was AskPA's local Gemma 4 route and went with it on
+  2026-08-03 — if the HIPAA-friendly angle is to be a selling point, it has to be rebuilt)*
 - Direct pipeline from cutting-edge MIL research into product
 
 **Biggest threats**
 1. **Modella AI / PathChat (now AstraZeneca)** owns the copilot narrative with regulatory +
-   pharma backing. AskPA needs a differentiated wedge (lymphoma specialization, privacy/local
+   pharma backing. Our copilot needs a differentiated wedge (lymphoma specialization, privacy/local
    inference, white-label) — it cannot out-model a pathology-native foundation model with
    off-the-shelf general LLMs.
 2. **PathAI / Proscia / Indica** have **FDA clearance and lab distribution**. PathAssist is

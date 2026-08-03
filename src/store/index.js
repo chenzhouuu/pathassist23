@@ -94,8 +94,6 @@ export const useStore = create((set, get) => ({
       visibleAnnotations: {},
       selectedAnnotation: null,
       drawingMode: null,
-      chatMessages: [],          // clear AskPA conversation when slide changes
-      chatPendingAttachment: null,
       copilotMessages: [], copilotConversationId: null, copilotStreaming: false, copilotError: null,
       copilotRoi: null, shownRoi: null, roiSelectResult: null, copilotNuclei: null, copilotPhenotypes: null, copilotRegions: [], tissueContours: {}, taskHeatmap: null,   // drop grounded/shown region + overlay from the old slide
       visibleArtifacts: {},      // the new slide's artifacts are its own; nothing carries over
@@ -401,22 +399,10 @@ export const useStore = create((set, get) => ({
     set({ aiResults: [] });
   },
 
-  // ── AskPA (PathChat) ──────────────────────────────────────────────────────────
-  // Multi-turn Claude vision chat — NOT persisted (base64 images too large for localStorage)
-  // Each message: { role: 'user'|'assistant', content: Array<{type,text}|{type,source}>, _usage?, _error? }
-  chatMessages: [],
-  chatLoading: false,
-  chatError: null,
-  chatModel: (() => { try { return localStorage.getItem('pathassist_chat_model') || 'claude-sonnet-4-6'; } catch { return 'claude-sonnet-4-6'; } })(),
-  chatPendingAttachment: null, // base64 JPEG (no data: prefix) waiting to attach to next message
-
-  addChatMessage:           (msg)   => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
-  setChatLoading:           (v)     => set({ chatLoading: v }),
-  setChatError:             (v)     => set({ chatError: v }),
-  setChatModel:             (model) => { try { localStorage.setItem('pathassist_chat_model', model); } catch { /* */ } set({ chatModel: model }); },
-  setChatPendingAttachment: (b64)   => set({ chatPendingAttachment: b64 }),
-  clearChatPendingAttachment: ()    => set({ chatPendingAttachment: null }),
-  clearChat:                ()      => set({ chatMessages: [], chatLoading: false, chatError: null, chatPendingAttachment: null }),
+  // AskPA's chat state — thread, model choice, pending viewport attachment — went with the tab on
+  // 2026-08-03. It was the last browser-direct model path in the app, and none of its four models
+  // was reachable from this box. What it was and why it went: docs/askpa-technical-report.md.
+  // (The old `pathassist_chat_model` key may still sit in a returning user's localStorage; inert.)
 
   // ── Copilot ──────────────────────────────────────────────────────────────────
   // Conversational thread with the greenfield services/agent gateway. Per-slide;
