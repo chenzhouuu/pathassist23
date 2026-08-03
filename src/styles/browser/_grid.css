@@ -80,6 +80,9 @@
   box-shadow: 0 0 0 1px var(--line), var(--elev-1);
   cursor: default;
   transition: box-shadow var(--motion-fast), transform var(--motion-fast);
+  /* The same entry the rows get, and the same reason it is not staggered — _table.css has the note.
+     Gated with everything else at the foot of this file. */
+  animation: browser-rowin 0.3s var(--ease);
 }
 .browser-card:hover {
   box-shadow: 0 0 0 1px var(--line-2), var(--elev-2);
@@ -198,4 +201,14 @@
   font-family: var(--font-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+/* The card's share of the page's one reduced-motion contract. The keyframes and the rest of the
+   query live in _table.css; this is the grid's element, so its gate is here. */
+@media (prefers-reduced-motion: reduce) {
+  .browser-card {
+    animation: none;
+    transition: none;
+  }
+  .browser-card:hover { transform: none; }
 }

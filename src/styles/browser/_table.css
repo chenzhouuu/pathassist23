@@ -347,17 +347,84 @@
   color: var(--ink-3);
 }
 
+/* ── Row entry ─────────────────────────────────────────────────────────────── */
+
+/* A fade and a short rise as a level lands, so a folder arriving reads as content appearing rather
+ * than as the page having been replaced.
+ *
+ * NOT STAGGERED BY INDEX. The 2026-08-02 prototype ramps the delay up to 260ms, which is fine for
+ * its ten-row fixture and wrong for the 500-row folders this instance actually has: the last row
+ * would land a quarter of a second after the first and the list would appear to wipe rather than
+ * appear. One duration for every row, and the whole thing is over in 0.3s. */
+@keyframes browser-rowin {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.browser-table-wrap tbody tr { animation: browser-rowin 0.3s var(--ease); }
+
+/* ── Skeleton ──────────────────────────────────────────────────────────────── */
+
+/* At the REAL row height. That is the whole point of it — see SkeletonRows.jsx. */
+.browser-skeleton { padding: 0; }
+.browser-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 56px;
+  padding: 0 var(--space-3);
+  box-shadow: inset 0 -1px var(--line);
+}
+.browser-skeleton-box {
+  height: 10px;
+  border-radius: var(--radius-1);
+  background: var(--sunken);
+  animation: browser-pulse 1.6s var(--ease) infinite;
+}
+.browser-skeleton-thumb {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+}
+.browser-skeleton-meta { flex-shrink: 0; width: 64px; margin-left: auto; }
+
+@keyframes browser-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* ── Motion, gated ─────────────────────────────────────────────────────────── */
+
+/* Carbon ships this gate on its skeleton; shadcn's does not, and Tailwind's `animate-pulse` is not
+ * gated either — `motion-safe:` is something you have to remember to write. One query for
+ * everything this page animates; _toolbar.css carries the batch bar's, which was written first. */
+@media (prefers-reduced-motion: reduce) {
+  .browser-table-wrap tbody tr,
+  .browser-skeleton-box {
+    animation: none;
+  }
+}
+
 /* ── Empty state ───────────────────────────────────────────────────────────── */
 
+/* A minimum height and an icon, so "this folder is empty" and "the request has not come back" stop
+ * being two arrangements of the same two lines of text in the middle of a blank frame. 35% is far
+ * enough back that the icon is a mood rather than a thing to read. */
 .browser-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
+  min-height: 260px;
   padding: var(--space-8) var(--space-4);
   color: var(--ink-2);
   font-size: 13px;
   text-align: center;
+}
+.browser-empty-icon {
+  margin-bottom: var(--space-1);
+  color: var(--ink-3);
+  opacity: 0.35;
 }
 .browser-empty-sub { font-size: 12.5px; color: var(--ink-3); max-width: 44ch; }
 

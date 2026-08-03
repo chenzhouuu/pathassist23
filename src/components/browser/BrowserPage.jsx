@@ -16,7 +16,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   flexRender, getCoreRowModel, getSortedRowModel, useReactTable,
 } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, FolderOpen, SearchX, X } from 'lucide-react';
 import { useStore } from '../../store/index.js';
 import { getCollections, getFolders, getItems, updateItemMetadata } from '../../api/index.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table.tsx';
@@ -29,6 +29,7 @@ import BrowserToolbar from './BrowserToolbar.jsx';
 import CollectionTree from './CollectionTree.jsx';
 import SlideGrid from './SlideGrid.jsx';
 import PreviewPane from './PreviewPane.jsx';
+import SkeletonRows from './SkeletonRows.jsx';
 import ImportModal from './ImportModal.jsx';
 import NewEntryDialog from './NewEntryDialog.jsx';
 import SharePatientModal from '../share/SharePatientModal.jsx';
@@ -370,8 +371,14 @@ export default function BrowserPage() {
               </Table>
             )}
 
+            {/* Two empty states, not one. "Nothing here" and "nothing here that matches what you
+                asked for" are different facts and only one of them has an action; collapsing them
+                would leave a user staring at an empty folder wondering which filter did it. */}
             {!error && !loading && visible.length === 0 && (
               <div className="browser-empty">
+                {rows.length
+                  ? <SearchX size={34} className="browser-empty-icon" aria-hidden="true" />
+                  : <FolderOpen size={34} className="browser-empty-icon" aria-hidden="true" />}
                 <p>{rows.length ? 'Nothing matches the current filters.' : 'This level is empty.'}</p>
                 {rows.length > 0 && (
                   <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setStatus('All'); }}>
@@ -380,7 +387,7 @@ export default function BrowserPage() {
                 )}
               </div>
             )}
-            {loading && <div className="browser-empty"><p>Loading…</p></div>}
+            {loading && <SkeletonRows />}
           </div>
         </div>
 

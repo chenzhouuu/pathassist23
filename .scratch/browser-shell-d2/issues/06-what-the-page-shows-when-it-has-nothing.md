@@ -6,7 +6,7 @@ Design: `docs/Chen/plans/2026-08-03-browser-shell-d2-design.md` §2.8, §5 gaps 
 
 **Blocked by:** 02 (`BrowserPage`), 05 (`_table.css`)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Files:** `src/styles/browser/_table.css`, `src/components/browser/BrowserPage.jsx`, plus a small
 new `SkeletonRows.jsx`.
@@ -44,3 +44,55 @@ new `SkeletonRows.jsx`.
       step between `#121213` and `#1b1b1e` is smaller than the light equivalent.
 
 `npm test` green, `npm run build` and `npm run typecheck` clean.
+
+## Comments
+
+**2026-08-03 — done.** `SkeletonRows.jsx` (new), `_table.css`, `_grid.css`, `BrowserPage.jsx`.
+
+### The skeleton, caught with the folder request held open at the network layer
+
+```
+{"n":9, "rowH":56, "widths":["85%","67.5%","80%","60%","75%"], "anim":"browser-pulse"}
+```
+
+Nine rows at the **real 56px row height**, so the table does not collapse to one line and then
+expand — which is what `<p>Loading…</p>` did on every folder you walked into. Primer's five-step
+width cycle, so the block is not stamped from one die. Under `prefers-reduced-motion: reduce` the
+same element reports `animation-name: none`.
+
+Catching it took three attempts and the first two failures are worth recording: blocking the URL
+makes the query **error** rather than load, so the page renders the error state; and patching
+`window.fetch` does nothing because the API layer is axios, which is XHR. `Fetch.requestPaused`,
+held and never continued, is what actually reproduces "still loading".
+
+### Both empty states
+
+| | icon | opacity | text | action |
+|---|---|---|---|---|
+| `Penn Pathology/PENN-2026-0001` — really empty | `FolderOpen` | 0.35 | This level is empty. | none |
+| search matching nothing | `SearchX` | 0.35 | Nothing matches the current filters. | Clear filters |
+
+`min-height: 260px` on both, so neither is two lines of text floating in a blank frame, and the two
+now differ by glyph as well as by sentence.
+
+### Row and card entry
+
+`browser-rowin 0.3s`, measured on a live row; `none` with reduced motion. **Not staggered by
+index.** The 2026-08-02 prototype ramps to 260ms, which is right for its ten-row fixture and wrong
+for the 500-row folders this instance has — the last row would land a quarter-second after the
+first and the list would appear to wipe rather than appear.
+
+### The gate
+
+One contract, three places, because each partial gates its own elements: `_table.css` holds the
+keyframes and the rows and skeleton, `_grid.css` the card, `_toolbar.css` the batch bar and the
+search field's widening (written first, in 04). Carbon ships this gate on its skeleton; **shadcn's
+does not**, and Tailwind's `animate-pulse` is not gated either — `motion-safe:` is something you
+have to remember to write.
+
+### Deliberately not mirroring the live column set
+
+The skeleton draws a thumbnail, a name and one number. A skeleton that tracked `columnVisibility`,
+the level rule and the responsive ladder would be a hand-maintained second implementation of three
+things that already compose in `BrowserPage`, in order to be accurate about content nobody can read
+yet. The frame is what has to be right.
