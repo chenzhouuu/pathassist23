@@ -36,7 +36,7 @@ import { buildColumns, HIDDEN_BY_DEFAULT } from './browserColumns.jsx';
 import { useBrowseNavigation } from './useBrowseNavigation.js';
 import { useSurfaceTheme } from './useSurfaceTheme.js';
 import {
-  toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirst, STATUSES,
+  toFolderRow, toSlideRow, filterRows, isSlideRow, foldersFirstIn, STATUSES,
 } from './browseUtils.js';
 
 export default function BrowserPage() {
@@ -144,13 +144,23 @@ export default function BrowserPage() {
 
   const columns = useMemo(() => buildColumns({ onOpen: open }), [open]);
 
-  // Status and Size describe a slide. On a level that holds only collections or folders they are
-  // two empty columns eating the width Name wants, so they are hidden until there is something to
-  // put in them. This is derived rather than pushed into `columnVisibility`, so a user's own
-  // choice in the Columns menu survives walking through a level that had no slides.
+  // Status, Scan and Size describe a slide. On a level that holds only collections or folders they
+  // are three empty columns eating the width Name wants, so they are hidden until there is
+  // something to put in them. This is derived rather than pushed into `columnVisibility`, so a
+  // user's own choice in the Columns menu survives walking through a level that had no slides.
   const effectiveVisibility = useMemo(() => (
-    visible.some(isSlideRow) ? columnVisibility : { ...columnVisibility, status: false, size: false }
+    visible.some(isSlideRow)
+      ? columnVisibility
+      : { ...columnVisibility, status: false, scan: false, size: false }
   ), [visible, columnVisibility]);
+
+  // The sort direction has to be closed over rather than read inside the comparator, because
+  // @tanstack's sortingFn signature does not carry it — and it matters here. table-core negates
+  // the whole comparator result for a descending column, kind grouping included, so the plain
+  // `foldersFirst` sends folders to the bottom the moment you sort Name descending. See
+  // `foldersFirstIn` for what it does about that.
+  const sortDesc = sorting[0]?.desc ?? false;
+  const sortingFns = useMemo(() => ({ foldersFirst: foldersFirstIn(sortDesc) }), [sortDesc]);
 
   const table = useReactTable({
     data: visible,
@@ -161,7 +171,7 @@ export default function BrowserPage() {
     onRowSelectionChange: setRowSelection,
     getRowId: (r) => r.id,
     enableRowSelection: (r) => isSlideRow(r.original),
-    sortingFns: { foldersFirst },
+    sortingFns,
     defaultColumn: { sortingFn: 'foldersFirst' },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),

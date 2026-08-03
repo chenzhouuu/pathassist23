@@ -109,6 +109,14 @@ export function filterRows(rows, { search = '', status = 'All' } = {}) {
   );
 }
 
+// The column comparison on its own, with no opinion about kind: numbers numerically, everything
+// else as a natural-order string so `Case 2` precedes `Case 10`.
+function compareColumn(rowA, rowB, columnId) {
+  const va = rowA.getValue(columnId), vb = rowB.getValue(columnId);
+  if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+  return String(va ?? '').localeCompare(String(vb ?? ''), undefined, { numeric: true });
+}
+
 // Folders before slides, whatever the active sort. A Girder folder can hold sub-folders and
 // items side by side, so sorting purely on the sort column interleaves them and a folder ends up
 // stranded between two slides — the one place in the list where clicking descends rather than
@@ -117,9 +125,31 @@ export function filterRows(rows, { search = '', status = 'All' } = {}) {
 export function foldersFirst(rowA, rowB, columnId) {
   const a = rowA.original, b = rowB.original;
   if (isSlideRow(a) !== isSlideRow(b)) return isSlideRow(a) ? 1 : -1;
-  const va = rowA.getValue(columnId), vb = rowB.getValue(columnId);
-  if (typeof va === 'number' && typeof vb === 'number') return va - vb;
-  return String(va ?? '').localeCompare(String(vb ?? ''), undefined, { numeric: true });
+  return compareColumn(rowA, rowB, columnId);
+}
+
+// The same rule, but one that survives a descending sort.
+//
+// `foldersFirst` above is correct as a comparator and wrong as a sortingFn, which is a genuinely
+// easy thing to miss: @tanstack/table-core's getSortedRowModel calls the sortingFn and then, for a
+// descending column, negates *the whole result* — `if (isDesc) sortInt *= -1`. The kind grouping
+// is part of that result, so descending sends folders to the bottom. Calling the comparator
+// directly, which is what a unit test naturally does, never exercises the negation, so this hides
+// from tests and shows up only in the browser.
+//
+// The fix is to hand table-core a value that its negation turns back into what we want. Within a
+// kind that is just the column comparison, since we DO want that to reverse. Across kinds we
+// pre-invert, so the negation restores folders-first. Hence a factory: the direction is not in the
+// sortingFn signature, so it has to be closed over at the point the table is configured.
+export function foldersFirstIn(desc = false) {
+  return function foldersFirstDirected(rowA, rowB, columnId) {
+    const a = rowA.original, b = rowB.original;
+    if (isSlideRow(a) !== isSlideRow(b)) {
+      const kind = isSlideRow(a) ? 1 : -1;
+      return desc ? -kind : kind;
+    }
+    return compareColumn(rowA, rowB, columnId);
+  };
 }
 
 // ── Formatting ─────────────────────────────────────────────────────────────────────────

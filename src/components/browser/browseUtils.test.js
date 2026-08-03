@@ -14,6 +14,7 @@ import {
   STATUSES,
   isSlideRow,
   foldersFirst,
+  foldersFirstIn,
 } from './browseUtils.js';
 
 const coll = (over = {}) => ({ _id: 'c1', name: 'BRCA-TEST', ...over });
@@ -248,5 +249,50 @@ describe('foldersFirst', () => {
 
   it('does not throw on a missing value', () => {
     expect(() => foldersFirst(s('a', { name: undefined }), s('b'), 'name')).not.toThrow();
+  });
+});
+
+describe('foldersFirstIn', () => {
+  const asRow = (original) => ({ original, getValue: (id) => original[id] });
+  const f = (name) => asRow(toFolderRow(folder({ _id: name, name })));
+  const s = (name, over = {}) => asRow(toSlideRow(slide({ _id: name, name, ...over })));
+
+  // The point of these cases is what table-core does AFTER the sortingFn returns, so they model
+  // it rather than calling the comparator bare. Testing the comparator on its own is exactly how
+  // the descending bug stayed invisible: the negation below is where it lived.
+  const sorted = (rows, columnId, desc) => {
+    const fn = foldersFirstIn(desc);
+    return [...rows]
+      .sort((a, b) => {
+        const n = fn(a, b, columnId);
+        return desc ? n * -1 : n;
+      })
+      .map((r) => r.original.name);
+  };
+
+  const MIXED = [s('b.svs'), f('case-2'), s('a.svs'), f('case-10')];
+
+  it('leads with folders ascending', () => {
+    expect(sorted(MIXED, 'name', false)).toEqual(['case-2', 'case-10', 'a.svs', 'b.svs']);
+  });
+
+  it('still leads with folders descending, which is the whole reason it exists', () => {
+    expect(sorted(MIXED, 'name', true)).toEqual(['case-10', 'case-2', 'b.svs', 'a.svs']);
+  });
+
+  it('reverses within each group descending, since that is what the user asked for', () => {
+    const slides = [s('a.svs'), s('c.svs'), s('b.svs')];
+    expect(sorted(slides, 'name', false)).toEqual(['a.svs', 'b.svs', 'c.svs']);
+    expect(sorted(slides, 'name', true)).toEqual(['c.svs', 'b.svs', 'a.svs']);
+  });
+
+  it('sorts a numeric column as numbers in both directions', () => {
+    const rows = [s('mid', { size: 1e9 }), s('big', { size: 2e9 }), s('small', { size: 9e8 })];
+    expect(sorted(rows, 'size', false)).toEqual(['small', 'mid', 'big']);
+    expect(sorted(rows, 'size', true)).toEqual(['big', 'mid', 'small']);
+  });
+
+  it('defaults to ascending, so it drops in where foldersFirst was', () => {
+    expect(foldersFirstIn()(f('zzz'), s('aaa'), 'name')).toBeLessThan(0);
   });
 });
