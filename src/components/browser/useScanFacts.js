@@ -17,6 +17,17 @@
 // `staleTime: Infinity` because a slide's objective power is a property of the scan and does not
 // change while the page is open. `retry: false` because `getTilesInfoSafe` swallows the error and
 // resolves null — a retry would only repeat a request that already told us what it could.
+//
+// WHY THE KEY IS NOT UNDER `['browser', …]`, which is where every other query on this page lives.
+// Creating a folder and finishing an import both invalidate the whole `['browser']` prefix, and
+// React Query refetches every *mounted* observer underneath it. There is no virtualisation here,
+// so a folder scrolled to the bottom has five hundred live scan observers, and a key under that
+// prefix would turn one click on "New folder" into five hundred simultaneous /tiles requests.
+// Narrowing those two call sites would work and would rot: the next person to invalidate the page
+// re-creates it. The keys say what the data *is* instead, which the rest of the app already does
+// (`['annotations', id]`, `['artifacts', id]`, `['item', id]`) — and a slide's scan parameters are
+// a property of the file that nothing the browser does can change, so nothing the browser
+// invalidates should reach them.
 import { useQuery } from '@tanstack/react-query';
 import { getTilesInfoSafe } from '../../api/index.js';
 import { scanCell, wantsTiles } from './scanFacts.js';
@@ -33,7 +44,7 @@ import { scanCell, wantsTiles } from './scanFacts.js';
  */
 export function useScanFacts(row, { enabled = true } = {}) {
   const { data: tiles } = useQuery({
-    queryKey: ['browser', 'tiles', row?.id],
+    queryKey: ['tiles', row?.id],
     queryFn: () => getTilesInfoSafe(row.id),
     enabled: enabled && !!row && wantsTiles(row),
     staleTime: Infinity,

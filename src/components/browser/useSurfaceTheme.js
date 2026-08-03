@@ -15,7 +15,7 @@
 // The attribute is deliberately not called `data-theme`. That name belonged to a bootstrap that
 // wrote an attribute nothing read; it was deleted, and reusing the name would resurrect the
 // ambiguity. The storage key avoids the dead bootstrap's `theme` key for the same reason.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 
 export const SURFACE_ATTR = 'data-surface';
 export const MODE_ATTR = 'data-mode';
@@ -52,15 +52,23 @@ function writeStoredMode(mode) {
 export function useSurfaceTheme(surface = 'browser') {
   const [mode, setModeState] = useState(readStoredMode);
 
-  useEffect(() => {
+  // Layout, not passive. A passive effect runs after the browser has painted, so the landing
+  // page's first frame would resolve `hsl(var(--background))` against the *unscoped* base — which
+  // is `0 0% 0%`, the reading room's black — and flash black-then-white on every entry. The
+  // cleanup has the same problem in reverse: a passive destroy lets the Viewer paint one frame
+  // still carrying `data-surface`, in Graphite white, which is precisely the repaint the cleanup
+  // exists to prevent. `useLayoutEffect` runs before paint in both directions, so neither frame
+  // exists.
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.setAttribute(SURFACE_ATTR, surface);
     return () => root.removeAttribute(SURFACE_ATTR);
   }, [surface]);
 
   // Written on its own effect, and never removed on unmount: the choice is the user's and has to
-  // survive walking into a slide and back out again, where the surface attribute must not.
-  useEffect(() => {
+  // survive walking into a slide and back out again, where the surface attribute must not. Also
+  // pre-paint, or the first frame of a reload would carry the surface without its mode.
+  useLayoutEffect(() => {
     document.documentElement.setAttribute(MODE_ATTR, mode);
   }, [mode]);
 

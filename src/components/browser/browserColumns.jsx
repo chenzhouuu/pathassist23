@@ -99,6 +99,13 @@ export function buildColumns({ onOpen }) {
       // a size: below 260px the name has less than ~180px of text after the thumbnail, which is
       // where a TCGA barcode stops distinguishing two slides, and the table is better off giving
       // up a column than showing eight rows of the same truncated prefix.
+      //
+      // And it cannot be switched off by hand either, which is the same invariant stated to the
+      // one control that could otherwise violate it. Under `table-layout: fixed` Name is the only
+      // column with no declared width, so it is what absorbs the remainder; hiding it would leave
+      // the table with nothing to give the leftover to, drop its 260px from the responsive
+      // ladder's arithmetic, and reduce every row to an anonymous checkbox and a status chip.
+      enableHiding: false,
       meta: { minWidth: 260 },
       cell: ({ row }) => {
         const r = row.original;
